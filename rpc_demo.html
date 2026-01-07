@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Kaspa RPC Demo</title>
+</head>
+<body>
+  <button id="connectBtn">Connect</button>
+  <p id="status">Not connected</p>
+
+  <h2>Run RPC Command</h2>
+  <input id="rpcCommand" type="text" size="50" value='{"method":"getInfo","params":{}}'>
+  <button id="runRpcBtn">Run</button>
+  <pre id="rpcResult"></pre>
+
+  <script type="module">
+    import { connect } from './kaspa_client.js';
+    import { runRpcCommand } from './rpc_runner.js';
+
+    let client = null;
+
+    const status = document.getElementById('status');
+    const connectBtn = document.getElementById('connectBtn');
+    const runBtn = document.getElementById('runRpcBtn');
+    const rpcInput = document.getElementById('rpcCommand');
+    const rpcResult = document.getElementById('rpcResult');
+
+    connectBtn.addEventListener('click', async () => {
+      status.textContent = "Connecting...";
+      try {
+        client = await connect(null, "mainnet", {
+          onDisconnect: () => {
+            status.textContent = "Disconnected";
+          }
+        });
+        status.textContent = "Connected";
+      } catch (err) {
+        status.textContent = "Connection failed: " + err.message;
+      }
+    });
+
+    runBtn.addEventListener('click', async () => {
+      const cmdText = rpcInput.value.trim();
+      const result = await runRpcCommand(client, cmdText);
+      rpcResult.textContent = result;
+    });
+  </script>
+</body>
+</html>
