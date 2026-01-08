@@ -1,5 +1,5 @@
 // kaspa_client.js
-import initKaspa, { RpcClient, Resolver } from './kas-wasm/kaspa.js'; 
+import initKaspa, { RpcClient, Resolver, ConnectStrategy } from './kas-wasm/kaspa.js'; 
 // Either 1. ensure you put the actual Kaspa WASM SDK in a folder named "kas-wasm" outside of the folder this file is in, or 2. point to where you have it 
 
 let client = null;
@@ -38,8 +38,20 @@ export async function connect(rpcUrl, networkId = "testnet-10", { onDisconnect }
 
   const newClient = new RpcClient(options);
 
+  const connectOptions = { 
+    blockAsyncConnect: true,
+    retryInterval: 2000, // retry every 2s if needed
+    strategy: ConnectStrategy.Persistent,
+    timeoutDuration: 10000 // fail after 10s
+  };
+  
   // 3. Connect
-  await newClient.connect();
+  try {
+    await newClient.connect(connectOptions);
+  } catch (err) {
+    console.error("Connect failed:", err);
+    throw err;
+  }
 
   // Assign to singleton AFTER successful connection
   client = newClient;
