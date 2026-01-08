@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Symmetric Encryption Demo</title>
+  <style>
+    body { font-family: sans-serif; margin: 2rem; }
+    label { display: block; margin-top: 1rem; }
+    textarea { width: 100%; height: 100px; }
+    input[type="text"] { width: 100%; }
+    button { margin-top: 1rem; }
+    .output { margin-top: 1rem; padding: 1rem; background: #f0f0f0; }
+  </style>
+</head>
+<body>
+  <h1>Symmetric Encryption Example</h1>
+
+  <label>Password:</label>
+  <input type="text" id="password" placeholder="Enter password">
+
+  <label>Text:</label>
+  <textarea id="plaintext" placeholder="Enter text to encrypt/decrypt"></textarea>
+
+  <button id="encryptBtn">Encrypt</button>
+  <button id="decryptBtn">Decrypt</button>
+
+  <div class="output">
+    <strong>Result:</strong>
+    <pre id="result"></pre>
+  </div>
+
+  <script type="module">
+    import initKaspa from "./kas-wasm/kaspa.js";
+    import { encryptMessage, decryptMessage } from "./encryption.js";
+
+    await initKaspa();
+
+    document.getElementById("encryptBtn").addEventListener("click", () => {
+      const password = document.getElementById("password").value;
+      const text = document.getElementById("plaintext").value;
+      try {
+        const encrypted = encryptMessage(text, password);
+        document.getElementById("result").textContent = JSON.stringify(encrypted, null, 2);
+      } catch (err) {
+        document.getElementById("result").textContent = "Encryption error: " + err.message;
+      }
+    });
+
+    document.getElementById("decryptBtn").addEventListener("click", () => {
+      const password = document.getElementById("password").value;
+      const text = document.getElementById("plaintext").value;
+      try {
+        let payload;
+        try {
+          payload = JSON.parse(text);
+        } catch {
+          payload = text;
+        }
+        const decrypted = decryptMessage(payload, password);
+        document.getElementById("result").textContent = decrypted;
+      } catch (err) {
+        document.getElementById("result").textContent = "Decryption error: " + err.message;
+      }
+    });
+  </script>
+</body>
+</html>
