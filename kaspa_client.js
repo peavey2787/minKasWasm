@@ -1,5 +1,5 @@
 // kaspa_client.js
-import initKaspa, { RpcClient, Resolver } from '../kas-wasm/kaspa.js'; 
+import initKaspa, { RpcClient, Resolver } from './kas-wasm/kaspa.js'; 
 // Either 1. ensure you put the actual Kaspa WASM SDK in a folder named "kas-wasm" outside of the folder this file is in, or 2. point to where you have it 
 
 let client = null;

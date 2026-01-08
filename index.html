@@ -56,11 +56,11 @@
       walletResult.textContent = "Creating wallet...";
       try {
         init(client, "mainnet");
-        const mnemonic = await createWallet({
+        const result = await createWallet({
           password: "password",
           filename: "demo_wallet"
         });
-        walletResult.textContent = "Wallet created!\nMnemonic:\n" + mnemonic;
+        walletResult.textContent = "Wallet created!\nMnemonic:\n" + result.mnemonic + "\n\nAddress:\n" + result.address;
       } catch (err) {
         walletResult.textContent = "Wallet creation failed: " + (err.message || err);
       }
