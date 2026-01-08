@@ -5,6 +5,14 @@
   <title>Kaspa Demo</title>
 </head>
 <body>
+  <label for="networkId">Network:</label>
+  <select id="networkId">
+    <option value="mainnet">Mainnet</option>
+    <option value="testnet-12">testnet-12</option>
+    <option value="testnet-11">testnet-11</option>
+    <option value="testnet-10" selected>testnet-10</option>
+  </select>
+  </br>
   <button id="connectBtn">Connect</button>
   <p id="status">Not connected</p>
 
@@ -17,13 +25,25 @@
   <button id="createWalletBtn">Create Wallet</button>
   <pre id="walletResult"></pre>
 
+  <h2>Get Balance</h2>
+  <button id="getBalanceBtn">Get Balance</button>
+  <pre id="balanceResult"></pre>
+
+  <h2>Send Transaction</h2>
+  <button id="sendBtn">Send 1 KAS to address</button>
+  <input id="sendAddress" type="text" size="50" value="">
+  <input id="payloadInput" type="text" size="50" placeholder="Optional payload">
+  <pre id="sendResult"></pre>
+
   <script type="module">
+    import { sompiToKaspaString, } from './kas-wasm/kaspa.js';
     import { connect } from './kaspa_client.js';
     import { runRpcCommand } from './rpc_runner.js';
-    import { init, createWallet } from './wallet_service.js';
+    import { init, createWallet, getSpendableBalance, send } from './wallet_service.js';
 
     let client = null;
 
+    const networkId = document.getElementById('networkId');
     const status = document.getElementById('status');
     const connectBtn = document.getElementById('connectBtn');
     const runBtn = document.getElementById('runRpcBtn');
@@ -31,11 +51,17 @@
     const rpcResult = document.getElementById('rpcResult');
     const createWalletBtn = document.getElementById('createWalletBtn');
     const walletResult = document.getElementById('walletResult');
+    const getBalanceBtn = document.getElementById('getBalanceBtn');
+    const balanceResult = document.getElementById('balanceResult');
+    const sendBtn = document.getElementById('sendBtn');
+    const sendAddressInput = document.getElementById('sendAddress');
+    const payloadInput = document.getElementById('payloadInput');
+    const sendResult = document.getElementById('sendResult');
 
     connectBtn.addEventListener('click', async () => {
       status.textContent = "Connecting...";
       try {
-        client = await connect(null, "mainnet", {
+        client = await connect(null, networkId.value, {
           onDisconnect: () => {
             status.textContent = "Disconnected";
           }
@@ -54,15 +80,44 @@
 
     createWalletBtn.addEventListener('click', async () => {
       walletResult.textContent = "Creating wallet...";
-      try {
-        init(client, "mainnet");
+      try {        
+        init(client, networkId.value);
         const result = await createWallet({
           password: "password",
           filename: "demo_wallet"
         });
         walletResult.textContent = "Wallet created!\nMnemonic:\n" + result.mnemonic + "\n\nAddress:\n" + result.address;
+        sendAddressInput.value = result.address;
       } catch (err) {
         walletResult.textContent = "Wallet creation failed: " + (err.message || err);
+      }
+    });
+
+    getBalanceBtn.addEventListener('click', async () => {
+      balanceResult.textContent = "Fetching balance...";
+      try {
+        const result = await getSpendableBalance();
+        balanceResult.textContent = "Balance:\n" + sompiToKaspaString(result) + " KAS";
+      } catch (err) {
+        balanceResult.textContent = "Failed to get balance: " + (err.message || err);
+      }
+    });
+
+    sendBtn.addEventListener('click', async () => {
+      const address = sendAddressInput.value.trim();
+      sendResult.textContent = "Sending transaction...";
+      const payload = payloadInput.value.trim();
+      try {
+        const sendResultData = await send({
+          password: "password",
+          amount: 1,
+          toAddress: address,
+          priorityFeeKas: 0.0,
+          payload: ""
+        });
+        sendResult.textContent = "Transaction sent! TxID: " + sendResultData.transactionIds[0];
+      } catch (err) {
+        sendResult.textContent = "Transaction failed: " + (err.message || err);
       }
     });
   </script>

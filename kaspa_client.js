@@ -8,7 +8,7 @@ let currentRpcUrl = null;
 let currentNetworkId = null;
 let reconnecting = false;
 
-export async function connect(rpcUrl, networkId = "mainnet", { onDisconnect } = {}) {
+export async function connect(rpcUrl, networkId = "testnet-10", { onDisconnect } = {}) {
   // Initialize Kaspa wasm sdk once
   if (!wasmInitialized) {
     await initKaspa();
