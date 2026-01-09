@@ -1,13 +1,14 @@
 // wallet_service.js
 import { 
-  Wallet, 
-  Mnemonic,
+  Wallet,  
   kaspaToSompi,
   sompiToKaspaString,
   AccountKind,
   AccountsDiscoveryKind,
-  Address 
+  Address
 } from './kas-wasm/kaspa.js';
+import { storeWalletData } from './storage.js';
+import * as utilities from './utilities.js';
 
 let wallet = null;
 let walletInitialized = false;
@@ -49,7 +50,7 @@ export function init(rpcClient, networkId) {
   walletInitialized = true;
 }
 
-export async function createWallet({ password, filename = "default_wallet", userHint = "", mnemonic = null }) {
+export async function createWallet({ password, filename = "default_wallet", userHint = "", mnemonic = null, storeMnemonic = false }) {
 
   if (!walletInitialized) {
     throw new Error("Wallet not initialized. Call init() first.");
@@ -58,7 +59,7 @@ export async function createWallet({ password, filename = "default_wallet", user
   walletSecret = password;
 
   // 2. Create or import mnemonic
-  const mnemonicPhrase = mnemonic || Mnemonic.random().phrase;
+  const mnemonicPhrase = mnemonic || utilities.generateMnemonic(24);
 
   // 3. Create wallet file
   const descriptor = await wallet.walletCreate({
@@ -108,29 +109,22 @@ export async function createWallet({ password, filename = "default_wallet", user
   // Activate account to enable balance tracking
   await wallet.accountsActivate({ accountId });
 
+  // Get private key for address derivation and diffie-hellman encryption
+  const XPrv = utilities.getXPrv(mnemonicPhrase);
+  const xPrvString = XPrv.toString();
+
+  // Store XPrv and optionally mnemonic securely in IndexedDB
+  if (storeMnemonic) {
+    storeWalletData({ filename, mnemonic: mnemonicPhrase, xprv: xPrvString }, password);
+  } else {
+    storeWalletData({ filename, xprv: xPrvString }, password);
+  }
+
   // Return mnemonic for backup
-  return {mnemonic:mnemonicPhrase, address: account.accountDescriptor.receiveAddress};
-}
-
-export async function getSpendableBalance() {
-
-  const res = await wallet.accountsGet({ accountId });
-
-  let bal = null;
-
-  if (res.account?.balance) {
-    bal = res.account.balance;
-  } else if (res.accounts?.[0]?.balance) {
-    bal = res.accounts[0].balance;
-  } else if (res.accountDescriptor?.balance) {
-    bal = res.accountDescriptor.balance;
-  }
-
-  if (!bal || !bal.mature) {
-    return 0n;
-  }
-
-  return BigInt(bal.mature);
+  return { 
+    mnemonic: mnemonicPhrase,
+    address: account.accountDescriptor.receiveAddress
+  };
 }
 
 export async function send({ amount, toAddress, payload, priorityFeeKas }) {
@@ -213,31 +207,23 @@ export async function send({ amount, toAddress, payload, priorityFeeKas }) {
   }
 }
 
+export async function getSpendableBalance() {
 
-// Helpers
-const MAX_PAYLOAD_BYTES = 32 * 1024; // 32KB
+  const res = await wallet.accountsGet({ accountId });
 
-export function stringToHex(str) {
-  // Convert a JS string to a hex-encoded byte string (UTF-8)
-  return Array.from(new TextEncoder().encode(str))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-}
+  let bal = null;
 
-export function hexToString(hex) {
-  // Remove optional "0x" prefix
-  if (hex.startsWith("0x")) hex = hex.slice(2);
+  if (res.account?.balance) {
+    bal = res.account.balance;
+  } else if (res.accounts?.[0]?.balance) {
+    bal = res.accounts[0].balance;
+  } else if (res.accountDescriptor?.balance) {
+    bal = res.accountDescriptor.balance;
+  }
 
-  // Convert hex → bytes → UTF‑8 string
-  const bytes = new Uint8Array(
-    hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
-  );
+  if (!bal || !bal.mature) {
+    return 0n;
+  }
 
-  return new TextDecoder().decode(bytes);
-}
-
-export function validatePayload(payload) {
-  if (typeof payload !== 'string') return false;
-  if (payload.length > MAX_PAYLOAD_BYTES * 2) return false;
-  return true;
+  return BigInt(bal.mature);
 }

@@ -1,33 +1,50 @@
 // DHSessions.js
-import sodium from "libsodium-wrappers";
 import {
   encryptXChaCha20Poly1305,
   decryptXChaCha20Poly1305
-} from "../kas-wasm/kaspa.js";
+} from "./kas-wasm/kaspa.js";
+import * as utilities from "./utilities.js";
+import * as secp from "https://esm.sh/@noble/secp256k1";
 
 /**
  * Diffie–Hellman Session Manager
  * Handles handshake, shared secret derivation, and message encryption/decryption.
  */
 export class DHSession {
-  constructor(myPrivateKey, myPublicKey) {
-    if (!myPrivateKey || !myPublicKey) {
-      throw new Error("DHSession requires both private and public keys");
-    }
-    this.myPrivateKey = myPrivateKey;
-    this.myPublicKey = myPublicKey;
-    this.sharedSecret = null;
+  constructor() {
+    this.myPrivateKeyHex = null;
+    this.myPublicKeyHex = null;
+    this.myPrivateKeyBytes = null;
+    this.myPublicKeyBytes = null;
+    this.sharedSecretBytes = null;
     this.sessionKey = null;
-    this.peerPublicKey = null;
+    this.peerPublicKeyHex = null;
+    this.peerPublicKeyBytes = null;
+  }
+
+  async init() {
+    // No-op for noble
   }
 
   /**
-   * Initiate handshake: send your public key bytes
+   * Initiate handshake: send your public key to peer
    */
-  initiateHandshake() {
+  initiateHandshake(privateKeyHex, publicKeyHex) {
+    if (!privateKeyHex || !publicKeyHex) {
+      throw new Error("init() requires both private and public key bytes");
+    }
+    this.myPrivateKeyHex = privateKeyHex;
+    this.myPublicKeyHex = publicKeyHex;
+    console.log("DHSession: Initiating handshake with public key hex:", this.myPublicKeyHex);
+    console.log("DHSession: Initiating handshake with private key hex:", this.myPrivateKeyHex);
+    this.myPrivateKeyBytes = utilities.hexToBytes(privateKeyHex);
+    this.myPublicKeyBytes = utilities.hexToBytes(publicKeyHex);
+    
+    console.log("DHSession: Initiating handshake with public key bytes:", this.myPublicKeyBytes);
+    console.log("DHSession: Initiating handshake with private key bytes:", this.myPrivateKeyBytes);
     return {
       type: "DH_INIT",
-      publicKey: Buffer.from(this.myPublicKey).toString("hex"),
+      publicKey: publicKeyHex,
       timestamp: Date.now()
     };
   }
@@ -36,36 +53,22 @@ export class DHSession {
    * Respond to handshake: accept peer public key and derive shared secret
    */
   async respondToHandshake(peerPublicKeyHex) {
-    await sodium.ready;
-    this.peerPublicKey = Buffer.from(peerPublicKeyHex, "hex");
-
-    // Derive shared secret using scalar multiplication
-    this.sharedSecret = sodium.crypto_scalarmult(
-      this.myPrivateKey,
-      this.peerPublicKey
-    );
-
+    this.peerPublicKeyHex = peerPublicKeyHex;      
+    this.peerPublicKeyBytes = utilities.hexToBytes(peerPublicKeyHex);
+    
+    // Derive shared secret using noble
+    this.sharedSecretBytes = secp.getSharedSecret(this.myPrivateKeyBytes, this.peerPublicKeyBytes, true);
+    
     // Derive session key (hash the shared secret)
-    this.sessionKey = sodium.crypto_generichash(32, this.sharedSecret);
+    const digest = await window.crypto.subtle.digest("SHA-256", this.sharedSecretBytes);
+    const sessionKey = new Uint8Array(digest);
+    this.sessionKey = sessionKey;
+
     return {
       type: "DH_ACK",
-      publicKey: Buffer.from(this.myPublicKey).toString("hex"),
+      publicKey: this.myPublicKeyHex,
       timestamp: Date.now()
     };
-  }
-
-  /**
-   * Finalize handshake: compute shared secret after receiving peer ACK
-   */
-  async finalizeHandshake(peerPublicKeyHex) {
-    await sodium.ready;
-    this.peerPublicKey = Buffer.from(peerPublicKeyHex, "hex");
-
-    this.sharedSecret = sodium.crypto_scalarmult(
-      this.myPrivateKey,
-      this.peerPublicKey
-    );
-    this.sessionKey = sodium.crypto_generichash(32, this.sharedSecret);
   }
 
   /**
@@ -73,7 +76,8 @@ export class DHSession {
    */
   encryptMessage(plaintext) {
     if (!this.sessionKey) throw new Error("Session not established");
-    return encryptXChaCha20Poly1305(plaintext, Buffer.from(this.sessionKey).toString("hex"));
+    const sessionKeyHex = utilities.bytesToHex(this.sessionKey);
+    return encryptXChaCha20Poly1305(plaintext, sessionKeyHex);
   }
 
   /**
@@ -81,6 +85,7 @@ export class DHSession {
    */
   decryptMessage(cipherText) {
     if (!this.sessionKey) throw new Error("Session not established");
-    return decryptXChaCha20Poly1305(cipherText, Buffer.from(this.sessionKey).toString("hex"));
+    const sessionKeyHex = utilities.bytesToHex(this.sessionKey);
+    return decryptXChaCha20Poly1305(cipherText, sessionKeyHex);
   }
 }

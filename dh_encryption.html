@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Kaspa DH Encryption Demo</title>
+  <style>
+    body { font-family: sans-serif; margin: 2rem; }
+    label { display: block; margin-top: 1rem; }
+    input, textarea { width: 100%; }
+    button { margin-top: 0.5rem; }
+    .output { margin-top: 1rem; padding: 1rem; background: #f0f0f0; }
+  </style>
+</head>
+<body>
+  <h1>Kaspa Wallet + Diffie–Hellman Demo</h1>
+
+  <label>Password:</label>
+  <input type="text" id="walletPassword" placeholder="Enter wallet password" value="1234">
+  <button id="createWalletBtn">Create Wallet</button>
+
+  <div class="output">
+    <strong>Wallet Info:</strong>
+    <pre id="walletInfo"></pre>
+  </div>
+
+  <button id="showPubKeyBtn">Show My Public Key Bytes</button>
+  <div class="output">
+    <strong>My Public Key:</strong>
+    <pre id="pubKeyResult"></pre>
+  </div>
+
+  <label>Peer Public Key (hex):</label>
+  <input type="text" id="peerPubKey" placeholder="Paste peer public key hex">
+
+  <button id="initHandshakeBtn">Initiate Handshake</button>
+  <button id="respondHandshakeBtn">Respond to Handshake</button>
+
+  <div class="output">
+    <strong>Handshake Result:</strong>
+    <pre id="handshakeResult"></pre>
+  </div>
+
+  <label>Message:</label>
+  <textarea id="messageBox" placeholder="Enter message"></textarea>
+  <button id="encryptBtn">Encrypt</button>
+  <button id="decryptBtn">Decrypt</button>
+
+  <div class="output">
+    <strong>Message Result:</strong>
+    <pre id="messageResult"></pre>
+  </div>
+
+  <script type="module">
+    import * as secp from "https://esm.sh/@noble/secp256k1";
+    import { connect } from "./kaspa_client.js";  
+    import { init, createWallet } from "./wallet_service.js";
+    import { DHSession } from "./dh_encryption.js";
+    import * as utilies from "./utilities.js";
+
+    let dhSession = new DHSession();
+    await dhSession.init();
+    
+    let myKeys = { privateKey: null, publicKey: null };  
+    
+    const networkId = "testnet-10";
+    let rpcClient = await connect(null, networkId);
+
+    document.getElementById("createWalletBtn").onclick = async () => {
+      const password = document.getElementById("walletPassword").value;
+      try {
+        console.log("Creating wallet with password:", password);
+        await init(rpcClient, networkId);
+        const { mnemonic, address } = await createWallet({ password });
+        document.getElementById("walletInfo").textContent =
+          `Mnemonic: ${mnemonic}\nAddress: ${address}`;
+
+      } catch (err) {
+        console.error("Wallet creation error:", err);
+        document.getElementById("walletInfo").textContent = "Error: " + err.message;
+      }
+    };
+
+    document.getElementById("showPubKeyBtn").onclick = async () => {
+      // Export Kaspa keys
+      const prvKey = await utilies.getXPrvFromStorage("default_wallet", document.getElementById("walletPassword").value);
+      const prvKeyHex = utilies.getPrivateKeyHex(prvKey);
+      myKeys.privateKey = prvKeyHex;
+
+      // Get compressed secp256k1 public key (33 bytes)
+      const pubKeyHex = utilies.getPublicKeyHex(prvKeyHex);
+      myKeys.publicKey = pubKeyHex;
+      document.getElementById("pubKeyResult").textContent = pubKeyHex;    
+    };
+
+    document.getElementById("initHandshakeBtn").onclick = () => {
+      const msg = dhSession.initiateHandshake(myKeys.privateKey, myKeys.publicKey);
+      document.getElementById("handshakeResult").textContent = JSON.stringify({
+        ...msg,
+        publicKey: myKeys.publicKey
+      }, null, 2);
+    };
+
+    document.getElementById("respondHandshakeBtn").onclick = async () => {
+      const peerPubKeyHex = document.getElementById("peerPubKey").value.trim();
+      const msg = await dhSession.respondToHandshake(peerPubKeyHex);
+      document.getElementById("handshakeResult").textContent = JSON.stringify(msg, null, 2);
+    };
+
+    document.getElementById("encryptBtn").onclick = () => {
+      const plaintext = document.getElementById("messageBox").value;
+      try {
+        const cipher = dhSession.encryptMessage(plaintext);
+        document.getElementById("messageResult").textContent = cipher;
+      } catch (err) {
+        document.getElementById("messageResult").textContent = "Error: " + err.message;
+      }
+    };
+
+    document.getElementById("decryptBtn").onclick = () => {
+      const cipher = document.getElementById("messageBox").value;
+      try {
+        const plain = dhSession.decryptMessage(cipher);
+        document.getElementById("messageResult").textContent = plain;
+      } catch (err) {
+        document.getElementById("messageResult").textContent = "Error: " + err.message;
+      }
+    };
+  </script>
+</body>
+</html>
