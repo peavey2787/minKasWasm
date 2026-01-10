@@ -1,1 +1,7 @@
-Full tutorial can be found at: https://kodinglsfun.substack.com/p/kaspa-made-simple-a-beginners-guide
+Full tutorial can be found at: 
+
+Beginners:
+https://kodinglsfun.substack.com/p/kaspa-made-simple-a-beginners-guide
+
+Encryption:
+https://kodinglsfun.substack.com/p/unlocking-secure-communication-and
