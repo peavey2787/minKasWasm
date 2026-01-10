@@ -52,16 +52,21 @@ export async function connect(rpcUrl, networkId = "testnet-10", { onDisconnect }
     throw err;
   }
 
-  // Assign to singleton AFTER successful connection
+  // Assign to singleton after successful connection
   client = newClient;
 
-  // Subscribe to disconnect event for auto-reconnect
+  // Subscribe to disconnect event
   if (client && typeof client.on === 'function') {
     client.on('disconnect', async () => {
       console.warn("Disconnected from Kaspa node");
     });
   }
 
-  console.log(`Connected to Kaspa node at ${rpcUrl} on network ${networkId}`);
+  if(rpcUrl) {
+    console.log(`Connected to Kaspa node at ${rpcUrl} on network ${currentNetworkId}`);
+  } else {
+    console.log(`Connected to public Kaspa node via resolver on network ${currentNetworkId}`);
+  }
+
   return client;
 }
