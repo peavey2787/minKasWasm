@@ -1,4 +1,4 @@
-// DHSessions.js
+// dh_encryption.js
 import {
   encryptXChaCha20Poly1305,
   decryptXChaCha20Poly1305
