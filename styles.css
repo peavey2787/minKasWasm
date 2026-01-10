@@ -53,6 +53,11 @@ button:hover, button:focus {
   word-break: break-all;
   white-space: pre-line;
 }
+.output pre,
+#result {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
 .wrap-output {
   word-break: break-all;
   white-space: pre-line;
