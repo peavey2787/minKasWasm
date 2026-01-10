@@ -22,10 +22,6 @@ export class DHSession {
     this.peerPublicKeyBytes = null;
   }
 
-  async init() {
-    // No-op for noble
-  }
-
   /**
    * Initiate handshake: send your public key to peer
    */
@@ -35,13 +31,8 @@ export class DHSession {
     }
     this.myPrivateKeyHex = privateKeyHex;
     this.myPublicKeyHex = publicKeyHex;
-    console.log("DHSession: Initiating handshake with public key hex:", this.myPublicKeyHex);
-    console.log("DHSession: Initiating handshake with private key hex:", this.myPrivateKeyHex);
     this.myPrivateKeyBytes = utilities.hexToBytes(privateKeyHex);
     this.myPublicKeyBytes = utilities.hexToBytes(publicKeyHex);
-    
-    console.log("DHSession: Initiating handshake with public key bytes:", this.myPublicKeyBytes);
-    console.log("DHSession: Initiating handshake with private key bytes:", this.myPrivateKeyBytes);
     return {
       type: "DH_INIT",
       publicKey: publicKeyHex,

@@ -1,14 +1,19 @@
-import { bech32 } from "https://cdn.jsdelivr.net/npm/bech32@2.0.0/+esm";
 import * as secp from "https://esm.sh/@noble/secp256k1";
-import {  XPrv, Mnemonic } from './kas-wasm/kaspa.js';
+import {  signMessage, verifyMessage, XPrv, Mnemonic, PrivateKeyGenerator, PublicKeyGenerator } from './kas-wasm/kaspa.js';
 import { loadWalletData } from './storage.js';
 
 const MAX_PAYLOAD_BYTES = 32 * 1024; // 32KB
-const KASPA_DERIVATION_PATH = "m/44'/111111'/0'/0/0";
+const NETWORK = "testnet";
 
 export function generateMnemonic(wordCount = 24) {
   const mnemonic = Mnemonic.random(wordCount);
   return mnemonic.phrase;
+}
+
+export function validatePayload(payload) {
+  if (typeof payload !== 'string') return false;
+  if (payload.length > MAX_PAYLOAD_BYTES * 2) return false;
+  return true;
 }
 
 export function stringToHex(str) {
@@ -30,12 +35,6 @@ export function hexToString(hex) {
   return new TextDecoder().decode(bytes);
 }
 
-export function validatePayload(payload) {
-  if (typeof payload !== 'string') return false;
-  if (payload.length > MAX_PAYLOAD_BYTES * 2) return false;
-  return true;
-}
-
 export function bytesToHex(bytes) {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
@@ -52,17 +51,20 @@ export function hexToBytes(hex) {
   return arr;
 }
 
+export function getPublicKeyBytes(prvKeyHex) {
+  const prvKeyBytes = hexToBytes(prvKeyHex);
+  const pubKeyBytes = secp.getPublicKey(prvKeyBytes, true); // compressed
+  return pubKeyBytes;
+}
+
+export function getPublicKeyHex(prvKeyHex) {
+  const pubKeyBytes = getPublicKeyBytes(prvKeyHex);
+  return bytesToHex(pubKeyBytes);
+}
+
 export async function getXPrvFromStorage(filename, masterPassword) {
   const walletData = await loadWalletData(filename, masterPassword);
   const xPrv = XPrv.fromXPrv(walletData.xprv);
-  return xPrv;
-}
-
-export function getXPrv(mnemonicPhrase, passphrase = null) {
-  const seed = passphrase
-    ? new Mnemonic(mnemonicPhrase).toSeed(passphrase)
-    : new Mnemonic(mnemonicPhrase).toSeed();
-  const xPrv = new XPrv(seed);
   return xPrv;
 }
 
@@ -90,32 +92,41 @@ export function getPrivateKeyHex(xPrv) {
   throw new TypeError("getPrivateKeyHex requires an XPrv instance, hex string, or Uint8Array");
 }
 
-export function deriveChildPrivateKey(xprv, index) {
+export function getXPrv(mnemonicPhrase, passphrase = null) {
+  const seed = passphrase
+    ? new Mnemonic(mnemonicPhrase).toSeed(passphrase)
+    : new Mnemonic(mnemonicPhrase).toSeed();
+  const xPrv = new XPrv(seed);
+  return xPrv;
+}
+
+// This network parameter can be "mainnet"/"testnet"
+// or a NetworkType.MAINNET (1 = mainnet, 2 = testnet)
+export async function deriveReceivingChildKeyPair({xprvHex, network = NETWORK, accountIndex = 0n, index = 0}) {
   if (typeof index !== "number" || index < 0) {
     throw new Error("Index must be a non-negative integer");
   }
-  const childXPrv = xprv.deriveChild(index);
-  return childXPrv.toPrivateKey();
+
+  // Generate private key
+  const gen = new PrivateKeyGenerator(xprvHex, false, accountIndex);
+  const privKey = gen.receiveKey(index);
+
+  // Generate public key
+  const pubKey = privKey.toPublicKey();
+
+  // Generate address
+  const pubGen = PublicKeyGenerator.fromMasterXPrv(xprvHex, false, accountIndex);
+  const addr = pubGen.receiveAddressAsString(network, index);
+
+  return {  privateKey: privKey.toString(), publicKey: pubKey.toString(), address: addr  };
 }
 
-export function getPublicKeyBytes(prvKeyHex) {
-  const prvKeyBytes = hexToBytes(prvKeyHex);
-  const pubKeyBytes = secp.getPublicKey(prvKeyBytes, true); // compressed
-  return pubKeyBytes;
+export async function signMessageWithPrivateKeyHex(privateKeyHex, message) {
+  const signature = await signMessage({privateKey: privateKeyHex, message});
+  return signature; 
 }
 
-export function getPublicKeyHex(prvKeyBytes) {
-  const pubKeyBytes = getPublicKeyBytes(prvKeyBytes);
-  return bytesToHex(pubKeyBytes);
+export async function verifyMessageWithPublicKeyHex(publicKeyHex, message, signatureHex) {    
+  const isValid = await verifyMessage({publicKey: publicKeyHex, message, signature: signatureHex});
+  return isValid;
 }
-
-/*export function getPublicKeyBytes(privateKey) {
-  const publicKey = privateKey.toXPub();
-  return decodeKaspaBech32PubKey(publicKey.xpub);
-}
-
-export function decodeKaspaBech32PubKey(kpub) {
-  const { words } = bech32.decode(kpub);
-  // Kaspa uses 5-bit words, convert to 8-bit bytes
-  return Uint8Array.from(bech32.fromWords(words));
-}*/

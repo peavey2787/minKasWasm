@@ -8,7 +8,12 @@
     label { display: block; margin-top: 1rem; }
     input, textarea { width: 100%; }
     button { margin-top: 0.5rem; }
-    .output { margin-top: 1rem; padding: 1rem; background: #f0f0f0; }
+    .output { 
+      margin-top: 1rem;
+      padding: 1rem; background: #f0f0f0;
+      word-break: break-all;
+      white-space: pre-line;
+    }    
   </style>
 </head>
 <body>
@@ -16,28 +21,41 @@
 
   <label>Password:</label>
   <input type="text" id="walletPassword" placeholder="Enter wallet password" value="1234">
+  
   <button id="createWalletBtn">Create Wallet</button>
-
   <div class="output">
     <strong>Wallet Info:</strong>
-    <pre id="walletInfo"></pre>
+    <div id="mnemonic"></div>
+    <button class="copyBtn">Copy</button>
   </div>
-
-  <button id="showPubKeyBtn">Show My Public Key Bytes</button>
   <div class="output">
-    <strong>My Public Key:</strong>
-    <pre id="pubKeyResult"></pre>
+    <strong>First Address:</strong>
+    <div id="firstAddress"></div>
+    <button class="copyBtn">Copy</button>
+  </div>
+  
+  <button id="createNewAddressBtn">Generate New Address</button>
+  <div class="output">
+    <strong>New Address:</strong>
+    <div id="newAddressInfo"></div>
+    <button class="copyBtn">Copy</button>
   </div>
 
-  <label>Peer Public Key (hex):</label>
+  <label>Public Key:</label>
+  <div class="output">
+    <div id="pubKeyResult"></div>
+    <button class="copyBtn">Copy</button>
+  </div>
+
+  <label>Peer Public Key:</label>
   <input type="text" id="peerPubKey" placeholder="Paste peer public key hex">
 
-  <button id="initHandshakeBtn">Initiate Handshake</button>
-  <button id="respondHandshakeBtn">Respond to Handshake</button>
+  1.<button id="initHandshakeBtn">Initiate Handshake</button>
+  2.<button id="respondHandshakeBtn">Respond to Handshake</button>
 
   <div class="output">
     <strong>Handshake Result:</strong>
-    <pre id="handshakeResult"></pre>
+    <div id="handshakeResult"></div>
   </div>
 
   <label>Message:</label>
@@ -47,18 +65,29 @@
 
   <div class="output">
     <strong>Message Result:</strong>
-    <pre id="messageResult"></pre>
+    <div id="messageResult"></div>
+    <button class="copyBtn">Copy</button>
+  </div>
+
+  <label>Sign/Verify Message:</label>
+  <textarea id="signMessageBox" placeholder="Enter message to sign">Test message</textarea>
+  <input type="text" id="publicKeyBox" placeholder="Public key here">
+  <input type="text" id="signatureBox" placeholder="Signature here">
+  <button id="signBtn">Sign</button>
+  <button id="verifyBtn">Verify</button>
+
+  <div class="output">
+    <strong>Verification Result:</strong>
+    <div id="verifyResult"></div>
   </div>
 
   <script type="module">
-    import * as secp from "https://esm.sh/@noble/secp256k1";
     import { connect } from "./kaspa_client.js";  
-    import { init, createWallet } from "./wallet_service.js";
+    import { init, createWallet, generateNewAddress, generateNewKeypair } from "./wallet_service.js";
     import { DHSession } from "./dh_encryption.js";
-    import * as utilies from "./utilities.js";
+    import * as utilities from "./utilities.js";
 
     let dhSession = new DHSession();
-    await dhSession.init();
     
     let myKeys = { privateKey: null, publicKey: null };  
     
@@ -66,30 +95,35 @@
     let rpcClient = await connect(null, networkId);
 
     document.getElementById("createWalletBtn").onclick = async () => {
+      document.getElementById("mnemonic").textContent = "Creating wallet, this can take a bit of time please be patient ...";
       const password = document.getElementById("walletPassword").value;
-      try {
-        console.log("Creating wallet with password:", password);
+      try {        
         await init(rpcClient, networkId);
         const { mnemonic, address } = await createWallet({ password });
-        document.getElementById("walletInfo").textContent =
-          `Mnemonic: ${mnemonic}\nAddress: ${address}`;
+        document.getElementById("mnemonic").textContent = mnemonic;
+        document.getElementById("firstAddress").textContent = address;
 
       } catch (err) {
         console.error("Wallet creation error:", err);
-        document.getElementById("walletInfo").textContent = "Error: " + err.message;
+        document.getElementById("mnemonic").textContent = "Error: " + err.message;
       }
     };
 
-    document.getElementById("showPubKeyBtn").onclick = async () => {
-      // Export Kaspa keys
-      const prvKey = await utilies.getXPrvFromStorage("default_wallet", document.getElementById("walletPassword").value);
-      const prvKeyHex = utilies.getPrivateKeyHex(prvKey);
-      myKeys.privateKey = prvKeyHex;
-
-      // Get compressed secp256k1 public key (33 bytes)
-      const pubKeyHex = utilies.getPublicKeyHex(prvKeyHex);
-      myKeys.publicKey = pubKeyHex;
-      document.getElementById("pubKeyResult").textContent = pubKeyHex;    
+    document.getElementById("createNewAddressBtn").onclick = async () => {
+      let newAddress;
+      try {
+        newAddress = await generateNewAddress();
+        document.getElementById("newAddressInfo").textContent = newAddress;
+      } catch (err) {
+        console.error("Generate new address error:", err);
+        document.getElementById("newAddressInfo").textContent = "Error: " + err.message;
+      }
+      
+      const keypair = await generateNewKeypair();
+      myKeys.privateKey = keypair.privateKey;      
+      myKeys.publicKey = keypair.publicKey;
+      
+      document.getElementById("pubKeyResult").textContent = myKeys.publicKey;    
     };
 
     document.getElementById("initHandshakeBtn").onclick = () => {
@@ -111,6 +145,10 @@
       try {
         const cipher = dhSession.encryptMessage(plaintext);
         document.getElementById("messageResult").textContent = cipher;
+        
+        // Also fill the sign/verify textarea and public key box
+        document.getElementById("signMessageBox").value = cipher;
+        document.getElementById("publicKeyBox").value = myKeys.publicKey;
       } catch (err) {
         document.getElementById("messageResult").textContent = "Error: " + err.message;
       }
@@ -121,10 +159,51 @@
       try {
         const plain = dhSession.decryptMessage(cipher);
         document.getElementById("messageResult").textContent = plain;
+        // Also fill the sign/verify textarea and public key box
+        document.getElementById("signMessageBox").value = plain;
+        document.getElementById("publicKeyBox").value = myKeys.publicKey;
       } catch (err) {
         document.getElementById("messageResult").textContent = "Error: " + err.message;
       }
     };
+
+    document.getElementById("signBtn").onclick = async () => {
+      const message = document.getElementById("signMessageBox").value;
+      try {
+        const signatureHex = await utilities.signMessageWithPrivateKeyHex(myKeys.privateKey, message);
+        document.getElementById("signatureBox").value = signatureHex;
+        document.getElementById("publicKeyBox").value = myKeys.publicKey;
+      } catch (err) {
+        document.getElementById("messageResult").textContent = "Error: " + err.message;
+      }
+    };
+
+    document.getElementById("verifyBtn").onclick = async () => {
+      const message = document.getElementById("signMessageBox").value;
+      const pubKeyHex = document.getElementById("publicKeyBox").value.trim();
+      const signatureHex = document.getElementById("signatureBox").value.trim();
+      try {
+        const isValid = await utilities.verifyMessageWithPublicKeyHex(pubKeyHex, message, signatureHex);
+        document.getElementById("verifyResult").textContent = isValid ? "Signature is valid" : "Signature is INVALID";
+      } catch (err) {
+        document.getElementById("verifyResult").textContent = "Error: " + err.message;
+      }
+    };
+
+    // Add copy-to-clipboard functionality for all .copyBtn buttons
+    document.querySelectorAll('.output .copyBtn').forEach(btn => {
+      btn.onclick = function() {
+        // Find the first div inside the same .output container (skip <strong> and <button>)
+        const outputDiv = btn.parentElement.querySelector('div:not(:has(button))');
+        if (outputDiv) {
+          const text = outputDiv.textContent;
+          navigator.clipboard.writeText(text).then(() => {
+            btn.textContent = "Copied!";
+            setTimeout(() => btn.textContent = "Copy", 1000);
+          });
+        }
+      };
+    });
   </script>
 </body>
 </html>

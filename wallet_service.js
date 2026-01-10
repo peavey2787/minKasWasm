@@ -5,15 +5,20 @@ import {
   sompiToKaspaString,
   AccountKind,
   AccountsDiscoveryKind,
-  Address
+  Address,
+  PrivateKeyGenerator,
+  PublicKeyGenerator,
+  NetworkType
 } from './kas-wasm/kaspa.js';
 import { storeWalletData } from './storage.js';
 import * as utilities from './utilities.js';
 
+const DEFAULT_FILENAME = "default_wallet";
 let wallet = null;
 let walletInitialized = false;
 let walletSecret = null;
 let accountId = null;
+let filename = DEFAULT_FILENAME;
 
 export function init(rpcClient, networkId) {
 
@@ -50,13 +55,14 @@ export function init(rpcClient, networkId) {
   walletInitialized = true;
 }
 
-export async function createWallet({ password, filename = "default_wallet", userHint = "", mnemonic = null, storeMnemonic = false }) {
+export async function createWallet({ password, filename = DEFAULT_FILENAME, userHint = "", mnemonic = null, storeMnemonic = false }) {
 
   if (!walletInitialized) {
     throw new Error("Wallet not initialized. Call init() first.");
   }
 
   walletSecret = password;
+  filename = filename || DEFAULT_FILENAME;
 
   // 2. Create or import mnemonic
   const mnemonicPhrase = mnemonic || utilities.generateMnemonic(24);
@@ -83,16 +89,11 @@ export async function createWallet({ password, filename = "default_wallet", user
   // 6. Create default account  
   const account = await wallet.accountsEnsureDefault({  
     walletSecret: password,  
+    prvKeyDataId: prvKey.id,
     type: new AccountKind('bip32')  
   });
 
   accountId = account.accountDescriptor.accountId;  
-  
-  // 7. Get first receive address
-  const addr = await wallet.accountsCreateNewAddress({  
-    accountId: account.accountDescriptor.accountId,  
-    addressKind: "receive"  
-  });
 
   // 8. Connect and start wallet
   await wallet.connect();  
@@ -109,9 +110,9 @@ export async function createWallet({ password, filename = "default_wallet", user
   // Activate account to enable balance tracking
   await wallet.accountsActivate({ accountId });
 
-  // Get private key for address derivation and diffie-hellman encryption
-  const XPrv = utilities.getXPrv(mnemonicPhrase);
-  const xPrvString = XPrv.toString();
+  // Get extended private key for address derivation and diffie-hellman encryption
+  const Xprv = await utilities.getXPrv(mnemonicPhrase);
+  const xPrvString = Xprv.toString();
 
   // Store XPrv and optionally mnemonic securely in IndexedDB
   if (storeMnemonic) {
@@ -226,4 +227,23 @@ export async function getSpendableBalance() {
   }
 
   return BigInt(bal.mature);
+}
+
+export async function generateNewAddress(change = false) {   
+  const addr = await wallet.accountsCreateNewAddress({  
+    accountId: accountId,  
+    networkId: wallet.networkId,
+    addressKind: change ? "change" : "receive"  
+  });
+  return addr.address;
+}
+
+export async function generateNewKeypair(index) {
+  const xprv = await utilities.getXPrvFromStorage(filename, walletSecret);
+  const xprvHex = xprv.toString();
+  const derivedKeyPair = await utilities.deriveReceivingChildKeyPair({xprvHex, index});
+  return {
+    privateKey: derivedKeyPair.privateKey,
+    publicKey: derivedKeyPair.publicKey
+  };
 }
