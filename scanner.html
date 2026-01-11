@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Kaspa Block Scanner & Wallet</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    #statusDiv {
+      width: 100%;
+      text-align: center;
+      margin-bottom: 1rem;
+      font-weight: bold;
+      color: #49eacb;
+    }
+    #blocksContainer {
+      max-height: 250px;
+      overflow-y: auto;
+    }
+    .scanner-container, .wallet-container {
+      margin-bottom: 2rem;
+      padding: 1.5rem;
+      background: #2d292a;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px #00000033;
+      max-width: 480px;
+      margin-left: auto;
+      margin-right: auto;
+      text-align: center;
+    }
+    .block.match { border: 2px solid #49eacb; background: #1a191a; margin-bottom: 1rem; }
+    .block { border: 1px solid #444; background: #232223; margin-bottom: 1rem; border-radius: 4px; padding: 0.5rem; }
+    .scanner-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      align-items: flex-start;
+      margin-bottom: 1rem;
+    }    
+    .scanner-controls input[type="text"],
+    .scanner-controls select {
+      background: #231F20;
+      color: #49eacb;
+      border: 1px solid #49eacb;
+      border-radius: 4px;
+      padding: 0.4em 1.5em 0.4em 0.7em;
+      font-size: 1em;
+      appearance: none;
+      outline: none;
+      transition: border-color 0.2s;
+    }    
+    .scanner-controls select:focus {
+      border-color: #7fffd4;
+      box-shadow: 0 0 0 2px #49eacb44;
+    }    
+    .scanner-controls select option {
+      background: #231F20;
+      color: #49eacb;
+    }
+    .checkbox-row {
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+    .checkbox-row label {
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+      font-size: 1.1em;
+      justify-content: center;
+    }
+    .checkbox-row input[type="checkbox"] {
+      width: 1.2em;
+      height: 1.2em;
+      accent-color: #49eacb;
+      margin-right: 0.5em;
+      margin-left: 0;
+      display: inline-block;
+    }
+    .wallet-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      align-items: center;
+      width: 100%;
+    }
+    .wallet-controls input[type="text"] { max-width: 200px; }
+    .scanner-controls input[type="text"],
+    .scanner-controls select,
+    .scanner-controls button,
+    .wallet-controls input[type="text"],
+    .wallet-controls select,
+    .wallet-controls button {
+      width: 100%;
+      max-width: 400px;
+      margin-left: auto;
+      margin-right: auto;
+      text-align: center;
+      display: block;
+    }
+    .scanner-controls label,
+    .wallet-controls label {
+      width: 100%;
+      max-width: 400px;
+      margin-left: auto;
+      margin-right: auto;
+      text-align: center;
+      display: block;
+    }
+    .matches-container { margin-top: 1rem; }
+    .matches-container .block { border-color: #49eacb; }
+  </style>
+</head>
+<body>
+  <div class="scanner-container">
+    <h2>Block Scanner</h2>
+    <div class="scanner-controls">
+      <div class="checkbox-row">
+        <label for="publicResolverCheckbox">
+          <input type="checkbox" id="publicResolverCheckbox" checked>
+          Connect using public resolver
+        </label>
+      </div> 
+      <label for="nodeInput">Node (ip:port or leave blank for resolver):</label>
+      <input type="text" id="nodeInput" placeholder="ip:port or leave blank for resolver">    
+      <label for="networkInput">Network:</label>
+      <select id="networkInput">
+        <option value="mainnet">mainnet</option>
+        <option value="testnet-10" selected>testnet-10</option>
+        <option value="testnet-11">testnet-11</option>
+      </select>    
+      <button id="connectBtn">Connect</button>    
+      <label for="searchInput">Text to search in payloads:</label>
+      <input type="text" id="searchInput" placeholder="Text to search in payloads" value="test">    
+      <button id="startStopBtn">Start</button>
+    </div>
+    <div id="statusDiv"></div>
+    <div id="blocksContainer" class="output"></div>
+    <div class="matches-container output">
+      <strong>Matches Found:</strong>
+      <div id="matchesContainer"></div>
+    </div>
+  </div>
+  <div class="wallet-container">
+    <h2>Wallet</h2>
+    <div class="wallet-controls">
+      <button id="createWalletBtn">Create Wallet</button>
+      <span id="walletLoading" style="display:none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;">
+          <circle cx="12" cy="12" r="10" stroke="#49eacb" stroke-width="4" stroke-dasharray="60" stroke-dashoffset="40">
+            <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/>
+          </circle>
+        </svg>
+        <span style="color:#49eacb;">Creating wallet...</span>
+      </span>
+      <span>Balance: <span id="balanceResult" class="wrap-output"></span></span>
+      <span>Receiving Address: <span id="receiveAddressLabel" class="wrap-output"></span></span>
+      <button id="copyReceiveAddressBtn" class="copyBtn">Copy</button>
+    </div>
+    <div class="wallet-controls">
+      <label for="toAddressInput">To Address:</label>
+      <input type="text" id="toAddressInput" placeholder="To Address">
+      <label for="amountInput">Amount (KAS):</label>
+      <input type="text" id="amountInput" placeholder="Amount" value="1">
+      <label for="payloadInput">Payload:</label>
+      <input type="text" id="payloadInput" placeholder="Payload (optional)" value="Block scanner test">
+      <button id="sendBtn">Send</button>
+      <span id="sendResult" class="wrap-output"></span>
+    </div>
+  </div>
+
+  <script type="module">
+    import { connect } from "./kaspa_client.js";
+    import { init, createWallet, send } from "./wallet_service.js";
+    import * as utilities from "./utilities.js";
+
+    let client = null;
+    let blockSubscription = null;
+    let scanning = false;
+    let matches = [];
+    let walletInitialized = false;
+    let currentAddress = "";
+
+    // UI Elements
+    const connectBtn = document.getElementById("connectBtn");
+    const nodeInput = document.getElementById("nodeInput");
+    const networkInput = document.getElementById("networkInput");
+    const startStopBtn = document.getElementById("startStopBtn");
+    const searchInput = document.getElementById("searchInput");
+    const blocksContainer = document.getElementById("blocksContainer");
+    const matchesContainer = document.getElementById("matchesContainer");
+    const walletContainer = document.getElementById("walletContainer");
+    const createWalletBtn = document.getElementById("createWalletBtn");
+    const sendBtn = document.getElementById("sendBtn");
+    const toAddressInput = document.getElementById("toAddressInput");
+    const amountInput = document.getElementById("amountInput");
+    const payloadInput = document.getElementById("payloadInput");
+    const receiveAddressLabel = document.getElementById("receiveAddressLabel");
+    const sendResultLabel = document.getElementById("sendResult");
+    const statusDiv = document.getElementById("statusDiv");
+
+    async function connectToNode() {
+      statusDiv.textContent = "Connecting...";
+      const url = nodeInput.value.trim();
+      const networkId = networkInput.value.trim() || "mainnet";
+      const usePublicResolver = document.getElementById("publicResolverCheckbox").checked;
+      try {
+        if (usePublicResolver) {
+          client = await connect(null, networkId);
+        } else {
+          client = await connect(url, networkId);
+        }
+        statusDiv.textContent = "Connected";
+        if (walletInitialized) {
+          await init(client, networkId);
+        }
+      } catch (err) {
+        statusDiv.textContent = "Connection failed";
+      }
+    }
+
+    connectBtn.onclick = connectToNode;
+
+    function addBlockToUI(block, decodedPayload, isMatch) {
+      const div = document.createElement("div");
+      div.className = isMatch ? "block match" : "block";
+      const header = block.header;
+      const payloadText = decodedPayload ? ` | Payload: ${decodedPayload}` : "";
+      div.textContent = `Hash: ${header?.hash} | BlueScore: ${header?.blueScore}${payloadText}`;
+      (isMatch ? matchesContainer : blocksContainer).prepend(div);
+    }
+
+    async function startScanner() {
+      if (!client) return;
+      scanning = true;
+      startStopBtn.textContent = "Stop";
+      statusDiv.textContent = "Scanning...";
+      blocksContainer.innerHTML = "";
+      if (blockSubscription) {
+        client.removeEventListener("block-added", blockSubscription);
+        blockSubscription = null;
+      }
+      await client.subscribeBlockAdded();
+      blockSubscription = blockHandler;
+      client.addEventListener("block-added", blockSubscription);
+    }
+
+    function blockHandler(event) {
+      const block = event.data.block;
+      if (!block) return;
+
+      const searchText = searchInput.value.trim().toLowerCase();
+      let foundMatch = false;
+      let matchedPayload = "";
+
+      // Check transactions for payloads
+      if (Array.isArray(block.transactions)) {
+        for (const tx of block.transactions) {
+          if (tx.payload) {
+            const decoded = utilities.hexToString(tx.payload);
+            if (searchText && decoded.toLowerCase().includes(searchText)) {
+              console.log("Match found in payload:", decoded);
+              foundMatch = true;
+              matchedPayload = decoded;
+              //break; // Stop at first match
+            }
+          }
+        }
+      }
+
+      // Show the first matched payload if found, otherwise empty string
+      addBlockToUI(block, foundMatch ? matchedPayload : "", foundMatch);
+    }
+
+    function stopScanner() {
+      scanning = false;
+      startStopBtn.textContent = "Start";
+      statusDiv.textContent = "Waiting to scan...";
+      if (blockSubscription) {
+        client.removeEventListener("block-added", blockSubscription);
+        blockSubscription = null;
+      }
+    }
+
+    startStopBtn.onclick = async () => {
+      if (scanning) {
+        stopScanner();
+      } else {
+        await startScanner();
+      }
+    };
+
+    // Wallet logic
+    createWalletBtn.onclick = () => {
+      document.getElementById("walletLoading").style.display = "inline-block";
+      // Defer the wallet creation logic so the loading icon is rendered first
+      setTimeout(async () => {
+        if (!client) {
+          document.getElementById("walletLoading").style.display = "none";
+          return alert("Connect to a node first!");
+        }
+        const networkId = networkInput.value.trim();
+        if(networkId === "public") {
+          await init(client, "mainnet");
+        } else {
+          await init(client, networkId);
+        }
+        const { address } = await createWallet({ password: "1234" });
+        walletInitialized = true;
+        currentAddress = address;
+        receiveAddressLabel.textContent = address;
+        toAddressInput.value = address;
+        document.getElementById("walletLoading").style.display = "none";
+      }, 0);
+    };
+
+    sendBtn.onclick = async () => {
+      if (!walletInitialized) return alert("Create a wallet first!");
+      if (!scanning) await startScanner();
+      const toAddress = toAddressInput.value.trim();
+      const amount = amountInput.value.trim();
+      let payload = payloadInput.value.trim();
+      try {
+        await send({ amount, toAddress, payload });
+        sendResultLabel.textContent = "Transaction sent!";
+      } catch (err) {
+        sendResultLabel.textContent = "Send error: " + err.message;
+      }
+    };
+
+    const copyBtn = document.getElementById("copyReceiveAddressBtn");
+    copyBtn.onclick = () => {
+      const addr = receiveAddressLabel.textContent;
+      if (addr) {
+        navigator.clipboard.writeText(addr).then(() => {
+          copyBtn.textContent = "Copied!";
+          setTimeout(() => copyBtn.textContent = "Copy", 1000);
+        });
+      }
+    };
+  </script>
+</body>
+</html>

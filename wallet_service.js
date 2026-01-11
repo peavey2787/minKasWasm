@@ -61,6 +61,8 @@ export async function createWallet({ password, filename = DEFAULT_FILENAME, user
     throw new Error("Wallet not initialized. Call init() first.");
   }
 
+  console.log("Creating wallet...");
+
   walletSecret = password;
   filename = filename || DEFAULT_FILENAME;
 
@@ -120,6 +122,8 @@ export async function createWallet({ password, filename = DEFAULT_FILENAME, user
   } else {
     storeWalletData({ filename, xprv: xPrvString }, password);
   }
+  
+  console.log("Wallet created and opened successfully.");
 
   // Return mnemonic for backup
   return { 
@@ -188,10 +192,10 @@ export async function send({ amount, toAddress, payload, priorityFeeKas }) {
 
   // Payload
   if (payload) {
-    if (!validatePayload(payload)) {
+    if (!utilities.validatePayload(payload)) {
       throw new Error('Payload must be a string and <= 32KB');
     }
-    const hex = stringToHex(payload);
+    const hex = utilities.stringToHex(payload);
     if (hex.length % 2 !== 0) {
       throw new Error('Invalid hex payload');
     }
