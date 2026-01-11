@@ -26,6 +26,25 @@ input:focus, textarea:focus {
   border-color: #49eacb;
   box-shadow: 0 0 0 2px #49eacb33;
 }
+select, input[type="text"], input[type="password"] {
+  background: #231F20;
+  color: #49eacb;
+  border: 1px solid #49eacb;
+  border-radius: 4px;
+  padding: 0.4em 1.5em 0.4em 0.7em;
+  font-size: 1em;
+  appearance: none;
+  outline: none;
+  transition: border-color 0.2s;
+}
+select:focus {
+  border-color: #7fffd4;
+  box-shadow: 0 0 0 2px #49eacb44;
+}
+select option {
+  background: #231F20;
+  color: #49eacb;
+}
 button {
   margin-top: 0.5rem;
   background: #231F20;
