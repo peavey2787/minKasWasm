@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Kaspa Block Scanner & Wallet</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="../styles.css">
   <style>
     #statusDiv {
       width: 100%;
@@ -172,27 +172,20 @@
   </div>
 
   <script type="module">
-    import { connect } from "./kaspa_client.js";
-    import { init, createWallet, send } from "./wallet_service.js";
-    import * as utilities from "./utilities.js";
+    import { KaspaBlockScanner, BlockScannerEvent, SearchMode } from "../scanner.js";
+    import { connect } from "../wrapper/kaspa_client.js";
+    import { init, createWallet, send } from "../wrapper/wallet_service.js";
+    import * as utilities from "../utilities.js";
 
-    let client = null;
-    let blockSubscription = null;
-    let scanning = false;
-    let matches = [];
-    let walletInitialized = false;
-    let currentAddress = "";
-
-    // UI Elements
     const connectBtn = document.getElementById("connectBtn");
     const nodeInput = document.getElementById("nodeInput");
     const networkInput = document.getElementById("networkInput");
+    const publicResolverCheckbox = document.getElementById("publicResolverCheckbox");
     const startStopBtn = document.getElementById("startStopBtn");
     const searchInput = document.getElementById("searchInput");
-    const blocksContainer = document.getElementById("blocksContainer");
-      const blocksIframe = document.getElementById("blocksIframe");
+    const blocksIframe = document.getElementById("blocksIframe");
     const matchesContainer = document.getElementById("matchesContainer");
-    const walletContainer = document.getElementById("walletContainer");
+    const statusDiv = document.getElementById("statusDiv");
     const createWalletBtn = document.getElementById("createWalletBtn");
     const sendBtn = document.getElementById("sendBtn");
     const toAddressInput = document.getElementById("toAddressInput");
@@ -200,134 +193,82 @@
     const payloadInput = document.getElementById("payloadInput");
     const receiveAddressLabel = document.getElementById("receiveAddressLabel");
     const sendResultLabel = document.getElementById("sendResult");
-    const statusDiv = document.getElementById("statusDiv");
 
-    async function connectToNode() {
+    let walletInitialized = false;
+    let currentAddress = "";
+    let kaspaClient = null;
+    let scanner = null;
+    let scanning = false;
+
+    connectBtn.onclick = async () => {
       statusDiv.textContent = "Connecting...";
       const url = nodeInput.value.trim();
       const networkId = networkInput.value.trim() || "mainnet";
-      const usePublicResolver = document.getElementById("publicResolverCheckbox").checked;
+      const usePublicResolver = publicResolverCheckbox.checked;
       try {
-        if (usePublicResolver) {
-          client = await connect(null, networkId);
-        } else {
-          client = await connect(url, networkId);
-        }
+        kaspaClient = usePublicResolver
+          ? await connect(null, networkId)
+          : await connect(url, networkId);
         statusDiv.textContent = "Connected";
-        if (walletInitialized) {
-          await init(client, networkId);
-        }
+        scanner = new KaspaBlockScanner(kaspaClient);
       } catch (err) {
         statusDiv.textContent = "Connection failed";
       }
-    }
+    };
 
-    connectBtn.onclick = connectToNode;
-
-    function addBlockToUI(block, decodedPayload, isMatch) {
-      if (isMatch) {
+    function addBlockToUI(block, match, matchedPayload) {
+      const txCount = Array.isArray(block.transactions) ? block.transactions.length : 0;
+      const header = block.header;
+      const payloadText = match && matchedPayload ? ` | Payload: ${matchedPayload}` : "";
+      const blockText = `Hash: ${header?.hash?.slice(0,6)}... | BlueScore: ${header?.blueScore} | Txs: ${txCount}${payloadText}`;
+      if (match) {
         const div = document.createElement("div");
         div.className = "block match";
-        const header = block.header;
-        const payloadText = decodedPayload ? ` | Payload: ${decodedPayload}` : "";
-        div.textContent = `Hash: ${header?.hash?.slice(0,6)}... | BlueScore: ${header?.blueScore}${payloadText}`;
+        div.textContent = blockText;
         matchesContainer.prepend(div);
       } else {
         const iframeDoc = blocksIframe.contentDocument || blocksIframe.contentWindow.document;
         if (!iframeDoc.body) return;
         const div = iframeDoc.createElement("div");
-        div.style.border = "1px solid #444";
-        div.style.background = "#232223";
-        div.style.marginBottom = "1rem";
-        div.style.borderRadius = "4px";
-        div.style.padding = "0.5rem";
-        div.style.color = "#49eacb";
-        div.style.fontFamily = "Segoe UI,Arial,sans-serif";
-        const header = block.header;
-        const payloadText = decodedPayload ? ` | Payload: ${decodedPayload}` : "";
-        const txCount = Array.isArray(block.transactions) ? block.transactions.length : 0;
-        div.textContent = `Hash: ${header?.hash?.slice(0,6)}... | BlueScore: ${header?.blueScore} | Txs: ${txCount}`;
+        div.className = "block";
+        div.textContent = blockText;
         iframeDoc.body.insertBefore(div, iframeDoc.body.firstChild);
       }
     }
 
-    async function startScanner() {
-      if (!client) return;
-      scanning = true;
-      startStopBtn.textContent = "Stop";
-      statusDiv.textContent = "Scanning...";
-      const iframeDoc = blocksIframe.contentDocument || blocksIframe.contentWindow.document;
-      if (iframeDoc && iframeDoc.body) {
-        iframeDoc.body.innerHTML = "";
-      }
-      if (blockSubscription) {
-        client.removeEventListener("block-added", blockSubscription);
-        blockSubscription = null;
-      }
-      await client.subscribeBlockAdded();
-      blockSubscription = blockHandler;
-      client.addEventListener("block-added", blockSubscription);
-    }
-
-    function blockHandler(event) {
-      const block = event.data.block;
-      if (!block) return;
-
-      const searchText = searchInput.value.trim().toLowerCase();
-      let foundMatch = false;
-      let matchedPayload = "";
-
-      // Check transactions for payloads
-      if (Array.isArray(block.transactions)) {
-        for (const tx of block.transactions) {
-          if (tx.payload) {
-            const decoded = utilities.hexToString(tx.payload);
-            if (searchText && decoded.toLowerCase().includes(searchText)) {
-              console.log("Match found in payload:", decoded);
-              foundMatch = true;
-              matchedPayload = decoded;
-              //break; // Stop at first match
-            }
-          }
-        }
-      }
-
-      // Show the first matched payload if found, otherwise empty string
-      addBlockToUI(block, foundMatch ? matchedPayload : "", foundMatch);
-    }
-
-    function stopScanner() {
-      scanning = false;
-      startStopBtn.textContent = "Start";
-      statusDiv.textContent = "Waiting to scan...";
-      if (blockSubscription) {
-        client.removeEventListener("block-added", blockSubscription);
-        blockSubscription = null;
-      }
-    }
-
     startStopBtn.onclick = async () => {
-      if (scanning) {
-        stopScanner();
+      if (!scanner || !kaspaClient) return alert("Connect to a node first!");
+      if (!scanning) {
+        // Clear previous blocks
+        const iframeDoc = blocksIframe.contentDocument || blocksIframe.contentWindow.document;
+        if (iframeDoc && iframeDoc.body) iframeDoc.body.innerHTML = "";
+        matchesContainer.innerHTML = "";
+        // Set search mode and string
+        const searchText = searchInput.value.trim().toLowerCase();
+        scanner.setSearch(searchText, SearchMode.INCLUDES); // Could add UI for mode
+        await scanner.start((block, match, matchedPayload) => {
+          addBlockToUI(block, match, matchedPayload);
+        });
+        scanning = true;
+        startStopBtn.textContent = "Stop";
+        statusDiv.textContent = "Scanning...";
       } else {
-        await startScanner();
+        scanner.stop();
+        scanning = false;
+        startStopBtn.textContent = "Start";
+        statusDiv.textContent = "Stopped.";
       }
     };
 
-    // Wallet logic
     createWalletBtn.onclick = () => {
       document.getElementById("walletLoading").style.display = "inline-block";
-      // Defer the wallet creation logic so the loading icon is rendered first
       setTimeout(async () => {
-        if (!client) {
-          document.getElementById("walletLoading").style.display = "none";
-          return alert("Connect to a node first!");
-        }
+        if (!scanner || !kaspaClient) return alert("Connect to a node first!");
         const networkId = networkInput.value.trim();
         if(networkId === "public") {
-          await init(client, "mainnet");
+          await init(kaspaClient, "mainnet");
         } else {
-          await init(client, networkId);
+          await init(kaspaClient, networkId);
         }
         const { address } = await createWallet({ password: "1234" });
         walletInitialized = true;
@@ -340,7 +281,6 @@
 
     sendBtn.onclick = async () => {
       if (!walletInitialized) return alert("Create a wallet first!");
-      if (!scanning) await startScanner();
       const toAddress = toAddressInput.value.trim();
       const amount = amountInput.value.trim();
       let payload = payloadInput.value.trim();

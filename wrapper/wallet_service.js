@@ -5,11 +5,8 @@ import {
   sompiToKaspaString,
   AccountKind,
   AccountsDiscoveryKind,
-  Address,
-  PrivateKeyGenerator,
-  PublicKeyGenerator,
-  NetworkType
-} from './kas-wasm/kaspa.js';
+  Address
+} from '../kas-wasm/kaspa.js';
 import { storeWalletData } from './storage.js';
 import * as utilities from './utilities.js';
 
@@ -20,7 +17,17 @@ let walletSecret = null;
 let accountId = null;
 let filename = DEFAULT_FILENAME;
 
-export function init(rpcClient, networkId) {
+/**
+ * Initialize the Kaspa wallet with the given RPC client and network.
+ * Adds a balance event listener for UI/callback updates.
+ * @param {Object} params
+ * @param {Object} params.rpcClient - The Kaspa RPC client instance.
+ * @param {string} params.networkId - Network ID (e.g., 'mainnet', 'testnet-10').
+ * @param {string|null} [params.balanceElementId] - Optional DOM element ID to update balance.
+ * @param {function|null} [params.balanceCallBack] - Optional callback to receive balance updates.
+ */
+ 
+export function init({ rpcClient, networkId, balanceElementId = null, balanceCallBack = null }) {
 
   if (walletInitialized) return;
 
@@ -31,7 +38,7 @@ export function init(rpcClient, networkId) {
     resolver: rpcClient.resolver || undefined
   });
 
-  // Add the balance event listener to update balance on changes
+  // 2. Add the balance event listener to update balance on changes
   wallet.addEventListener("balance", (event) => {
 
     const bal = event?.data?.balance;
@@ -43,17 +50,33 @@ export function init(rpcClient, networkId) {
       // You can update your UI or call a callback here    
       console.log("Balance changed:", matureBalance, "KAS");
     
-      // Example: update a DOM element    
-      const balanceResult = document.getElementById("balanceResult");
-    
-      if (balanceResult) {    
+      // Example: update a DOM element
+      let balanceResult = null;
+      if(balanceElementId) {
+        balanceResult = document.getElementById(balanceElementId);
         balanceResult.textContent = `Balance:\n${matureBalance} KAS`;    
-      }    
+      }
+
+      if(balanceCallBack) {
+        balanceCallBack(matureBalance);
+      }
     } 
   });
 
   walletInitialized = true;
 }
+
+
+/**
+ * Create a new wallet or import from mnemonic. Stores wallet data securely.
+ * @param {Object} params
+ * @param {string} params.password - Password to encrypt wallet data.
+ * @param {string} [params.filename] - Optional wallet filename.
+ * @param {string} [params.userHint] - Optional user hint for wallet.
+ * @param {string|null} [params.mnemonic] - Optional mnemonic phrase to import.
+ * @param {boolean} [params.storeMnemonic] - Whether to store mnemonic in storage.
+ * @returns {Promise<{mnemonic: string, address: string}>} - The mnemonic and receiving address.
+ */
 
 export async function createWallet({ password, filename = DEFAULT_FILENAME, userHint = "", mnemonic = null, storeMnemonic = false }) {
 
@@ -63,6 +86,7 @@ export async function createWallet({ password, filename = DEFAULT_FILENAME, user
 
   console.log("Creating wallet...");
 
+  // 1. Set wallet secret and filename
   walletSecret = password;
   filename = filename || DEFAULT_FILENAME;
 
@@ -131,6 +155,17 @@ export async function createWallet({ password, filename = DEFAULT_FILENAME, user
     address: account.accountDescriptor.receiveAddress
   };
 }
+
+
+/**
+ * Send a transaction from the wallet.
+ * @param {Object} params
+ * @param {string|number|BigInt} params.amount - Amount in KAS to send.
+ * @param {string|Object} params.toAddress - Destination address (string or Address object).
+ * @param {string} [params.payload] - Optional payload string (will be hex encoded).
+ * @param {string|number|BigInt} [params.priorityFeeKas] - Optional extra priority fee in KAS.
+ * @returns {Promise<Object>} - The transaction result.
+ */
 
 export async function send({ amount, toAddress, payload, priorityFeeKas }) {
  
@@ -212,6 +247,12 @@ export async function send({ amount, toAddress, payload, priorityFeeKas }) {
   }
 }
 
+
+/**
+ * Get the spendable (mature) balance for the current wallet account.
+ * @returns {Promise<BigInt>} - The spendable balance in sompi (BigInt).
+ */
+
 export async function getSpendableBalance() {
 
   const res = await wallet.accountsGet({ accountId });
@@ -233,6 +274,13 @@ export async function getSpendableBalance() {
   return BigInt(bal.mature);
 }
 
+
+/**
+ * Generate a new receiving or change address for the current account.
+ * @param {boolean} [change=false] - If true, generate a change address; otherwise, receiving address.
+ * @returns {Promise<string>} - The new address as a string.
+ */
+
 export async function generateNewAddress(change = false) {   
   const addr = await wallet.accountsCreateNewAddress({  
     accountId: accountId,  
@@ -241,6 +289,13 @@ export async function generateNewAddress(change = false) {
   });
   return addr.address;
 }
+
+
+/**
+ * Generate a new keypair for the given index using the wallet's XPrv.
+ * @param {number} index - The child index for key derivation.
+ * @returns {Promise<{privateKey: string, publicKey: string}>} - The derived keypair.
+ */
 
 export async function generateNewKeypair(index) {
   const xprv = await utilities.getXPrvFromStorage(filename, walletSecret);
