@@ -23,6 +23,8 @@
   <pre id="rpcResult" class="output"></pre>
 
   <h2>Create Wallet</h2>
+  <input id="walletPasswordInput" type="password" placeholder="Wallet password" style="margin-bottom:0.5em;">
+  <input id="walletFilenameInput" type="text" placeholder="Wallet filename (optional)" style="margin-bottom:0.5em;">
   <button id="createWalletBtn">Create Wallet</button>
   <input id="mnemonicInput" type="text" placeholder="Optional mnemonic for import">
   <button id="importWalletBtn">Import Wallet</button>
@@ -55,6 +57,8 @@
     const createWalletBtn = document.getElementById('createWalletBtn');
     const importWalletBtn = document.getElementById('importWalletBtn');
     const walletResult = document.getElementById('walletResult');
+    const walletPasswordInput = document.getElementById('walletPasswordInput');
+    const walletFilenameInput = document.getElementById('walletFilenameInput');
     const getBalanceBtn = document.getElementById('getBalanceBtn');
     const balanceResult = document.getElementById('balanceResult');
     const sendBtn = document.getElementById('sendBtn');
@@ -84,11 +88,13 @@
 
     createWalletBtn.addEventListener('click', async () => {
       walletResult.textContent = "Creating wallet...";
+      const password = walletPasswordInput.value.trim() || "password";
+      const filename = walletFilenameInput.value.trim() || "demo_wallet";
       try {        
         init({rpcClient: client, networkId: networkId.value, balanceElementId: "balanceResult"});
         const result = await createWallet({
-          password: "password",
-          filename: "demo_wallet"
+          password,
+          filename
         });
         walletResult.textContent = "Wallet created!\nMnemonic:\n" + result.mnemonic + "\n\nAddress:\n" + result.address;
         sendAddressInput.value = result.address;
@@ -99,6 +105,8 @@
 
     importWalletBtn.addEventListener('click', async () => {
       const mnemonic = mnemonicInput.value.trim();
+      const password = walletPasswordInput.value.trim() || "password";
+      const filename = walletFilenameInput.value.trim() || "imported_demo_wallet";
       if (!mnemonic) {
         walletResult.textContent = "Import cancelled.";
         return;
@@ -107,9 +115,9 @@
       try {        
         init({rpcClient: client, networkId: networkId.value, balanceElementId: "balanceResult"});
         const result = await createWallet({
-          password: "password",
-          mnemonic: mnemonic,
-          filename: "imported_demo_wallet"
+          password,
+          mnemonic,
+          filename
         });
         walletResult.textContent = "Wallet imported!\nAddress:\n" + result.address;
         sendAddressInput.value = result.address;

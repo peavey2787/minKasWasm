@@ -96,14 +96,24 @@ export async function createWallet({ password, filename = DEFAULT_FILENAME, user
   const mnemonicPhrase = mnemonic || utilities.generateMnemonic(24);
 
   // 3. Create wallet file
-  const descriptor = await wallet.walletCreate({
-    filename,
-    overwriteWalletStorage: false,
-    title: filename,
-    userHint,
-    walletSecret: password
-  });
-  
+  try {
+    const descriptor = await wallet.walletCreate({
+      filename,
+      overwriteWalletStorage: false,
+      title: filename,
+      userHint,
+      walletSecret: password
+    });
+  } catch (err) {
+    const msg = (err && err.message ? err.message : String(err));
+    if (msg.includes("Wallet already exists")) {
+      // Suppress this specific error, do nothing
+    } else {
+      // Propogate the error
+      throw new Error("Error creating wallet: " + msg);
+    }
+  }
+
   // 4. Open wallet
   await wallet.walletOpen({ filename, walletSecret: password });
 
