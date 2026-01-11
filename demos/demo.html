@@ -4,7 +4,6 @@
     <link rel="stylesheet" href="../styles.css">
     <meta charset="UTF-8">
     <title>Kaspa Demo</title>
-      <!-- Theme styles moved to styles.css -->
   </head>
 <body>
   <label for="networkId">Network:</label>
@@ -19,13 +18,15 @@
   <p id="status">Not connected</p>
 
   <h2>Run RPC Command</h2>
-  <input id="rpcCommand" type="text" size="50" value='{"method":"getInfo","params":{}}'>
+  <input id="rpcCommand" type="text" value='{"method":"getInfo","params":{}}'>
   <button id="runRpcBtn">Run</button>
-  <pre id="rpcResult"></pre>
+  <pre id="rpcResult" class="output"></pre>
 
   <h2>Create Wallet</h2>
   <button id="createWalletBtn">Create Wallet</button>
-  <pre id="walletResult"></pre>
+  <input id="mnemonicInput" type="text" placeholder="Optional mnemonic for import">
+  <button id="importWalletBtn">Import Wallet</button>
+  <pre id="walletResult" class="output"></pre>
 
   <h2>Get Balance</h2>
   <button id="getBalanceBtn">Get Balance</button>
@@ -33,8 +34,8 @@
 
   <h2>Send Transaction</h2>
   <button id="sendBtn">Send 1 KAS to address</button>
-  <input id="sendAddress" type="text" size="50" value="">
-  <input id="payloadInput" type="text" size="50" placeholder="Optional payload">
+  <input id="sendAddress" type="text" value="">
+  <input id="payloadInput" type="text" placeholder="Optional payload">
   <pre id="sendResult"></pre>
 
   <script type="module">
@@ -52,6 +53,7 @@
     const rpcInput = document.getElementById('rpcCommand');
     const rpcResult = document.getElementById('rpcResult');
     const createWalletBtn = document.getElementById('createWalletBtn');
+    const importWalletBtn = document.getElementById('importWalletBtn');
     const walletResult = document.getElementById('walletResult');
     const getBalanceBtn = document.getElementById('getBalanceBtn');
     const balanceResult = document.getElementById('balanceResult');
@@ -92,6 +94,27 @@
         sendAddressInput.value = result.address;
       } catch (err) {
         walletResult.textContent = "Wallet creation failed: " + (err.message || err);
+      }
+    });
+
+    importWalletBtn.addEventListener('click', async () => {
+      const mnemonic = mnemonicInput.value.trim();
+      if (!mnemonic) {
+        walletResult.textContent = "Import cancelled.";
+        return;
+      }
+      walletResult.textContent = "Importing wallet...";
+      try {        
+        init({rpcClient: client, networkId: networkId.value, balanceElementId: "balanceResult"});
+        const result = await createWallet({
+          password: "password",
+          mnemonic: mnemonic,
+          filename: "imported_demo_wallet"
+        });
+        walletResult.textContent = "Wallet imported!\nAddress:\n" + result.address;
+        sendAddressInput.value = result.address;
+      } catch (err) {
+        walletResult.textContent = "Wallet import failed: " + (err.message || err);
       }
     });
 

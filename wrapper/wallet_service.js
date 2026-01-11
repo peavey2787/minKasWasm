@@ -98,7 +98,7 @@ export async function createWallet({ password, filename = DEFAULT_FILENAME, user
   // 3. Create wallet file
   const descriptor = await wallet.walletCreate({
     filename,
-    overwriteWalletStorage: true,
+    overwriteWalletStorage: false,
     title: filename,
     userHint,
     walletSecret: password
@@ -108,39 +108,41 @@ export async function createWallet({ password, filename = DEFAULT_FILENAME, user
   await wallet.walletOpen({ filename, walletSecret: password });
 
   // 5. Insert mnemonic key
-  const prvKey = await wallet.prvKeyDataCreate({
+  let prvKeyData =  await wallet.prvKeyDataCreate({
+    walletSecret,
     kind: "mnemonic",
-    mnemonic: mnemonicPhrase,
-    walletSecret: password
+    mnemonic: mnemonicPhrase
   });
 
-  // 6. Create default account  
-  const account = await wallet.accountsEnsureDefault({  
-    walletSecret: password,  
-    prvKeyDataId: prvKey.id,
-    type: new AccountKind('bip32')  
+  // 6. Create account
+  let account = await wallet.accountsCreate({
+    walletSecret,
+    type:"bip32",
+    accountName:"Account-B",
+    prvKeyDataId: prvKeyData.prvKeyDataId
   });
 
   accountId = account.accountDescriptor.accountId;  
 
-  // 8. Connect and start wallet
+  // 7. Connect and start wallet
   await wallet.connect();  
   await wallet.start();
 
-  // 9. Perform accounts discovery to sync with network if you are importing existing wallet
-  await wallet.accountsDiscovery({
-    accountScanExtent: 5,              // scan first 5 accounts
-    addressScanExtent: 5,             // scan first 5 addresses per account
+  // 8. Optionally, perform accounts discovery to sync with network
+  // if you are importing existing wallet
+  const results = await wallet.accountsDiscovery({
+    accountScanExtent: 10,              // scan first 10 accounts
+    addressScanExtent: 50,             // scan first 50 addresses per account
     bip39_mnemonic: mnemonicPhrase, 
     discoveryKind: AccountsDiscoveryKind.BIP44
   });
 
-  // Activate account to enable balance tracking
+  // 9. Activate account to enable balance tracking
   await wallet.accountsActivate({ accountId });
 
   // Get extended private key for address derivation and diffie-hellman encryption
-  const Xprv = await utilities.getXPrv(mnemonicPhrase);
-  const xPrvString = Xprv.toString();
+  const xprv = await utilities.getXPrv(mnemonicPhrase);
+  const xPrvString = xprv.toString();
 
   // Store XPrv and optionally mnemonic securely in IndexedDB
   if (storeMnemonic) {
@@ -307,4 +309,35 @@ export async function generateNewKeypair(index) {
     privateKey: derivedKeyPair.privateKey,
     publicKey: derivedKeyPair.publicKey
   };
+}
+
+export async function discoverAccounts() {
+  // Run discovery
+  const discoveryResult = await wallet.accountsDiscovery({
+    accountScanExtent: 50,
+    addressScanExtent: 50,
+    bip39_mnemonic: mnemonicPhrase,
+    discoveryKind: AccountsDiscoveryKind.BIP44
+  });
+
+  // Log the raw result
+  console.log("Discovery result:", discoveryResult);
+
+  // If the SDK returns an array of accounts:
+  if (discoveryResult.accounts) {
+    discoveryResult.accounts.forEach(acc => {
+      console.log("Account ID:", acc.accountDescriptor.accountId);
+      console.log("Account Index:", acc.accountDescriptor.accountIndex);
+      console.log("Receive Address:", acc.accountDescriptor.receiveAddress?.toString());
+      console.log("Change Address:", acc.accountDescriptor.changeAddress?.toString());
+
+      // If addresses array is populated
+      if (acc.accountDescriptor.addresses) {
+        acc.accountDescriptor.addresses.forEach((addr, i) => {
+          console.log(`Address[${i}]:`, addr.toString());
+        });
+      }
+    });
+  }
+  return discoveryResult;
 }
