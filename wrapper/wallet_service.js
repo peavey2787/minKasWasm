@@ -321,33 +321,20 @@ export async function generateNewKeypair(index) {
   };
 }
 
-export async function discoverAccounts() {
-  // Run discovery
-  const discoveryResult = await wallet.accountsDiscovery({
-    accountScanExtent: 50,
-    addressScanExtent: 50,
-    bip39_mnemonic: mnemonicPhrase,
-    discoveryKind: AccountsDiscoveryKind.BIP44
-  });
 
-  // Log the raw result
-  console.log("Discovery result:", discoveryResult);
-
-  // If the SDK returns an array of accounts:
-  if (discoveryResult.accounts) {
-    discoveryResult.accounts.forEach(acc => {
-      console.log("Account ID:", acc.accountDescriptor.accountId);
-      console.log("Account Index:", acc.accountDescriptor.accountIndex);
-      console.log("Receive Address:", acc.accountDescriptor.receiveAddress?.toString());
-      console.log("Change Address:", acc.accountDescriptor.changeAddress?.toString());
-
-      // If addresses array is populated
-      if (acc.accountDescriptor.addresses) {
-        acc.accountDescriptor.addresses.forEach((addr, i) => {
-          console.log(`Address[${i}]:`, addr.toString());
-        });
-      }
-    });
+/**
+ * Get a list of all wallet files/descriptors available.
+ * @returns {Promise<Array>} Array of wallet descriptors (each has filename, title, etc.)
+ */
+export async function getAllWallets() {
+  if (!wallet) {
+    throw new Error("Wallet not initialized. Call init() first.");
   }
-  return discoveryResult;
+  try {
+    const result = await wallet.walletEnumerate({});
+    console.log("Enumerated wallets:", result.walletDescriptors);
+    return result.walletDescriptors || [];
+  } catch (err) {
+    throw new Error("Failed to enumerate wallets: " + (err && err.message ? err.message : err));
+  }
 }

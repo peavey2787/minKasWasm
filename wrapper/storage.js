@@ -1,4 +1,4 @@
-// WalletStorage.js
+// storage.js
 import { encryptMessage, decryptMessage } from "../crypto/encryption.js";
 
 const DB_NAME = "KaspaWalletDB";
@@ -70,5 +70,28 @@ export async function loadWalletData(filename, masterPassword) {
       }
     };
     request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Delete wallet data from IndexedDB by filename
+ * @param {string} filename - key for the stored wallet
+ * @returns {Promise<void>} Resolves when deletion is complete
+ */
+export async function deleteWalletData(filename) {
+  // 1. Remove localStorage entries
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.includes(filename)) {
+      localStorage.removeItem(key);
+    }
+  }
+
+  // 2. Delete IndexedDB database used by Kaspa WASM
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.deleteDatabase("kaspa_wallet_db");
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error("Delete blocked"));
   });
 }

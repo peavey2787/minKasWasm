@@ -22,6 +22,14 @@
   <button id="runRpcBtn">Run</button>
   <pre id="rpcResult" class="output"></pre>
 
+  <h2>Select Existing Wallet</h2>
+  <!-- Refresh Wallet List button removed -->
+  <select id="walletList"></select>
+  <input id="unlockWalletPasswordInput" type="password" placeholder="Wallet password">
+  <button id="unlockWalletBtn">Unlock Wallet</button>
+  <button id="deleteWalletBtn" style="margin-left:1em;color:#c00;">Delete Wallet</button>
+  <pre id="unlockWalletResult" class="output"></pre>
+
   <h2>Create Wallet</h2>
   <input id="walletPasswordInput" type="password" placeholder="Wallet password" style="margin-bottom:0.5em;">
   <input id="walletFilenameInput" type="text" placeholder="Wallet filename (optional)" style="margin-bottom:0.5em;">
@@ -44,7 +52,77 @@
     import { sompiToKaspaString, } from '../kas-wasm/kaspa.js';
     import { connect } from '../wrapper/kaspa_client.js';
     import { runRpcCommand } from '../wrapper/rpc_runner.js';
-    import { init, createWallet, getSpendableBalance, send } from '../wrapper/wallet_service.js';
+    import { init, createWallet, getSpendableBalance, send, getAllWallets } from '../wrapper/wallet_service.js';
+    import { deleteWalletData } from '../wrapper/storage.js';
+    const deleteWalletBtn = document.getElementById('deleteWalletBtn');
+    // Delete wallet handler
+    deleteWalletBtn.addEventListener('click', async () => {
+      const filename = walletList.value;
+      if (!filename) {
+        unlockWalletResult.textContent = "Please select a wallet to delete.";
+        return;
+      }
+      if (!confirm(`Are you sure you want to delete wallet '${filename}'? This action cannot be undone.`)) {
+        return;
+      }
+      unlockWalletResult.textContent = "Deleting wallet...";
+      try {
+        await deleteWalletData(filename);
+        unlockWalletResult.textContent = `Wallet '${filename}' deleted.`;
+        await refreshWalletList();
+      } catch (err) {
+        unlockWalletResult.textContent = "Failed to delete wallet: " + (err.message || err);
+      }
+    });
+  // Refresh Wallet List button removed
+  const walletList = document.getElementById('walletList');
+  const unlockWalletPasswordInput = document.getElementById('unlockWalletPasswordInput');
+  const unlockWalletBtn = document.getElementById('unlockWalletBtn');
+  const unlockWalletResult = document.getElementById('unlockWalletResult');
+    // Populate wallet list
+    async function refreshWalletList() {
+      walletList.innerHTML = '';
+      unlockWalletResult.textContent = '';
+      try {
+        const wallets = await getAllWallets();
+        if (wallets.length === 0) {
+          walletList.innerHTML = '<option value="">No wallets found</option>';
+          return;
+        }
+        wallets.forEach(w => {
+          const opt = document.createElement('option');
+          opt.value = w.filename;
+          opt.textContent = w.title || w.filename;
+          walletList.appendChild(opt);
+        });
+      } catch (err) {
+        unlockWalletResult.textContent = "Failed to load wallets: " + (err.message || err);
+      }
+    }
+
+    // Refresh Wallet List button removed
+
+    // Unlock wallet
+    unlockWalletBtn.addEventListener('click', async () => {
+      const filename = walletList.value;
+      const password = unlockWalletPasswordInput.value.trim();
+      if (!filename) {
+        unlockWalletResult.textContent = "Please select a wallet.";
+        return;
+      }
+      if (!password) {
+        unlockWalletResult.textContent = "Please enter the wallet password.";
+        return;
+      }
+      unlockWalletResult.textContent = "Unlocking wallet...";
+      try {
+        const result = await createWallet({ password, filename });
+        unlockWalletResult.textContent = "Wallet unlocked!\nAddress:\n" + result.address;
+        sendAddressInput.value = result.address;
+      } catch (err) {
+        unlockWalletResult.textContent = "Failed to unlock wallet: " + (err.message || err);
+      }
+    });
 
     let client = null;
 
@@ -74,6 +152,9 @@
             status.textContent = "Disconnected";
           }
         });
+        // Initialize wallet after connecting
+        init({rpcClient: client, networkId: networkId.value, balanceElementId: "balanceResult"});
+        await refreshWalletList();
         status.textContent = "Connected";
       } catch (err) {
         status.textContent = "Connection failed: " + err.message;
@@ -90,8 +171,7 @@
       walletResult.textContent = "Creating wallet...";
       const password = walletPasswordInput.value.trim() || "password";
       const filename = walletFilenameInput.value.trim() || "demo_wallet";
-      try {        
-        init({rpcClient: client, networkId: networkId.value, balanceElementId: "balanceResult"});
+      try {
         const result = await createWallet({
           password,
           filename
@@ -112,8 +192,7 @@
         return;
       }
       walletResult.textContent = "Importing wallet...";
-      try {        
-        init({rpcClient: client, networkId: networkId.value, balanceElementId: "balanceResult"});
+      try {
         const result = await createWallet({
           password,
           mnemonic,
