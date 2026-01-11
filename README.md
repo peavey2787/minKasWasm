@@ -4,6 +4,8 @@ This project provides a browser-based Kaspa WASM SDK wrapper and a set of intera
 
 ## How to Use the Kaspa JS Wrapper
 
+### Client
+
 1. **Connect to a Kaspa node:**
 
 	```js
@@ -14,6 +16,8 @@ This project provides a browser-based Kaspa WASM SDK wrapper and a set of intera
 	// networkId: e.g. "mainnet", "testnet-10"
 	// onDisconnect: Optional callback for disconnect events
 	```
+
+### Wallet Management
 
 2. **Initialize the wallet:**
 
@@ -27,7 +31,7 @@ This project provides a browser-based Kaspa WASM SDK wrapper and a set of intera
 	// onBalanceChange: (optional) callback for balance updates
 	```
 
-3. **Create a wallet:**
+3. **Create/Import a wallet:**
 
 	```js
 	import { createWallet } from './wrapper/wallet_service.js';
@@ -59,7 +63,28 @@ This project provides a browser-based Kaspa WASM SDK wrapper and a set of intera
 	const keypair = await generateNewKeypair(index);
 	```
 
-6. **Block Scanner usage:**
+### Wallet File Management
+
+6. **List all wallets:**
+
+	```js
+	import { getAllWallets } from './wrapper/wallet_service.js';
+
+	const wallets = await getAllWallets();
+	// wallets: Array of { filename, title, ... }
+	```
+
+7. **Delete a wallet by filename:**
+
+	```js
+	import { deleteWalletData } from './wrapper/storage.js';
+
+	await deleteWalletData(filename); // filename: string
+	```
+
+### Block Scanner
+
+8. **Block Scanner usage:**
 
 	```js
 	import { KaspaBlockScanner, SearchMode } from './wrapper/scanner.js';
@@ -72,15 +97,19 @@ This project provides a browser-based Kaspa WASM SDK wrapper and a set of intera
 	scanner.stop();
 	```
 
-7. **Run arbitrary RPC commands:**
+### RPC Commands
+
+9. **Run arbitrary RPC commands:**
 
 	```js
 	import { runRpcCommand } from './wrapper/rpc_runner.js';
 
 	const result = await runRpcCommand(client, '{"method":"getInfo","params":{}}');
 	```
-  
-8. **Symmetric Encryption usage:**
+
+### Encryption
+
+10. **Symmetric Encryption usage:**
 
 	```js
 	import { encryptMessage, decryptMessage } from './wrapper/encryption.js';
@@ -92,7 +121,7 @@ This project provides a browser-based Kaspa WASM SDK wrapper and a set of intera
 	const decrypted = decryptMessage(encrypted, password);
 	```
 
-9. **Diffie–Hellman Encryption usage:**
+11. **Diffie–Hellman Encryption usage:**
 
 	```js
 	import { DHSession } from './wrapper/dh_encryption.js';
