@@ -135,7 +135,9 @@
       <button id="startStopBtn">Start</button>
     </div>
     <div id="statusDiv"></div>
-    <div id="blocksContainer" class="output"></div>
+    <iframe id="blocksIframe"
+      style="width:100%;max-width:480px;height:250px;border:none;border-radius:8px;background:#232223;box-shadow:0 2px 8px #00000033;display:block;margin:0 auto;"
+      srcdoc="<body style='margin:0;background:#232223;color:#49eacb;font-family:Segoe UI,Arial,sans-serif;'></body>"></iframe>
     <div class="matches-container output">
       <strong>Matches Found:</strong>
       <div id="matchesContainer"></div>
@@ -188,6 +190,7 @@
     const startStopBtn = document.getElementById("startStopBtn");
     const searchInput = document.getElementById("searchInput");
     const blocksContainer = document.getElementById("blocksContainer");
+      const blocksIframe = document.getElementById("blocksIframe");
     const matchesContainer = document.getElementById("matchesContainer");
     const walletContainer = document.getElementById("walletContainer");
     const createWalletBtn = document.getElementById("createWalletBtn");
@@ -222,12 +225,30 @@
     connectBtn.onclick = connectToNode;
 
     function addBlockToUI(block, decodedPayload, isMatch) {
-      const div = document.createElement("div");
-      div.className = isMatch ? "block match" : "block";
-      const header = block.header;
-      const payloadText = decodedPayload ? ` | Payload: ${decodedPayload}` : "";
-      div.textContent = `Hash: ${header?.hash} | BlueScore: ${header?.blueScore}${payloadText}`;
-      (isMatch ? matchesContainer : blocksContainer).prepend(div);
+      if (isMatch) {
+        const div = document.createElement("div");
+        div.className = "block match";
+        const header = block.header;
+        const payloadText = decodedPayload ? ` | Payload: ${decodedPayload}` : "";
+        div.textContent = `Hash: ${header?.hash?.slice(0,6)}... | BlueScore: ${header?.blueScore}${payloadText}`;
+        matchesContainer.prepend(div);
+      } else {
+        const iframeDoc = blocksIframe.contentDocument || blocksIframe.contentWindow.document;
+        if (!iframeDoc.body) return;
+        const div = iframeDoc.createElement("div");
+        div.style.border = "1px solid #444";
+        div.style.background = "#232223";
+        div.style.marginBottom = "1rem";
+        div.style.borderRadius = "4px";
+        div.style.padding = "0.5rem";
+        div.style.color = "#49eacb";
+        div.style.fontFamily = "Segoe UI,Arial,sans-serif";
+        const header = block.header;
+        const payloadText = decodedPayload ? ` | Payload: ${decodedPayload}` : "";
+        const txCount = Array.isArray(block.transactions) ? block.transactions.length : 0;
+        div.textContent = `Hash: ${header?.hash?.slice(0,6)}... | BlueScore: ${header?.blueScore} | Txs: ${txCount}`;
+        iframeDoc.body.insertBefore(div, iframeDoc.body.firstChild);
+      }
     }
 
     async function startScanner() {
@@ -235,7 +256,10 @@
       scanning = true;
       startStopBtn.textContent = "Stop";
       statusDiv.textContent = "Scanning...";
-      blocksContainer.innerHTML = "";
+      const iframeDoc = blocksIframe.contentDocument || blocksIframe.contentWindow.document;
+      if (iframeDoc && iframeDoc.body) {
+        iframeDoc.body.innerHTML = "";
+      }
       if (blockSubscription) {
         client.removeEventListener("block-added", blockSubscription);
         blockSubscription = null;
