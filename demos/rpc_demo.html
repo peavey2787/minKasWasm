@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="../styles.css">
   <meta charset="UTF-8">
   <title>Kaspa RPC Demo</title>
 </head>
@@ -15,8 +15,8 @@
   <pre id="rpcResult"></pre>
 
   <script type="module">
-    import { connect } from './kaspa_client.js';
-    import { runRpcCommand } from './rpc_runner.js';
+    import { connect } from '../wrapper/kaspa_client.js';
+    import { runRpcCommand } from '../wrapper/rpc_runner.js';
 
     let client = null;
 

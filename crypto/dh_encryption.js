@@ -2,8 +2,8 @@
 import {
   encryptXChaCha20Poly1305,
   decryptXChaCha20Poly1305
-} from "./kas-wasm/kaspa.js";
-import * as utilities from "./utilities.js";
+} from "../kas-wasm/kaspa.js";
+import * as utilities from "../wrapper/utilities.js";
 import * as secp from "https://esm.sh/@noble/secp256k1";
 
 /**

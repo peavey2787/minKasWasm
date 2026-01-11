@@ -1,4 +1,12 @@
 // rpc_runner.js
+
+/**
+ * Run a JSON-RPC command on the given Kaspa RPC client.
+ * The provided RPC Client must already be connected.
+ * @param {Object} client - The Kaspa RPC client instance (must be connected).
+ * @param {string} cmdText - JSON string with { method, params } for the RPC call.
+ * @returns {Promise<string>} The result of the RPC call as a string, or error message.
+ */
 export async function runRpcCommand(client, cmdText) {
   if (!client || !client.isConnected) {
     return "Not connected to any RPC";

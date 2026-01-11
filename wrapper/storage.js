@@ -1,5 +1,5 @@
 // WalletStorage.js
-import { encryptMessage, decryptMessage } from "./encryption.js";
+import { encryptMessage, decryptMessage } from "../crypto/encryption.js";
 
 const DB_NAME = "KaspaWalletDB";
 const STORE_NAME = "MetaDataStore";

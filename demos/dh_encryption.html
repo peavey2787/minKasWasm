@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Kaspa DH Encryption Demo</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="../styles.css">
 </head>
 <body>
   <h1>Kaspa Wallet + Diffie–Hellman Demo</h1>
@@ -71,10 +71,10 @@
   </div>
 
   <script type="module">
-    import { connect } from "./kaspa_client.js";  
-    import { init, createWallet, generateNewAddress, generateNewKeypair } from "./wallet_service.js";
-    import { DHSession } from "./dh_encryption.js";
-    import * as utilities from "./utilities.js";
+    import { connect } from "../wrapper/kaspa_client.js";  
+    import { init, createWallet, generateNewAddress, generateNewKeypair } from "../wrapper/wallet_service.js";
+    import { DHSession } from "../wrapper/dh_encryption.js";
+    import * as utilities from "../wrapper/utilities.js";
 
     let dhSession = new DHSession();
     

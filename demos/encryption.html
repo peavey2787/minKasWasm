@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="../styles.css">
   <meta charset="UTF-8">
   <title>Symmetric Encryption Demo</title>
 </head>
@@ -23,8 +23,8 @@
   </div>
 
   <script type="module">
-    import initKaspa from "./kas-wasm/kaspa.js";
-    import { encryptMessage, decryptMessage } from "./encryption.js";
+    import initKaspa from "../kas-wasm/kaspa.js";
+    import { encryptMessage, decryptMessage } from "../wrapper/encryption.js";
 
     await initKaspa();
 

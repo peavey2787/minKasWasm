@@ -10,6 +10,7 @@ import {
 import { storeWalletData } from './storage.js';
 import * as utilities from './utilities.js';
 
+
 const DEFAULT_FILENAME = "default_wallet";
 let wallet = null;
 let walletInitialized = false;
@@ -17,17 +18,18 @@ let walletSecret = null;
 let accountId = null;
 let filename = DEFAULT_FILENAME;
 
+
 /**
  * Initialize the Kaspa wallet with the given RPC client and network.
+ * The provided rpcClient must already be connected.
  * Adds a balance event listener for UI/callback updates.
  * @param {Object} params
- * @param {Object} params.rpcClient - The Kaspa RPC client instance.
+ * @param {Object} params.rpcClient - The Kaspa RPC client instance (must be connected).
  * @param {string} params.networkId - Network ID (e.g., 'mainnet', 'testnet-10').
  * @param {string|null} [params.balanceElementId] - Optional DOM element ID to update balance.
- * @param {function|null} [params.balanceCallBack] - Optional callback to receive balance updates.
- */
- 
-export function init({ rpcClient, networkId, balanceElementId = null, balanceCallBack = null }) {
+ * @param {function|null} [params.onBalanceChange] - Optional callback to receive balance updates.
+ */ 
+export function init({ rpcClient, networkId, balanceElementId = null, onBalanceChange = null} = {}) {
 
   if (walletInitialized) return;
 
@@ -57,8 +59,8 @@ export function init({ rpcClient, networkId, balanceElementId = null, balanceCal
         balanceResult.textContent = `Balance:\n${matureBalance} KAS`;    
       }
 
-      if(balanceCallBack) {
-        balanceCallBack(matureBalance);
+      if(typeof onBalanceChange === 'function') {
+        onBalanceChange(matureBalance);
       }
     } 
   });

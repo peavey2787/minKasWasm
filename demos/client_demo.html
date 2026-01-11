@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="../styles.css">
   <meta charset="UTF-8">
   <title>Kaspa Connect Demo</title>
 </head>
@@ -10,7 +10,7 @@
   <p id="status">Not connected</p>
 
   <script type="module">
-    import { connect } from './kaspa_client.js'; // Ensure this file is in the same folder as kaspa_client.js or put it outside the folder and change this to '../kaspa_client.js'
+    import { connect } from '../wrapper/kaspa_client.js';
 
     const btn = document.getElementById('connectBtn');
     const status = document.getElementById('status');

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="../styles.css">
   <meta charset="UTF-8">
   <title>Kaspa Demo</title>
 </head>
@@ -37,10 +37,10 @@
   <pre id="sendResult"></pre>
 
   <script type="module">
-    import { sompiToKaspaString, } from './kas-wasm/kaspa.js';
-    import { connect } from './kaspa_client.js';
-    import { runRpcCommand } from './rpc_runner.js';
-    import { init, createWallet, getSpendableBalance, send } from './wallet_service.js';
+    import { sompiToKaspaString, } from '../kas-wasm/kaspa.js';
+    import { connect } from '../wrapper/kaspa_client.js';
+    import { runRpcCommand } from '../wrapper/rpc_runner.js';
+    import { init, createWallet, getSpendableBalance, send } from '../wrapper/wallet_service.js';
 
     let client = null;
 

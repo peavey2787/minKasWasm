@@ -2,7 +2,7 @@
 import {
   encryptXChaCha20Poly1305,
   decryptXChaCha20Poly1305
-} from "./kas-wasm/kaspa.js";
+} from "../kas-wasm/kaspa.js";
 
 /**
  * Enterprise-grade encryption wrapper using Kaspa WASM XChaCha20-Poly1305
