@@ -83,7 +83,7 @@
     createWalletBtn.addEventListener('click', async () => {
       walletResult.textContent = "Creating wallet...";
       try {        
-        init({rpcClient: client, networkId: networkId.value, balanceElementId: balanceResult});
+        init({rpcClient: client, networkId: networkId.value, balanceElementId: "balanceResult"});
         const result = await createWallet({
           password: "password",
           filename: "demo_wallet"
