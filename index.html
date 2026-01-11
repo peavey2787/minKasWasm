@@ -42,18 +42,20 @@
       <ol>
         <li>
           <strong>Connect to a Kaspa node:</strong>
-          <pre>import { connect } from './wrapper/kaspa_client.js';
+          <pre>
+import { connect } from './wrapper/kaspa_client.js';
 
 const client = await connect(rpcUrl, networkId, { onDisconnect });</pre>
           <ul>
-            <li><code>rpcUrl</code>: Node address (or <code>null</code> for resolver)</li>
+            <li><code>rpcUrl</code>: Node ip:port (or <code>null</code> for resolver)</li>
             <li><code>networkId</code>: e.g. <code>"mainnet"</code>, <code>"testnet-10"</code></li>
             <li><code>onDisconnect</code>: Optional callback for disconnect events</li>
           </ul>
         </li>
         <li>
           <strong>Initialize the wallet:</strong>
-          <pre>import { init } from './wrapper/wallet_service.js';
+          <pre>
+import { init } from './wrapper/wallet_service.js';
 
 init({ rpcClient: client, networkId, balanceElementId, onBalanceChange });</pre>
           <ul>
@@ -65,46 +67,126 @@ init({ rpcClient: client, networkId, balanceElementId, onBalanceChange });</pre>
         </li>
         <li>
           <strong>Create a wallet:</strong>
-          <pre>import { createWallet } from './wrapper/wallet_service.js';
+          <pre>
+import { createWallet } from './wrapper/wallet_service.js';
 
 const { mnemonic, address } = await createWallet({
-  password,
-  filename,
-  userHint,
-  mnemonic,
-  storeMnemonic
+  password,           // Wallet password
+  filename,           // (optional) Wallet filename
+  userHint,           // (optional) User hint for wallet
+  mnemonic,           // (optional) Import mnemonic
+  storeMnemonic       // (optional) Store mnemonic in storage
 });</pre>
+          <ul>
+            <li><code>password</code>: Wallet password</li>
+            <li><code>filename</code>: (optional) Wallet filename</li>
+            <li><code>userHint</code>: (optional) User hint for wallet</li>
+            <li><code>mnemonic</code>: (optional) Import mnemonic</li>
+            <li><code>storeMnemonic</code>: (optional) Store mnemonic in storage</li>
+          </ul>
         </li>
         <li>
           <strong>Send Kaspa:</strong>
-          <pre>import { send } from './wrapper/wallet_service.js';
+          <pre>
+import { send } from './wrapper/wallet_service.js';
 
-await send({ amount, toAddress, payload, priorityFeeKas });</pre>
+await send({
+  amount,            // Amount in KAS
+  toAddress,         // Destination address
+  payload,           // (optional) Payload string
+  priorityFeeKas     // (optional) Extra priority fee in KAS
+});</pre>
+          <ul>
+            <li><code>amount</code>: Amount in KAS</li>
+            <li><code>toAddress</code>: Destination address</li>
+            <li><code>payload</code>: (optional) Payload string</li>
+            <li><code>priorityFeeKas</code>: (optional) Extra priority fee in KAS</li>
+          </ul>
         </li>
         <li>
           <strong>Other wallet functions:</strong>
-          <pre>import { getSpendableBalance, generateNewAddress, generateNewKeypair } from './wrapper/wallet_service.js';
+          <pre>
+import { getSpendableBalance, generateNewAddress, generateNewKeypair } from './wrapper/wallet_service.js';
 
 const balance = await getSpendableBalance();
-const address = await generateNewAddress();
-const keypair = await generateNewKeypair(index);</pre>
+const address = await generateNewAddress(); // generateNewAddress(change = false)
+const keypair = await generateNewKeypair(index); // index: child key index (number)
+</pre>
+          <ul>
+            <li><code>generateNewAddress(change)</code>: <code>change</code> (optional, default <code>false</code>) - if true, generates a change address</li>
+            <li><code>generateNewKeypair(index)</code>: <code>index</code> (number) - child key index</li>
+          </ul>
         </li>
         <li>
           <strong>Block Scanner usage:</strong>
-          <pre>import { KaspaBlockScanner, SearchMode } from './wrapper/scanner.js';
+          <pre>
+import { KaspaBlockScanner, SearchMode } from './wrapper/scanner.js';
 
-const scanner = new KaspaBlockScanner(client);
-scanner.setSearch(searchString, SearchMode.INCLUDES);
+const scanner = new KaspaBlockScanner(client); // client: connected Kaspa RPC client
+scanner.setSearch(searchString, SearchMode.INCLUDES); // searchString: string to search, mode: 'includes' or 'startsWith'
 await scanner.start((block, match, matchedPayload) => {
-  // handle block
+  // block: block object
+  // match: true if payload matched
+  // matchedPayload: decoded payload string (if matched)
 });
 scanner.stop();</pre>
+          <ul>
+            <li><code>setSearch(searchString, mode)</code>: <code>searchString</code> (string), <code>mode</code> (optional, <code>'includes'</code> or <code>'startsWith'</code>)</li>
+            <li><code>start(onBlock)</code>: <code>onBlock</code> (function) - callback for each block</li>
+            <li><code>stop()</code>: Stops the scanner</li>
+          </ul>
         </li>
         <li>
           <strong>Run arbitrary RPC commands:</strong>
-          <pre>import { runRpcCommand } from './wrapper/rpc_runner.js';
+          <pre>
+import { runRpcCommand } from './wrapper/rpc_runner.js';
 
-const result = await runRpcCommand(client, '{"method":"getInfo","params":{}}');</pre>
+const result = await runRpcCommand(client, '{"method":"getInfo","params":{}}');
+// client: connected Kaspa RPC client
+// cmdText: JSON string with { method, params }
+</pre>
+          <ul>
+            <li><code>client</code>: connected Kaspa RPC client</li>
+            <li><code>cmdText</code>: JSON string with <code>{ method, params }</code></li>
+          </ul>
+        </li>
+        <li>
+          <strong>Symmetric Encryption usage:</strong>
+          <pre>
+import { encryptMessage, decryptMessage } from './wrapper/encryption.js';
+
+// Encrypt
+const encrypted = encryptMessage(plaintext, password); // plaintext: string, password: string
+
+// Decrypt
+const decrypted = decryptMessage(encrypted, password); // encrypted: object/string, password: string
+</pre>
+          <ul>
+            <li><code>encryptMessage(plaintext, password)</code>: <code>plaintext</code> (string), <code>password</code> (string)</li>
+            <li><code>decryptMessage(encrypted, password)</code>: <code>encrypted</code> (object/string), <code>password</code> (string)</li>
+          </ul>
+        </li>
+        <li>
+          <strong>Diffie–Hellman Encryption usage:</strong>
+          <pre>
+import { DHSession } from './wrapper/dh_encryption.js';
+
+const dh = new DHSession();
+// Initiate handshake
+const handshakeMsg = dh.initiateHandshake(myPrivateKey, myPublicKey); // myPrivateKey: hex string, myPublicKey: hex string
+// Respond to handshake
+const response = await dh.respondToHandshake(peerPublicKeyHex); // peerPublicKeyHex: hex string
+// Encrypt
+const encrypted = dh.encrypt(message); // message: string
+// Decrypt
+const decrypted = dh.decrypt(encrypted); // encrypted: object/string
+</pre>
+          <ul>
+            <li><code>initiateHandshake(myPrivateKey, myPublicKey)</code>: <code>myPrivateKey</code> (hex string), <code>myPublicKey</code> (hex string)</li>
+            <li><code>respondToHandshake(peerPublicKeyHex)</code>: <code>peerPublicKeyHex</code> (hex string)</li>
+            <li><code>encrypt(message)</code>: <code>message</code> (string)</li>
+            <li><code>decrypt(encrypted)</code>: <code>encrypted</code> (object/string)</li>
+          </ul>
         </li>
       </ol>
     </div>
