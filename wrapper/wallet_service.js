@@ -77,25 +77,56 @@ export function init({ rpcClient, networkId, balanceElementId = null, onBalanceC
  * @param {string} [params.userHint] - Optional user hint for wallet.
  * @param {string|null} [params.mnemonic] - Optional mnemonic phrase to import.
  * @param {boolean} [params.storeMnemonic] - Whether to store mnemonic in storage.
+ * @param {boolean} [params.discoverAddresses] - Whether to perform address discovery.
  * @returns {Promise<{mnemonic: string, address: string}>} - The mnemonic and receiving address.
  */
-
-export async function createWallet({ password, filename = DEFAULT_FILENAME, userHint = "", mnemonic = null, storeMnemonic = false }) {
+export async function createWallet({ password, filename = DEFAULT_FILENAME, userHint = "", mnemonic = null, storeMnemonic = false, discoverAddresses = true }) {
 
   if (!walletInitialized) {
     throw new Error("Wallet not initialized. Call init() first.");
   }
 
-  console.log("Creating wallet...");
-
   // 1. Set wallet secret and filename
   walletSecret = password;
   filename = filename || DEFAULT_FILENAME;
 
-  // 2. Create or import mnemonic
+  // 2. Try to open the wallet (if it exists)
+  try {
+    console.log("Attempting to open wallet...");
+    await wallet.walletOpen({ filename, walletSecret });
+    // 3. Connect and start wallet
+    await wallet.connect();  
+    await wallet.start();
+    // 4. Activate the account to get events like balance changes
+    const address = await activateAccount();
+    console.log("Wallet opened successfully.");  
+    return { address };
+  } catch (err) {
+    // If wallet doesn't exist, proceed to create a new one
+    return await _createNewWallet({ password, filename, userHint, mnemonic, storeMnemonic, discoverAddresses });
+  }
+}
+
+
+/**
+ * Internal function to create a new wallet.
+ * @param {Object} params
+ * @param {string} params.password - Password to encrypt wallet data.
+ * @param {string} params.filename - Wallet filename.
+ * @param {string} params.userHint - User hint for wallet.
+ * @param {string|null} params.mnemonic - Mnemonic phrase to import.
+ * @param {boolean} params.storeMnemonic - Whether to store mnemonic in storage.
+ * @param {boolean} params.discoverAddresses - Whether to perform address discovery.
+ * @returns {Promise<{mnemonic: string, address: string}>} - The mnemonic and receiving address.
+ */
+export async function _createNewWallet({ password, filename = DEFAULT_FILENAME, userHint = "", mnemonic = null, storeMnemonic = false, discoverAddresses = true }) {
+  
+  console.log("Creating new wallet...");
+  
+  // 1. Create or import mnemonic
   const mnemonicPhrase = mnemonic || utilities.generateMnemonic(24);
 
-  // 3. Create wallet file
+  // 2. Create wallet file
   try {
     const descriptor = await wallet.walletCreate({
       filename,
@@ -114,17 +145,17 @@ export async function createWallet({ password, filename = DEFAULT_FILENAME, user
     }
   }
 
-  // 4. Open wallet
-  await wallet.walletOpen({ filename, walletSecret: password });
+  // 3. Open wallet
+  await wallet.walletOpen({ filename, walletSecret });
 
-  // 5. Insert mnemonic key
+  // 4. Insert mnemonic key
   let prvKeyData =  await wallet.prvKeyDataCreate({
     walletSecret,
     kind: "mnemonic",
     mnemonic: mnemonicPhrase
   });
 
-  // 6. Create account
+  // 5. Create account
   let account = await wallet.accountsCreate({
     walletSecret,
     type:"bip32",
@@ -132,42 +163,55 @@ export async function createWallet({ password, filename = DEFAULT_FILENAME, user
     prvKeyDataId: prvKeyData.prvKeyDataId
   });
 
-  accountId = account.accountDescriptor.accountId;  
+  accountId = account.accountDescriptor.accountId; 
 
-  // 7. Connect and start wallet
-  await wallet.connect();  
-  await wallet.start();
-
-  // 8. Optionally, perform accounts discovery to sync with network
-  // if you are importing existing wallet
-  const results = await wallet.accountsDiscovery({
-    accountScanExtent: 10,              // scan first 10 accounts
-    addressScanExtent: 50,             // scan first 50 addresses per account
-    bip39_mnemonic: mnemonicPhrase, 
-    discoveryKind: AccountsDiscoveryKind.BIP44
-  });
-
-  // 9. Activate account to enable balance tracking
-  await wallet.accountsActivate({ accountId });
-
-  // Get extended private key for address derivation and diffie-hellman encryption
+  // 6. Get extended private key for address derivation and diffie-hellman encryption
   const xprv = await utilities.getXPrv(mnemonicPhrase);
   const xPrvString = xprv.toString();
 
-  // Store XPrv and optionally mnemonic securely in IndexedDB
+  // 7. Store XPrv and optionally mnemonic securely in IndexedDB
   if (storeMnemonic) {
     storeWalletData({ filename, mnemonic: mnemonicPhrase, xprv: xPrvString }, password);
   } else {
     storeWalletData({ filename, xprv: xPrvString }, password);
   }
-  
-  console.log("Wallet created and opened successfully.");
 
-  // Return mnemonic for backup
-  return { 
-    mnemonic: mnemonicPhrase,
-    address: account.accountDescriptor.receiveAddress
-  };
+  // 8. Connect and start wallet
+  await wallet.connect();  
+  await wallet.start();
+
+  // 9. Optionally, perform accounts discovery to sync with network
+  // if you are importing existing wallet
+  if(discoverAddresses) {
+    const results = await wallet.accountsDiscovery({
+      accountScanExtent: 10,              // scan first 10 accounts
+      addressScanExtent: 50,             // scan first 50 addresses per account
+      bip39_mnemonic: mnemonicPhrase, 
+      discoveryKind: AccountsDiscoveryKind.BIP44
+    });
+  }
+
+  // 10. Activate the account to get events like balance changes
+  const address = await activateAccount();
+
+  console.log("Wallet created and data stored securely.");
+
+  return  { address, mnemonic: mnemonicPhrase };
+}
+
+
+/**
+ * Activate the specified account index (default 0) to enable balance tracking.
+ * @param {number} [accountIndex=0] - The account index to activate.
+ * @returns {Promise<string>} - The receiving address of the activated account.
+ */
+export async function activateAccount(accountIndex = 0) {
+    // 10. Activate account to enable balance tracking
+  const accounts = await wallet.accountsEnumerate();
+  accountId = accounts.accountDescriptors[accountIndex].accountId;
+  const address = accounts.accountDescriptors[accountIndex].receiveAddress;
+  await wallet.accountsActivate({ accountId });
+  return address;
 }
 
 
@@ -323,6 +367,30 @@ export async function generateNewKeypair(index) {
 
 
 /**
+ * Delete wallet data from IndexedDB by filename
+ * @param {string} filename - key for the stored wallet
+ * @returns {Promise<void>} Resolves when deletion is complete
+ */
+export async function deleteWalletData(filename) {
+  // 1. Remove localStorage entries
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.includes(filename)) {
+      localStorage.removeItem(key);
+    }
+  }
+
+  // 2. Delete IndexedDB database used by Kaspa WASM
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.deleteDatabase("kaspa_wallet_db");
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error("Delete blocked"));
+  });
+}
+
+
+/**
  * Get a list of all wallet files/descriptors available.
  * @returns {Promise<Array>} Array of wallet descriptors (each has filename, title, etc.)
  */
@@ -332,7 +400,6 @@ export async function getAllWallets() {
   }
   try {
     const result = await wallet.walletEnumerate({});
-    console.log("Enumerated wallets:", result.walletDescriptors);
     return result.walletDescriptors || [];
   } catch (err) {
     throw new Error("Failed to enumerate wallets: " + (err && err.message ? err.message : err));
