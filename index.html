@@ -78,11 +78,12 @@ init({ rpcClient: client, networkId, balanceElementId, onBalanceChange });
 import { createWallet } from './wrapper/wallet_service.js';
 
 const { mnemonic, address } = await createWallet({
-  password,           // Wallet password
-  filename,           // (optional) Wallet filename
-  userHint,           // (optional) User hint for wallet
-  mnemonic,           // (optional) Import mnemonic
-  storeMnemonic       // (optional) Store mnemonic in storage
+  password,             // Wallet password
+  filename,             // (optional) Wallet filename
+  userHint,             // (optional) User hint for wallet
+  mnemonic,             // (optional) Import mnemonic
+  storeMnemonic,        // (optional) Store mnemonic in storage
+  discoverAddresses     // (optional, default true) Scan for used addresses
 });
           </pre>
           <ul>
@@ -91,6 +92,7 @@ const { mnemonic, address } = await createWallet({
             <li><code>userHint</code>: (optional) User hint for wallet</li>
             <li><code>mnemonic</code>: (optional) Import mnemonic</li>
             <li><code>storeMnemonic</code>: (optional) Store mnemonic in storage</li>
+            <li><code>discoverAddresses</code>: (optional, default <code>true</code>) Scan for used addresses</li>
           </ul>
         </li>
         <li>

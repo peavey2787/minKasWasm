@@ -41,9 +41,16 @@ This project provides a browser-based Kaspa WASM SDK wrapper and a set of intera
 	  filename,
 	  userHint,
 	  mnemonic,
-	  storeMnemonic
+	  storeMnemonic,
+	  discoverAddresses // (optional, default true) Scan for used addresses
 	});
 	```
+	// password: Wallet password
+	// filename: (optional) Wallet filename
+	// userHint: (optional) User hint for wallet
+	// mnemonic: (optional) Import mnemonic
+	// storeMnemonic: (optional) Store mnemonic in storage
+	// discoverAddresses: (optional, default true) Scan for used addresses
 
 4. **Send Kaspa:**
 
