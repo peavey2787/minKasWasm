@@ -28,6 +28,7 @@
   <input id="unlockWalletPasswordInput" type="password" placeholder="Wallet password">
   <button id="unlockWalletBtn">Unlock Wallet</button>
   <button id="deleteWalletBtn" style="margin-left:1em;color:#c00;">Delete Wallet</button>
+  <button id="showMnemonicBtn" style="margin-left:1em;">Show Mnemonic</button>
   <pre id="unlockWalletResult" class="output"></pre>
 
   <h2>Create Wallet</h2>
@@ -52,7 +53,28 @@
     import { sompiToKaspaString, } from '../kas-wasm/kaspa.js';
     import { connect } from '../wrapper/kaspa_client.js';
     import { runRpcCommand } from '../wrapper/rpc_runner.js';
-    import { init, createWallet, getSpendableBalance, send, getAllWallets } from '../wrapper/wallet_service.js';
+    import { init, createWallet, getSpendableBalance, send, getAllWallets, getMnemonic } from '../wrapper/wallet_service.js';
+      const showMnemonicBtn = document.getElementById('showMnemonicBtn');
+      // Show mnemonic handler
+      showMnemonicBtn.addEventListener('click', async () => {
+        const filename = walletList.value;
+        const password = unlockWalletPasswordInput.value.trim();
+        if (!filename) {
+          unlockWalletResult.textContent = "Please select a wallet.";
+          return;
+        }
+        if (!password) {
+          unlockWalletResult.textContent = "Please enter the wallet password.";
+          return;
+        }
+        unlockWalletResult.textContent = "Fetching mnemonic...";
+        try {
+          const mnemonic = await getMnemonic(filename, password);
+          unlockWalletResult.textContent = `Mnemonic for '${filename}':\n${mnemonic}`;
+        } catch (err) {
+          unlockWalletResult.textContent = "Failed to fetch mnemonic: " + (err.message || err);
+        }
+      });
     import { deleteWalletData } from '../wrapper/storage.js';
     const deleteWalletBtn = document.getElementById('deleteWalletBtn');
     // Delete wallet handler
@@ -174,7 +196,8 @@
       try {
         const result = await createWallet({
           password,
-          filename
+          filename,
+          storeMnemonic: true
         });
         walletResult.textContent = "Wallet created!\nMnemonic:\n" + result.mnemonic + "\n\nAddress:\n" + result.address;
         sendAddressInput.value = result.address;
