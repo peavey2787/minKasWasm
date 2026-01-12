@@ -405,3 +405,14 @@ export async function getAllWallets() {
     throw new Error("Failed to enumerate wallets: " + (err && err.message ? err.message : err));
   }
 }
+
+
+/**
+ * Get the mnemonic phrase from storage for the given wallet filename and password.
+ * @param {string} filename - Wallet filename.
+ * @param {string} password - Password to decrypt wallet data.
+ * @returns {Promise<string>} - The mnemonic phrase.
+ */
+export async function getMnemonic(filename, password) {
+  return await utilities.getMnemonicFromStorage(filename, password);
+}

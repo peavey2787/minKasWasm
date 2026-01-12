@@ -15,6 +15,17 @@ export function generateMnemonic(wordCount = 24) {
   return mnemonic.phrase;
 }
 
+/** Retrieve the mnemonic phrase from storage.
+ * @param {string} filename - Wallet filename.
+ * @param {string} masterPassword - Password to decrypt wallet data.
+ * @returns {Promise<string>} The mnemonic phrase.
+ */
+export async function getMnemonicFromStorage(filename, masterPassword) {
+  const walletData = await loadWalletData(filename, masterPassword);
+  const mnemonic = walletData.mnemonic;
+  return mnemonic;
+}
+
 /**
  * Validate a payload string for Kaspa transaction (must be string and <= 32KB).
  * @param {string} payload - The payload string to validate.
