@@ -3,7 +3,6 @@ import {
   Wallet,  
   kaspaToSompi,
   sompiToKaspaString,
-  AccountKind,
   AccountsDiscoveryKind,
   Address
 } from '../kas-wasm/kaspa.js';
@@ -413,6 +412,12 @@ export async function getAllWallets() {
  * @param {string} password - Password to decrypt wallet data.
  * @returns {Promise<string>} - The mnemonic phrase.
  */
-export async function getMnemonic(filename, password) {
-  return await utilities.getMnemonicFromStorage(filename, password);
+export async function getMnemonic({ theFilename = '', password = '' } = {}) {
+  if(theFilename.length === 0) {
+    theFilename = filename;
+  }
+  if(password.length === 0) {
+    password = walletSecret;
+  }
+  return await utilities.getMnemonicFromStorage(theFilename, password);
 }
