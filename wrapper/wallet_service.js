@@ -51,11 +51,15 @@ export function init({ rpcClient, networkId, balanceElementId = null, onBalanceC
       // You can update your UI or call a callback here    
       console.log("Balance changed:", matureBalance, "KAS");
     
-      // Example: update a DOM element
-      let balanceResult = null;
-      if(balanceElementId) {
-        balanceResult = document.getElementById(balanceElementId);
-        balanceResult.textContent = `Balance:\n${matureBalance} KAS`;    
+      try{
+        // Example: update a DOM element
+        let balanceResult = null;
+        if(balanceElementId) {
+          balanceResult = document.getElementById(balanceElementId);
+          balanceResult.textContent = `Balance:\n${matureBalance} KAS`;    
+        }
+      } catch(err) {
+        // console.error("Error updating balance element:", err);
       }
 
       if(typeof onBalanceChange === 'function') {

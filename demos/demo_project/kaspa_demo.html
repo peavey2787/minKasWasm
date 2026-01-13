@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Kaspa Demo Project</title>
+  <link rel="stylesheet" href="../scanner.css">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2em; }
+    #container { max-width: 500px; margin: auto; padding: 2em; border: 1px solid #ccc; border-radius: 8px; }
+    #address, #balance { font-size: 1.2em; margin: 1em 0; }
+    #status { color: green; margin-bottom: 1em; }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <h2>Kaspa Demo Project Wallet</h2>
+    <div id="status">Connecting to testnet-10...</div>
+    <div id="address">Address: <span id="walletAddress">...</span></div>
+    <div id="balance">Balance: <span id="walletBalance">...</span> KAS</div>
+    <hr>
+    <div>
+      <label for="watchAddressInput">Watch Address:</label>
+      <input type="text" id="watchAddressInput" placeholder="kaspa:..." style="width: 60%;">
+      <button id="addWatchBtn">Add</button>
+    </div>
+    <div id="watch-list">
+      <strong>Watching Addresses:</strong>
+      <div id="watchedAddresses"></div>
+    </div>
+    <div>
+      <strong>UTXO Event Log:</strong>
+      <div id="log"></div>
+    </div>
+  </div>
+  <script type="module">
+    import KaspaManager from './kaspa_manager.js';
+
+    const walletName = 'demo_project_wallet';
+    const walletPassword = '1234';
+    const networkId = 'testnet-10';
+
+    const statusEl = document.getElementById('status');
+    const addressEl = document.getElementById('walletAddress');
+    const balanceEl = document.getElementById('walletBalance');
+    const watchAddressInput = document.getElementById('watchAddressInput');
+    const addWatchBtn = document.getElementById('addWatchBtn');
+    const watchedAddressesDiv = document.getElementById('watchedAddresses');
+    const logDiv = document.getElementById('log');
+
+    // Track watched addresses and callbacks
+    const watchedAddresses = new Map(); // address -> callback
+
+    function renderWatchedAddresses() {
+      watchedAddressesDiv.innerHTML = '';
+      for (const [address] of watchedAddresses) {
+        const div = document.createElement('div');
+        div.className = 'address-item';
+        const span = document.createElement('span');
+        span.className = 'address-text';
+        span.textContent = address;
+        const btn = document.createElement('button');
+        btn.textContent = 'Remove';
+        btn.className = 'remove-btn';
+        btn.onclick = () => removeWatchAddress(address);
+        div.appendChild(span);
+        div.appendChild(btn);
+        watchedAddressesDiv.appendChild(div);
+      }
+    }
+
+    function logEvent(event) {
+      const time = new Date().toLocaleTimeString();
+      const msg = `[${time}] ${JSON.stringify(event)}`;
+      const entry = document.createElement('div');
+      entry.textContent = msg;
+      logDiv.appendChild(entry);
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    async function addWatchAddress(address) {
+      if (!address || watchedAddresses.has(address)) return;
+      const manager = KaspaManager.getInstance();
+      const callback = (event) => logEvent({ address, ...event });
+      await manager.watchAddress(address, callback);
+      watchedAddresses.set(address, callback);
+      renderWatchedAddresses();
+      logEvent({ info: `Started watching ${address}` });
+    }
+
+    async function removeWatchAddress(address) {
+      if (!watchedAddresses.has(address)) return;
+      const manager = KaspaManager.getInstance();
+      const callback = watchedAddresses.get(address);
+      await manager.stopWatchingAddress(address, callback);
+      watchedAddresses.delete(address);
+      renderWatchedAddresses();
+      logEvent({ info: `Stopped watching ${address}` });
+    }
+
+    addWatchBtn.onclick = async () => {
+      const address = watchAddressInput.value.trim();
+      if (address) {
+        await addWatchAddress(address);
+        watchAddressInput.value = '';
+      }
+    };
+
+    watchAddressInput.addEventListener('keydown', async (e) => {
+      if (e.key === 'Enter') {
+        const address = watchAddressInput.value.trim();
+        if (address) {
+          await addWatchAddress(address);
+          watchAddressInput.value = '';
+        }
+      }
+    });
+
+    async function main() {
+      try {
+        statusEl.textContent = 'Connecting to testnet-10...';
+        const manager = KaspaManager.getInstance();
+        await manager.initKaspaClient({ networkId });
+        await manager.initWalletService();
+        statusEl.textContent = 'Creating wallet...';
+        await manager.createWallet({ password: walletPassword, filename: walletName });
+        const address = await manager.getAddress();
+        addressEl.textContent = address;
+        statusEl.textContent = 'Wallet ready!';
+        // Listen for balance changes
+        manager.onBalanceChange((info) => {
+          balanceEl.textContent = info.balance || '0';
+        });
+        // Get initial balance
+        const balance = await manager.getBalance();
+        balanceEl.textContent = balance || '0';
+
+      } catch (err) {
+        statusEl.textContent = 'Error: ' + (err.message || err);
+        statusEl.style.color = 'red';
+      }
+    }
+    main();
+  </script>
+</body>
+</html>

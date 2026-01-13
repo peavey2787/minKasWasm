@@ -12,7 +12,7 @@
   <h2>Run RPC Command</h2>
   <input id="rpcCommand" type="text" size="50" value='{"method":"getInfo","params":{}}'>
   <button id="runRpcBtn">Run</button>
-  <pre id="rpcResult"></pre>
+  <pre id="rpcResult" class="output"></pre>
 
   <script type="module">
     import { connect } from '../wrapper/kaspa_client.js';
@@ -29,7 +29,7 @@
     connectBtn.addEventListener('click', async () => {
       status.textContent = "Connecting...";
       try {
-        client = await connect(null, "mainnet", {
+        client = await connect(null, "testnet-10", {
           onDisconnect: () => {
             status.textContent = "Disconnected";
           }
