@@ -35,7 +35,7 @@ connectBtn.onclick = async () => {
       ? await connect(null, networkId)
       : await connect(url, networkId);
     statusDiv.textContent = "Connected";
-    scanner = new KaspaBlockScanner(kaspaClient);
+    scanner = new KaspaBlockScanner(kaspaClient, {});
   } catch (err) {
     statusDiv.textContent = "Connection failed";
   }
@@ -68,11 +68,22 @@ startStopBtn.onclick = async () => {
     const iframeDoc = blocksIframe.contentDocument || blocksIframe.contentWindow.document;
     if (iframeDoc && iframeDoc.body) iframeDoc.body.innerHTML = "";
     matchesContainer.innerHTML = "";
-    // Set search mode and string
-    const searchText = searchInput.value.trim().toLowerCase();
-    scanner.setSearch(searchText, SearchMode.INCLUDES); // Could add UI for mode
-    await scanner.start((block, match, matchedPayload) => {
-      addBlockToUI(block, match, matchedPayload);
+    // Set search options
+    const searchText = searchInput.value.trim();
+    // You can add UI for addresses and mode if needed
+    scanner.prefix = searchText ? searchText : null;
+    scanner.addresses = [];
+    scanner.searchMode = SearchMode.INCLUDES;
+    await scanner.start((block, matches) => {
+      
+      // Add all blocks to UI
+      addBlockToUI(block, null, null);
+
+      // Add matched blocks to UI
+      for (const match of matches) {
+        addBlockToUI(block, match, match.decodedPayload);
+      }
+      
     });
     scanning = true;
     startStopBtn.textContent = "Stop";
@@ -91,11 +102,11 @@ createWalletBtn.onclick = () => {
     if (!scanner || !kaspaClient) return alert("Connect to a node first!");
     const networkId = networkInput.value.trim();
     if(networkId === "public") {
-      await init({rpcClient: kaspaClient, networkId: "mainnet"});
+      await init({rpcClient: kaspaClient, networkId: "mainnet", balanceElementId: "balanceResult" });
     } else {
-      await init({rpcClient: kaspaClient, networkId});
+      await init({rpcClient: kaspaClient, networkId, balanceElementId: "balanceResult" });
     }
-    const { address } = await createWallet({ password: "1234", balanceElementId: "balanceLabel" });
+    const { address } = await createWallet({ password: "1234" });
     walletInitialized = true;
     receiveAddressLabel.textContent = address;
     toAddressInput.value = address;

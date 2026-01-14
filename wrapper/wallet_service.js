@@ -59,7 +59,7 @@ export function init({ rpcClient, networkId, balanceElementId = null, onBalanceC
           balanceResult.textContent = `Balance:\n${matureBalance} KAS`;    
         }
       } catch(err) {
-        // console.error("Error updating balance element:", err);
+        //console.error("Error updating balance element:", err);
       }
 
       if(typeof onBalanceChange === 'function') {
