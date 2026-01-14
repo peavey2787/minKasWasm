@@ -38,6 +38,19 @@
       <div id="matchesContainer"></div>
     </div>
   </div>
+  <div class="indexer-container scanner-container">
+    <h2>Transaction Indexer</h2>
+    <div class="indexer-controls" style="margin-bottom:1em;display:flex;flex-wrap:wrap;gap:1em;align-items:center;justify-content:center;">
+      <label style="margin-bottom:0;">TTL (minutes): <input type="number" id="indexerTtlInput" min="1" max="1440" value="10" style="width:60px;"></label>
+      <label style="margin-bottom:0;">Max Size: <input type="number" id="indexerMaxSizeInput" min="1" max="10000" value="500" style="width:80px;"></label>
+      <label style="margin-bottom:0;">Priority:
+        <label style="margin-left:0.5em;font-weight:normal;"><input type="radio" name="indexerPriority" value="ttl" checked> TTL</label>
+        <label style="margin-left:0.5em;font-weight:normal;"><input type="radio" name="indexerPriority" value="size"> Size</label>
+      </label>
+    </div>
+    <div id="indexerCountdown" style="color:#49eacb;font-size:0.95em;margin-bottom:0.5em;"></div>
+    <div id="indexerTxs" class="output matches-container" style="max-height:200px;overflow-y:auto;"></div>
+  </div>
   <div class="wallet-container">
     <h2>Wallet</h2>
     <div class="wallet-controls">

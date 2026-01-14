@@ -1,6 +1,6 @@
 // scanner.js - Generic Kaspa Block Scanner core logic
 import { stringToHex, hexToString } from './utilities.js';
-
+import { KaspaIndexer, IndexerEvent } from './indexer.js';
 /**
  * Enum for block scanner event names.
  * @readonly
@@ -27,6 +27,8 @@ export const SearchMode = Object.freeze({
  */
 export class KaspaBlockScanner {
   #prefix = null;
+  indexer = null;
+
   /**
    * Create a KaspaBlockScanner instance.
    * @param {Object} client - The Kaspa RPC client instance.
@@ -35,7 +37,7 @@ export class KaspaBlockScanner {
    * @param {string[]} [options.addresses=[]] - List of addresses to watch.
    * @param {string} [options.mode=SearchMode.INCLUDES] - Search mode: includes, startsWith, exact, endsWith.
    */
-  constructor(client, { prefix = null, addresses = [], mode = SearchMode.INCLUDES } = {}) {
+  constructor(client, { prefix = null, addresses = [], mode = SearchMode.INCLUDES, indexerOptions = {} } = {}) {
     this.client = client;
     this.blockSubscription = null;
     this.scanning = false;
@@ -44,6 +46,8 @@ export class KaspaBlockScanner {
     this.#prefix = prefix ? stringToHex(prefix) : null; 
     this.addresses = Array.isArray(addresses) ? addresses : [];
     this.searchMode = Object.values(SearchMode).includes(mode) ? mode : SearchMode.INCLUDES;
+    this.indexer = new KaspaIndexer(indexerOptions);
+    this.indexer.initDB();    
   }
 
   get prefix() {
@@ -118,17 +122,23 @@ export class KaspaBlockScanner {
               }
             }
           }
-
+          
           if (payloadMatch || addressMatch) {
-            matches.push({
-              txid: tx.id,
+            const matchObj = {
+              txid: tx.verboseData.transactionId,
               payloadHex: tx.payload,
               decodedPayload,
               payloadMatch,
-              addressMatch
-            });
-          }
-        }
+              addressMatch,
+              rawTx: tx // full raw transaction object for advanced users
+            };
+            matches.push(matchObj);
+
+            // Index matched transaction
+            this.indexer.addTransaction(matchObj);
+            this.indexer.dispatchEvent(new CustomEvent(IndexerEvent.TRANSACTION, { detail: { match: matches[matches.length - 1], block } }));                         
+          } 
+        }       
       }
 
       if (block && typeof onBlock === "function") {

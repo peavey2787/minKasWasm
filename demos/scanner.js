@@ -1,3 +1,4 @@
+import { IndexerEvent } from "../wrapper/indexer.js";
 import { KaspaBlockScanner, SearchMode } from "../wrapper/scanner.js";
 import { connect } from "../wrapper/kaspa_client.js";
 import { init, createWallet, send } from "../wrapper/wallet_service.js";
@@ -19,11 +20,42 @@ const payloadInput = document.getElementById("payloadInput");
 const receiveAddressLabel = document.getElementById("receiveAddressLabel");
 const sendResultLabel = document.getElementById("sendResult");
 const copyBtn = document.getElementById("copyReceiveAddressBtn");
+const indexerTxsDiv = document.getElementById("indexerTxs");
 
 let walletInitialized = false;
 let kaspaClient = null;
 let scanner = null;
+
+
 let scanning = false;
+let indexerCountdownInterval = null;
+let indexerCountdownListenersSet = false;
+let indexerCountdownStart = null;
+
+// Countdown timer updater for indexer TTL (always counts down from Start)
+function updateCountdown() {
+  const countdownDiv = document.getElementById("indexerCountdown");
+  if (!scanner || !scanner.indexer || !indexerCountdownStart) {
+    countdownDiv.textContent = "";
+    return;
+  }
+  const ttlMs = scanner.indexer.ttlMs;
+  if (!ttlMs) {
+    countdownDiv.textContent = "";
+    return;
+  }
+  const now = Date.now();
+  let msLeft = Math.max(0, (indexerCountdownStart + ttlMs) - now);
+  if (msLeft <= 0) {
+    countdownDiv.textContent = "Cache will evict soon.";
+  } else {
+    const min = Math.floor(msLeft / 60000);
+    const sec = Math.floor((msLeft % 60000) / 1000);
+    const minStr = min.toString().padStart(2, '0');
+    const secStr = sec.toString().padStart(2, '0');
+    countdownDiv.textContent = `Cache expires in: ${minStr}:${secStr}`;
+  }
+}
 
 connectBtn.onclick = async () => {
   statusDiv.textContent = "Connecting...";
@@ -35,7 +67,34 @@ connectBtn.onclick = async () => {
       ? await connect(null, networkId)
       : await connect(url, networkId);
     statusDiv.textContent = "Connected";
-    scanner = new KaspaBlockScanner(kaspaClient, {});
+
+    // Get indexer options from UI
+    const ttlInput = document.getElementById("indexerTtlInput");
+    const maxSizeInput = document.getElementById("indexerMaxSizeInput");
+    const priorityRadios = document.getElementsByName("indexerPriority");
+    const ttlMinutes = parseInt(ttlInput?.value) || 10;
+    const maxSize = parseInt(maxSizeInput?.value) || 500;
+    let priorityTTL = true;
+    for (const radio of priorityRadios) {
+      if (radio.checked && radio.value === "size") priorityTTL = false;
+    }
+    const indexerOptions = { ttlMinutes, maxSize, priorityTTL };
+
+    scanner = new KaspaBlockScanner(kaspaClient, { indexerOptions });
+
+    // Countdown timer setup moved to startStopBtn.onclick
+
+    scanner.indexer.addEventListener(IndexerEvent.TRANSACTION, (e) => {
+      const { match, block } = e.detail;
+      // Add to UI with theme-consistent styling
+      const div = document.createElement("div");
+      div.className = "block match indexer-tx";
+      div.innerHTML = `
+        <div style="font-size:0.95em;color:#49eacb;word-break:break-all;"><strong>TXID:</strong> ${match.txid}</div>
+        <div style="font-size:0.95em;"><strong>Payload:</strong> <span style="color:#fff;">${match.decodedPayload || "<em>none</em>"}</span></div>
+      `;
+      indexerTxsDiv.prepend(div);
+    });
   } catch (err) {
     statusDiv.textContent = "Connection failed";
   }
@@ -63,6 +122,13 @@ function addBlockToUI(block, match, matchedPayload) {
 
 startStopBtn.onclick = async () => {
   if (!scanner || !kaspaClient) return alert("Connect to a node first!");
+  const countdownDiv = document.getElementById("indexerCountdown");
+  // Remove any previous listeners to avoid stacking
+  if (scanner && scanner.indexer && indexerCountdownListenersSet) {
+    scanner.indexer.removeEventListener(IndexerEvent.TRANSACTION, updateCountdown);
+    scanner.indexer.removeEventListener(IndexerEvent.EVICTION, updateCountdown);
+    indexerCountdownListenersSet = false;
+  }
   if (!scanning) {
     // Clear previous blocks
     const iframeDoc = blocksIframe.contentDocument || blocksIframe.contentWindow.document;
@@ -70,21 +136,26 @@ startStopBtn.onclick = async () => {
     matchesContainer.innerHTML = "";
     // Set search options
     const searchText = searchInput.value.trim();
-    // You can add UI for addresses and mode if needed
     scanner.prefix = searchText ? searchText : null;
     scanner.addresses = [];
     scanner.searchMode = SearchMode.INCLUDES;
-    await scanner.start((block, matches) => {
-      
-      // Add all blocks to UI
-      addBlockToUI(block, null, null);
 
-      // Add matched blocks to UI
+    await scanner.start((block, matches) => {      
+      addBlockToUI(block, null, null);
       for (const match of matches) {
         addBlockToUI(block, match, match.decodedPayload);
-      }
-      
+      }      
     });
+
+    // Setup countdown timer for TTL (now that scanner/indexer is fully configured)
+    if (indexerCountdownInterval) clearInterval(indexerCountdownInterval);
+    indexerCountdownStart = Date.now();
+    indexerCountdownInterval = setInterval(updateCountdown, 1000);
+    scanner.indexer.addEventListener(IndexerEvent.TRANSACTION, updateCountdown);
+    scanner.indexer.addEventListener(IndexerEvent.EVICTION, updateCountdown);
+    indexerCountdownListenersSet = true;
+    updateCountdown();
+
     scanning = true;
     startStopBtn.textContent = "Stop";
     statusDiv.textContent = "Scanning...";
@@ -93,6 +164,14 @@ startStopBtn.onclick = async () => {
     scanning = false;
     startStopBtn.textContent = "Start";
     statusDiv.textContent = "Stopped.";
+    if (indexerCountdownInterval) clearInterval(indexerCountdownInterval);
+    indexerCountdownStart = null;
+    countdownDiv.textContent = "";
+    if (scanner && scanner.indexer && indexerCountdownListenersSet) {
+      scanner.indexer.removeEventListener(IndexerEvent.TRANSACTION, updateCountdown);
+      scanner.indexer.removeEventListener(IndexerEvent.EVICTION, updateCountdown);
+      indexerCountdownListenersSet = false;
+    }
   }
 };
 

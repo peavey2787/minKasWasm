@@ -1,5 +1,4 @@
 // indexer.js - Kaspa Transaction Indexer (browser version)
-
 /**
  * Enum for KaspaIndexer event names.
  * @readonly
@@ -45,6 +44,7 @@ export class KaspaIndexer extends EventTarget {
     this.priorityTTL = priorityTTL;
     this.dbName = dbName;
     this.db = null;
+    console.log("ttlMs: ", this.ttlMs, "maxSize:", this.maxSize, "priorityTTL:", this.priorityTTL);
   }
 
   async initDB() {
@@ -65,21 +65,10 @@ export class KaspaIndexer extends EventTarget {
     });
   }
 
-  async attachScanner(scanner) {
-    if (!this.db) await this.initDB();
-
-    scanner.start((block, matches) => {
-      for (const match of matches) {
-        this.addTransaction(match);
-        this.dispatchEvent(new CustomEvent(IndexerEvent.TRANSACTION, { detail: { match, block } }));
-      }
-      this.evict();
-    });
-  }
-
   addTransaction(tx) {
     const now = Date.now();
     const entry = { ...tx, timestamp: now };
+    console.log("Indexer: caching tx", entry);
     const txReq = this.db.transaction(IndexerStore.TRANSACTIONS, "readwrite");
     txReq.objectStore(IndexerStore.TRANSACTIONS).put(entry);
   }
