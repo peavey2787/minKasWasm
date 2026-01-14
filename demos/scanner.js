@@ -1,4 +1,3 @@
-import { IndexerEvent } from "../wrapper/indexer.js";
 import { KaspaBlockScanner, SearchMode } from "../wrapper/scanner.js";
 import { connect } from "../wrapper/kaspa_client.js";
 import { init, createWallet, send } from "../wrapper/wallet_service.js";
@@ -29,7 +28,6 @@ let scanner = null;
 
 let scanning = false;
 let indexerCountdownInterval = null;
-let indexerCountdownListenersSet = false;
 let indexerCountdownStart = null;
 
 // Countdown timer updater for indexer TTL (always counts down from Start)
@@ -78,23 +76,30 @@ connectBtn.onclick = async () => {
     for (const radio of priorityRadios) {
       if (radio.checked && radio.value === "size") priorityTTL = false;
     }
-    const indexerOptions = { ttlMinutes, maxSize, priorityTTL };
+    const indexerOptions = {
+      ttlMinutes,
+      maxSize,
+      priorityTTL,
+      onEvict: ({ txid, reason }) => {
+        const txDivs = indexerTxsDiv.querySelectorAll(`.indexer-tx[data-txid='${txid}']`);
+        txDivs.forEach(div => div.remove());
+        // Reset countdown timer on eviction
+        indexerCountdownStart = Date.now();
+        updateCountdown();
+      },
+      onTransaction: ({ match }) => {
+        const div = document.createElement("div");
+        div.className = "block match indexer-tx";
+        div.dataset.txid = match.txid;
+        div.innerHTML = `
+          <div style="font-size:0.95em;color:#49eacb;word-break:break-all;"><strong>TXID:</strong> ${match.txid}</div>
+          <div style="font-size:0.95em;"><strong>Payload:</strong> <span style="color:#fff;">${match.decodedPayload || "<em>none</em>"}</span></div>
+        `;
+        indexerTxsDiv.prepend(div);
+      }
+    };
 
     scanner = new KaspaBlockScanner(kaspaClient, { indexerOptions });
-
-    // Countdown timer setup moved to startStopBtn.onclick
-
-    scanner.indexer.addEventListener(IndexerEvent.TRANSACTION, (e) => {
-      const { match, block } = e.detail;
-      // Add to UI with theme-consistent styling
-      const div = document.createElement("div");
-      div.className = "block match indexer-tx";
-      div.innerHTML = `
-        <div style="font-size:0.95em;color:#49eacb;word-break:break-all;"><strong>TXID:</strong> ${match.txid}</div>
-        <div style="font-size:0.95em;"><strong>Payload:</strong> <span style="color:#fff;">${match.decodedPayload || "<em>none</em>"}</span></div>
-      `;
-      indexerTxsDiv.prepend(div);
-    });
   } catch (err) {
     statusDiv.textContent = "Connection failed";
   }
@@ -123,12 +128,6 @@ function addBlockToUI(block, match, matchedPayload) {
 startStopBtn.onclick = async () => {
   if (!scanner || !kaspaClient) return alert("Connect to a node first!");
   const countdownDiv = document.getElementById("indexerCountdown");
-  // Remove any previous listeners to avoid stacking
-  if (scanner && scanner.indexer && indexerCountdownListenersSet) {
-    scanner.indexer.removeEventListener(IndexerEvent.TRANSACTION, updateCountdown);
-    scanner.indexer.removeEventListener(IndexerEvent.EVICTION, updateCountdown);
-    indexerCountdownListenersSet = false;
-  }
   if (!scanning) {
     // Clear previous blocks
     const iframeDoc = blocksIframe.contentDocument || blocksIframe.contentWindow.document;
@@ -151,9 +150,6 @@ startStopBtn.onclick = async () => {
     if (indexerCountdownInterval) clearInterval(indexerCountdownInterval);
     indexerCountdownStart = Date.now();
     indexerCountdownInterval = setInterval(updateCountdown, 1000);
-    scanner.indexer.addEventListener(IndexerEvent.TRANSACTION, updateCountdown);
-    scanner.indexer.addEventListener(IndexerEvent.EVICTION, updateCountdown);
-    indexerCountdownListenersSet = true;
     updateCountdown();
 
     scanning = true;
@@ -167,11 +163,6 @@ startStopBtn.onclick = async () => {
     if (indexerCountdownInterval) clearInterval(indexerCountdownInterval);
     indexerCountdownStart = null;
     countdownDiv.textContent = "";
-    if (scanner && scanner.indexer && indexerCountdownListenersSet) {
-      scanner.indexer.removeEventListener(IndexerEvent.TRANSACTION, updateCountdown);
-      scanner.indexer.removeEventListener(IndexerEvent.EVICTION, updateCountdown);
-      indexerCountdownListenersSet = false;
-    }
   }
 };
 

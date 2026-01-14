@@ -29,7 +29,7 @@ export const IndexerStore = Object.freeze({
 });
 
 
-export class KaspaIndexer extends EventTarget {
+export class KaspaIndexer {
   /**
    * @param {Object} options - Indexer options.
    * @param {number|null} [options.ttlMinutes=null] - How long to store cache entries (minutes).
@@ -37,15 +37,16 @@ export class KaspaIndexer extends EventTarget {
    * @param {boolean} [options.priorityTTL=true] - If true, TTL eviction runs first; if false, size eviction runs first.
    * @param {string} [options.dbName="kaspaIndexer"] - IndexedDB database name.
    */
-  constructor({ ttlMinutes = null, maxSize = null, priorityTTL = true, dbName = "kaspaIndexer" } = {}) {
-    super();
-    this.ttlMs = ttlMinutes ? ttlMinutes * 60 * 1000 : null;
-    this.maxSize = maxSize;
-    this.priorityTTL = priorityTTL;
-    this.dbName = dbName;
-    this.db = null;
-    console.log("ttlMs: ", this.ttlMs, "maxSize:", this.maxSize, "priorityTTL:", this.priorityTTL);
-  }
+    constructor({ ttlMinutes = null, maxSize = null, priorityTTL = true, dbName = "kaspaIndexer", onEvict = null, onTransaction = null } = {}) {
+      this.ttlMs = ttlMinutes ? ttlMinutes * 60 * 1000 : null;
+      this.maxSize = maxSize;
+      this.priorityTTL = priorityTTL;
+      this.dbName = dbName;
+      this.db = null;
+      this._evictionInterval = null;
+      this.onEvict = typeof onEvict === 'function' ? onEvict : null;
+      this.onTransaction = typeof onTransaction === 'function' ? onTransaction : null;      
+    }
 
   async initDB() {
     return new Promise((resolve, reject) => {
@@ -59,18 +60,38 @@ export class KaspaIndexer extends EventTarget {
       };
       request.onsuccess = (e) => {
         this.db = e.target.result;
+        // Start eviction timer after DB is ready
+        this._startEvictionTimer();
         resolve(this.db);
       };
       request.onerror = (e) => reject(e);
     });
   }
 
+  _startEvictionTimer() {
+    if (this._evictionInterval) clearInterval(this._evictionInterval);
+    // Use ttlMs for eviction interval, fallback to 600000ms if not set
+    const interval = this.ttlMs && this.ttlMs > 0 ? this.ttlMs : 600000;
+    this._evictionInterval = setInterval(() => {
+      this.evict();
+    }, interval);
+  }
+
+  stopEvictionTimer() {
+    if (this._evictionInterval) {
+      clearInterval(this._evictionInterval);
+      this._evictionInterval = null;
+    }
+  }
+
   addTransaction(tx) {
     const now = Date.now();
     const entry = { ...tx, timestamp: now };
-    console.log("Indexer: caching tx", entry);
     const txReq = this.db.transaction(IndexerStore.TRANSACTIONS, "readwrite");
     txReq.objectStore(IndexerStore.TRANSACTIONS).put(entry);
+    if (typeof this.onTransaction === 'function') {
+      this.onTransaction({ match: entry });
+    }
   }
 
   evict() {
@@ -82,13 +103,22 @@ export class KaspaIndexer extends EventTarget {
     const runTTL = () => {
       if (this.ttlMs) {
         const index = store.index("timestamp");
-        const range = IDBKeyRange.upperBound(now - this.ttlMs);
+        const cutoff = now - this.ttlMs;
+        
+        // Print all tx timestamps in the store for debugging
+        store.getAll().onsuccess = (ev) => {
+          const allTxs = ev.target.result;          
+        };
+        const range = IDBKeyRange.upperBound(cutoff);
         index.openCursor(range).onsuccess = (e) => {
           const cursor = e.target.result;
           if (cursor) {
-            store.delete(cursor.primaryKey);
-            // Notify listeners
-            this.dispatchEvent(new CustomEvent(IndexerEvent.EVICTION, { detail: { txid: cursor.primaryKey, reason: EvictionReason.TTL } }));
+            const tx = cursor.value;           
+            if (tx.timestamp <= cutoff) {
+              store.delete(cursor.primaryKey);              
+              // Call eviction callback if provided
+              if (this.onEvict) this.onEvict({ txid: cursor.primaryKey, reason: EvictionReason.TTL });
+            }
             cursor.continue();
           }
         };
@@ -103,8 +133,9 @@ export class KaspaIndexer extends EventTarget {
             const excess = entries.length - this.maxSize;
             for (let i = 0; i < excess; i++) {
               store.delete(entries[i].txid);
-              // Notify listeners
-              this.dispatchEvent(new CustomEvent(IndexerEvent.EVICTION, { detail: { txid: entries[i].txid, reason: EvictionReason.SIZE } }));
+              console.log("Indexer: evicted tx", entries[i].txid, "due to Size");
+              // Call eviction callback if provided
+              if (this.onEvict) this.onEvict({ txid: entries[i].txid, reason: EvictionReason.SIZE });
             }
           }
         };

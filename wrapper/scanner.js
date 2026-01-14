@@ -47,7 +47,12 @@ export class KaspaBlockScanner {
     this.addresses = Array.isArray(addresses) ? addresses : [];
     this.searchMode = Object.values(SearchMode).includes(mode) ? mode : SearchMode.INCLUDES;
     this.indexer = new KaspaIndexer(indexerOptions);
-    this.indexer.initDB();    
+    // Ensure onTransaction is set after async initDB
+    this.indexer.initDB().then(() => {
+      if (typeof indexerOptions.onTransaction === 'function') {
+        this.indexer.onTransaction = indexerOptions.onTransaction;
+      }
+    });
   }
 
   get prefix() {
@@ -135,8 +140,7 @@ export class KaspaBlockScanner {
             matches.push(matchObj);
 
             // Index matched transaction
-            this.indexer.addTransaction(matchObj);
-            this.indexer.dispatchEvent(new CustomEvent(IndexerEvent.TRANSACTION, { detail: { match: matches[matches.length - 1], block } }));                         
+            this.indexer.addTransaction(matchObj);            
           } 
         }       
       }
