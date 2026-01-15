@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Kaspa Block Scanner & Wallet</title>
-  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="../../styles.css">
   <link rel="stylesheet" href="scanner.css">
 </head>
 <body>
@@ -47,11 +47,65 @@
         <label style="margin-left:0.5em;font-weight:normal;"><input type="radio" name="indexerPriority" value="ttl" checked> TTL</label>
         <label style="margin-left:0.5em;font-weight:normal;"><input type="radio" name="indexerPriority" value="size"> Size</label>
       </label>
+      <label style="margin-bottom:0;">Mode:
+        <select id="indexerMatchMode">
+          <option value="all">All</option>
+          <option value="transactions">Transactions Only</option>
+          <option value="matching">Matching Only</option>
+          <option value="blocks">Blocks Only</option>
+          <option value="custom">Custom</option>
+        </select>
+      </label>
+      <span id="customModeOptions" style="display:none;">
+        <label><input type="checkbox" id="indexAllTransactions" checked> Index All Transactions</label>
+        <label><input type="checkbox" id="indexAllMatchingTransactions" checked> Index Matching Transactions</label>
+        <label><input type="checkbox" id="indexAllBlocks" checked> Index All Blocks</label>
+      </span>
+      <button id="startIndexerBtn" style="background:#27ae60;color:#fff;">Start Indexer</button>
+      <button id="stopIndexerBtn" style="background:#e74c3c;color:#fff;">Stop Indexer</button>
     </div>
     <div id="indexerCountdown" style="color:#49eacb;font-size:0.95em;margin-bottom:0.5em;"></div>
-    <div id="indexerTxs" class="output matches-container" style="max-height:200px;overflow-y:auto;"></div>
+    <div class="indexer-section">
+      <h3 style="margin-bottom:0.2em;">Matching Transactions <button id="clearMatchingTxsBtn" style="font-size:0.8em;">Clear</button></h3>
+      <div id="indexerMatchingTxs" class="output matches-container" style="max-height:120px;overflow-y:auto;"></div>
+    </div>
+    <div class="indexer-section">
+      <h3 style="margin-bottom:0.2em;">All Transactions <button id="clearAllTxsBtn" style="font-size:0.8em;">Clear</button></h3>
+      <div id="indexerAllTxs" class="output matches-container" style="max-height:120px;overflow-y:auto;"></div>
+    </div>
+    <div class="indexer-section">
+      <h3 style="margin-bottom:0.2em;">All Blocks <button id="clearBlocksBtn" style="font-size:0.8em;">Clear</button></h3>
+      <div id="indexerBlocks" class="output matches-container" style="max-height:120px;overflow-y:auto;"></div>
+    </div>
   </div>
   <div class="wallet-container">
+      <div class="dagwalk-container scanner-container">
+        <h2>Walking the DAG</h2>
+        <div class="dagwalk-controls" style="margin-bottom:1em;display:flex;flex-wrap:wrap;gap:1em;align-items:center;justify-content:center;">
+          <label for="dagwalkBlockHashInput">Start Block Hash:
+            <input type="text" id="dagwalkBlockHashInput" placeholder="Block hash" style="width:220px;">
+          </label>
+          <label for="dagwalkSearchTextInput">Search Text:
+            <input type="text" id="dagwalkSearchTextInput" placeholder="Search text" style="width:120px;">
+          </label>
+          <label for="dagwalkMaxBlocksInput">Max Blocks:
+            <input type="number" id="dagwalkMaxBlocksInput" min="1" max="50000" value="1000" style="width:80px;">
+          </label>
+          <label for="dagwalkMinTimestampInput">Min. Timestamp:
+            <input type="number" id="dagwalkMinTimestampInput" min="0" step="1" placeholder="Unix time (sec)" style="width:140px;">
+          </label>
+          <label for="dagwalkMatchModeSelect">Match Mode:
+            <select id="dagwalkMatchModeSelect">
+              <option value="all">All</option>
+              <option value="transactions">Transactions Only</option>
+              <option value="matching">Matching Only</option>
+              <option value="blocks">Blocks Only</option>
+            </select>
+          </label>
+          <button id="dagwalkStartBtn" style="background:#49eacb;color:#fff;">Walk DAG</button>
+        </div>
+        <div id="dagwalkResults" class="output matches-container" style="max-height:180px;overflow-y:auto;"></div>
+      </div>
     <h2>Wallet</h2>
     <div class="wallet-controls">
       <button id="createWalletBtn">Create/Open Wallet</button>
