@@ -57,6 +57,7 @@ export const INDEXER_MATCHING_TXS_INFO_BAR_ID = "indexerMatchingTxsInfoBar";
 export const INDEXER_ALL_TXS_INFO_BAR_ID = "indexerAllTxsInfoBar";
 export const INDEXER_BLOCKS_INFO_BAR_ID = "indexerBlocksInfoBar";
 export const INDEXER_FLUSH_COUNTDOWN_ID = "flushCountdown";
+export const DAGWALK_MODE_RADIOS_NAME = "dagwalkMode";
 
 // Getter functions
 export function getDagwalkMinTimestampInput() { return document.getElementById(DAGWALK_MIN_TIMESTAMP_INPUT_ID); }
@@ -115,3 +116,4 @@ export function getIndexerMatchingTxsInfoBar() { return document.getElementById(
 export function getIndexerAllTxsInfoBar() { return document.getElementById(INDEXER_ALL_TXS_INFO_BAR_ID); }
 export function getIndexerBlocksInfoBar() { return document.getElementById(INDEXER_BLOCKS_INFO_BAR_ID); }
 export function getIndexerFlushCountdownDiv() { return document.getElementById(INDEXER_FLUSH_COUNTDOWN_ID); }
+export function getDagwalkModeRadios() { return document.getElementsByName(DAGWALK_MODE_RADIOS_NAME); }

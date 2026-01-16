@@ -2,7 +2,7 @@
 // All handler functions for scanner UI
 
 import * as elements from './dom_elements.js';
-import { KaspaBlockScanner, SearchMode } from "../../wrapper/scanner.js";
+import { KaspaBlockScanner, SearchMode, walkDagToPresent, scanDagForward, scanDagBackward } from "../../wrapper/scanner.js";
 import { connect } from "../../wrapper/kaspa_client.js";
 import { init, createWallet, send } from "../../wrapper/wallet_service.js";
 import { IndexerStore, IndexerEventType, EvictionReason } from "../../wrapper/indexer.js";
@@ -267,5 +267,115 @@ export function handleToggleCachedClick() {
   } else {
     content.style.display = "none";
     btn.textContent = "Cached Results (IndexedDB) ▼";
+  }
+}
+
+export async function handleDagwalkStartClick() {
+  const client = kaspaClient;
+  const startHash = elements.getDagwalkBlockHashInput().value.trim();
+  const searchText = elements.getDagwalkSearchTextInput().value.trim();
+  const maxBlocks = parseInt(elements.getDagwalkMaxBlocksInput().value) || 1000;
+  const minTimestamp = parseInt(elements.getDagwalkMinTimestampInput().value) || 0;
+  const matchMode = elements.getDagwalkMatchModeSelect().value;
+  const modeRadios = elements.getDagwalkModeRadios();
+  const resultsDiv = elements.getDagwalkResultsDiv();
+  resultsDiv.innerHTML = '';
+  // Add loading spinner
+  const spinner = document.createElement('span');
+  spinner.className = 'loading-spinner';
+  spinner.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;"><circle cx="12" cy="12" r="10" stroke="#49eacb" stroke-width="4" stroke-dasharray="60" stroke-dashoffset="40"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></circle></svg> <span style="color:#49eacb;">Walking...</span>`;
+  resultsDiv.appendChild(spinner);
+  // Validate block hash
+  if (!/^[a-fA-F0-9]{64}$/.test(startHash)) {
+    resultsDiv.innerHTML = '<span style="color:#e74c3c;">Please enter a valid 64-character hex block hash.</span>';
+    return;
+  }
+  if (!client || !startHash) {
+    resultsDiv.innerHTML = '<span style="color:#e74c3c;">Connect and enter a start block hash.</span>';
+    return;
+  }
+  let selectedMode = 'forward-present';
+  for (const radio of modeRadios) {
+    if (radio.checked) selectedMode = radio.value;
+  }
+  if (selectedMode === 'forward-present') {
+    let count = 0;
+    await walkDagToPresent({
+      client,
+      startHash,
+      maxBlocks,
+      minTimestamp,
+      onBlock: (block) => {
+        count++;
+        if (spinner.parentNode) spinner.parentNode.removeChild(spinner);
+        const div = document.createElement('div');
+        div.className = 'block';
+        console.log("block:", block);
+        div.textContent = `#${count} Hash: ${block?.header?.hash.slice(0,8)}... BlueScore: ${block.header?.blueScore} Txs: ${block.transactions?.length}`;
+        resultsDiv.appendChild(div);
+      }
+    });
+    if (spinner.parentNode) spinner.parentNode.removeChild(spinner);
+    if (count === 0) resultsDiv.textContent = 'No blocks found.';
+  } else if (selectedMode === 'forward-match') {
+    // Forward search for match
+    let matchModeEnum = 'contains';
+    if (matchMode === 'blockHash') matchModeEnum = 'exact';
+    else if (matchMode === 'txid') matchModeEnum = 'exact';
+    else if (matchMode === 'payload') matchModeEnum = 'contains';
+    const result = await scanDagForward({
+      client,
+      startHash,
+      searchText,
+      matchMode: matchModeEnum,
+      maxBlocks,
+      minTimestamp
+    });
+    if (spinner.parentNode) spinner.parentNode.removeChild(spinner);
+    resultsDiv.innerHTML = '';
+    if (result) {
+      const div = document.createElement('div');
+      div.className = 'block match';
+      div.textContent = `Found in block ${result.blockHash.slice(0,8)}... TxID: ${result.txId?.slice(0,8)}... Payload: ${result.payload}`;
+      resultsDiv.appendChild(div);
+    } else {
+      resultsDiv.textContent = 'No match found.';
+    }
+  } else if (selectedMode === 'backward-match') {
+    // Backward search for match
+    const matchFn = (block, tx) => {
+      if (matchMode === 'blockHash') {
+        return block.hash === searchText;
+      } else if (matchMode === 'txid' && tx) {
+        return tx.verboseData?.transactionId === searchText;
+      } else if (matchMode === 'payload' && tx) {
+        if (!tx.payload) return false;
+        try {
+          const decoded = tx.payload;
+          return decoded.includes(searchText);
+        } catch { return false; }
+      }
+      return false;
+    };
+    const result = await scanDagBackward({
+      client,
+      startHash,
+      matchFn,
+      maxBlocks
+    });
+    if (spinner.parentNode) spinner.parentNode.removeChild(spinner);
+    resultsDiv.innerHTML = '';
+    if (result) {
+      const div = document.createElement('div');
+      div.className = 'block match';
+      if (result.tx) {
+        div.textContent = `Found in block ${result.block.hash.slice(0,8)}... TxID: ${result.tx.verboseData?.transactionId?.slice(0,8)}...`;
+      } else {
+        div.textContent = `Found block ${result.block.hash.slice(0,8)}...`;
+      }
+      resultsDiv.appendChild(div);
+    } else {
+      resultsDiv.textContent = 'No match found.';
+    }
   }
 }

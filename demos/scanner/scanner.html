@@ -137,24 +137,30 @@
           <label for="dagwalkBlockHashInput">Start Block Hash:
             <input type="text" id="dagwalkBlockHashInput" placeholder="Block hash" style="width:220px;">
           </label>
-          <label for="dagwalkSearchTextInput">Search Text:
-            <input type="text" id="dagwalkSearchTextInput" placeholder="Search text" style="width:120px;">
+          <label for="dagwalkSearchTextInput">Search Text / Hash / TxID:
+            <input type="text" id="dagwalkSearchTextInput" placeholder="Search text, block hash, or txid" style="width:180px;">
           </label>
-          <label for="dagwalkMaxBlocksInput">Max Blocks:
-            <input type="number" id="dagwalkMaxBlocksInput" min="1" max="50000" value="1000" style="width:80px;">
+          <label for="dagwalkMaxSecondsInput">Max Seconds:
+            <input type="number" id="dagwalkMaxSecondsInput" min="1" max="300" value="10" style="width:80px;">
           </label>
           <label for="dagwalkMinTimestampInput">Min. Timestamp:
             <input type="number" id="dagwalkMinTimestampInput" min="0" step="1" placeholder="Unix time (sec)" style="width:140px;">
           </label>
           <label for="dagwalkMatchModeSelect">Match Mode:
             <select id="dagwalkMatchModeSelect">
-              <option value="all">All</option>
-              <option value="transactions">Transactions Only</option>
-              <option value="matching">Matching Only</option>
-              <option value="blocks">Blocks Only</option>
+              <option value="payload">Payload</option>
+              <option value="blockHash">Block Hash</option>
+              <option value="txid">TxID</option>
             </select>
           </label>
-          <button id="dagwalkStartBtn" style="background:#49eacb;color:#fff;">Walk DAG</button>
+        </div>
+        <div class="dagwalk-mode-controls" style="margin-bottom:1em;display:flex;flex-wrap:wrap;gap:1em;align-items:center;justify-content:center;">
+          <label><input type="radio" name="dagwalkMode" value="forward-present" checked> Walk Forward to Present</label>
+          <label><input type="radio" name="dagwalkMode" value="forward-match"> Walk Forward to Match</label>
+          <label><input type="radio" name="dagwalkMode" value="backward-match"> Walk Backward to Match</label>
+        </div>
+        <div class="dagwalk-action-controls" style="margin-bottom:1em;display:flex;flex-wrap:wrap;gap:1em;align-items:center;justify-content:center;">
+          <button id="dagwalkStartBtn" style="background:#49eacb;color:#fff;">Start Walk</button>
         </div>
         <div id="dagwalkResults" class="output matches-container" style="max-height:180px;overflow-y:auto;"></div>
       </div>
