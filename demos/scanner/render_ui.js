@@ -28,7 +28,16 @@ export function addBlockToUI(block, match, matchedPayload) {
 }
 
 export function renderSection({ item, container, itemClass, infoColor = "#e67e22", getItemText }) {
-  const div = document.createElement("div");
+  // If container is an iframe, use its document body
+  let targetDoc, targetContainer;
+  if (container.tagName === "IFRAME") {
+    targetDoc = container.contentDocument || container.contentWindow.document;
+    targetContainer = targetDoc.body;
+  } else {
+    targetContainer = container;
+  }
+
+  const div = (targetDoc ? targetDoc.createElement("div") : document.createElement("div"));
   div.className = itemClass;
   div.textContent = getItemText(item);
 
@@ -36,9 +45,9 @@ export function renderSection({ item, container, itemClass, infoColor = "#e67e22
   if (item.txid) div.setAttribute("data-txid", item.txid);
   if (item.hash) div.setAttribute("data-hash", item.hash);
 
-  container.insertBefore(div, container.children[1] || null);
+  targetContainer.insertBefore(div, targetContainer.children[1] || null);
 
-  // Dynamic info bar getter based on container.id
+  // Info bar is still in the main document
   const baseId = container.id.replace(/Div$/, '');
   const infoBarGetterName = 'get' + baseId.charAt(0).toUpperCase() + baseId.slice(1) + 'InfoBar';
   let infoBarElem = elements[infoBarGetterName]?.();
@@ -190,7 +199,7 @@ export function renderInMemoryMatchingTransactionsSection(matchingTxs) {
         container: elements.getInMemoryMatchingTxsDiv(),
         itemClass: "indexer-tx",
         infoColor: "#e67e22",
-        getItemText: tx => `TxID: ${tx.txid} | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`
+        getItemText: tx => `TxID: ${tx.txid?.slice(0,8)}... | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`
       });
     }
   } else {
@@ -199,7 +208,7 @@ export function renderInMemoryMatchingTransactionsSection(matchingTxs) {
       container: elements.getInMemoryMatchingTxsDiv(),
       itemClass: "indexer-tx",
       infoColor: "#e67e22",
-      getItemText: tx => `TxID: ${tx.txid} | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`
+      getItemText: tx => `TxID: ${tx.txid?.slice(0,8)}... | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`
     });
   }
 }
@@ -212,7 +221,7 @@ export function renderInMemoryAllTransactionsSection(allTxs) {
         container: elements.getInMemoryAllTxsDiv(),
         itemClass: "indexer-tx",
         infoColor: "#e67e22",
-        getItemText: tx => `TxID: ${tx.txid} | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`
+        getItemText: tx => `TxID: ${tx.txid?.slice(0,8)}... | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`
       });
     }
   } else {
@@ -221,7 +230,7 @@ export function renderInMemoryAllTransactionsSection(allTxs) {
       container: elements.getInMemoryAllTxsDiv(),
       itemClass: "indexer-tx",
       infoColor: "#e67e22",
-      getItemText: tx => `TxID: ${tx.txid} | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`
+      getItemText: tx => `TxID: ${tx.txid?.slice(0,8)}... | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`
     });
   }
 }
@@ -234,7 +243,11 @@ export function renderInMemoryBlocksSection(blocks) {
         container: elements.getInMemoryBlocksDiv(),
         itemClass: "block indexed-block",
         infoColor: "#e67e22",
-        getItemText: block => `Hash: ${block.hash} | Time: ${new Date(block.timestamp).toLocaleTimeString()}`
+        getItemText: block => {
+          const txCount = Array.isArray(block.transactions) ? block.transactions.length : 0;
+          const header = block.header;
+          return `Hash: ${header?.hash?.slice(0,6)}... | BlueScore: ${header?.blueScore} | Txs: ${txCount}`;
+        }
       });
     }
   } else {

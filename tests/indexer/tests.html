@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>KaspaIndexer Test Dashboard</title>
+  <!-- Use ES modules for all test scripts -->
+  <script type="module" src="test_buffer_limits.js"></script>
+  <script type="module" src="test_eviction.js"></script>
+  <script type="module" src="test_flush.js"></script>
+</head>
+<body>
+  <h1>KaspaIndexer Test Dashboard</h1>
+  <ul id="testList">
+    <li>
+      <button id="btnBufferLimits">Test Buffer Limits</button>
+      <pre id="resultBufferLimits"></pre>
+    </li>
+    <li>
+      <button id="btnEviction">Test Eviction Logic</button>
+      <pre id="resultEviction"></pre>
+    </li>
+    <li>
+      <button id="btnFlush">Test Flush Logic</button>
+      <pre id="resultFlush"></pre>
+    </li>
+    <!-- Add more tests here -->
+  </ul>
+  <script>
+    document.getElementById('btnBufferLimits').onclick = async function() {
+      const { runTestBufferLimits } = await import('./test_buffer_limits.js');
+      const result = await runTestBufferLimits();
+      document.getElementById('resultBufferLimits').textContent = result;
+    };
+    document.getElementById('btnEviction').onclick = async function() {
+      const { runTestEviction } = await import('./test_eviction.js');
+      const resultElem = document.getElementById('resultEviction');
+      resultElem.textContent = '[TEST] Starting eviction logic test\n';
+      // Patch: pass a log callback to stream logs
+      const result = await runTestEviction((msg) => {
+        resultElem.textContent += msg + '\n';
+      });
+      if (result) resultElem.textContent += result + '\n';
+    };
+    document.getElementById('btnFlush').onclick = async function() {
+      const { runTestFlush } = await import('./test_flush.js');
+      const result = await runTestFlush();
+      document.getElementById('resultFlush').textContent = result;
+    };
+    // Add more listeners for new tests
+  </script>
+</body>
+</html>

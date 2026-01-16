@@ -51,7 +51,6 @@ export class KaspaIndexer {
   // In-memory buffers for batch flush
   _pendingTxs = [];
   _pendingBlocks = [];
-  _pendingMax = 100; // flush when this many txs/blocks are pending
   _inMemoryMaxTxs = 1000; // max in-memory txs/blocks before deduplication kicks in
   _inMemoryMaxBlocks = 1000;
   _flushInterval = 5000; // ms
@@ -176,21 +175,6 @@ export class KaspaIndexer {
     }
     const entry = { ...tx, timestamp: now };
     this._pendingTxs.push({ entry, isMatch });
-    
-    // Enforce in-memory max for transactions
-    if (this._pendingTxs.length > this._inMemoryMaxTxs) {
-      const removed = this._pendingTxs.shift();
-      if (this.onIndexerUpdate && removed) {
-        this.onIndexerUpdate({
-          type: IndexerEventType.EVICT,
-          data: {
-            key: removed.entry.txid,
-            reason: EvictionReason.IN_MEMORY_TRANSACTION,
-            storeName: IndexerStore.TRANSACTIONS
-          }
-        });
-      }
-    }
 
     // Notify for all transactions added in-memory, respecting matchMode and indexAll* flags
     if (typeof this.onIndexerUpdate === 'function') {
@@ -217,7 +201,7 @@ export class KaspaIndexer {
     this._metrics.transactionsIndexed++;
 
     // Flush if buffer is full
-    if (this._pendingTxs.length >= this._pendingMax) {
+    if (this._pendingTxs.length >= this._inMemoryMaxTxs) {
       await this.flush();
     }
   }
@@ -233,7 +217,6 @@ export class KaspaIndexer {
     for (const tx of txs) {
       await this.addTransaction(tx, isMatch);
     }
-    await this.flush();
   }
 
   /**
@@ -256,23 +239,8 @@ export class KaspaIndexer {
       }
       const blockEntry = { ...block, timestamp: now, hash };
       this._pendingBlocks.push(blockEntry);
-      
-      // Enforce in-memory max for blocks
-      if (this._pendingBlocks.length > this._inMemoryMaxBlocks) {
-        const removed = this._pendingBlocks.shift();
-        if (this.onIndexerUpdate && removed) {
-          this.onIndexerUpdate({
-            type: IndexerEventType.EVICT,
-            data: {
-              key: removed.hash,
-              reason: EvictionReason.IN_MEMORY_BLOCK,
-              storeName: IndexerStore.BLOCKS
-            }
-          });
-        }
-      }
-
       this._metrics.blocksIndexed++;
+
       // Only emit if user wants blocks in memory
       if (typeof this.onIndexerUpdate === 'function') {
         if (
@@ -284,7 +252,7 @@ export class KaspaIndexer {
         }
       }
       // Flush if buffer is full
-      if (this._pendingBlocks.length >= this._pendingMax) {
+      if (this._pendingBlocks.length >= this._inMemoryMaxBlocks) {
         await this.flush();
       }
     }
@@ -350,8 +318,22 @@ export class KaspaIndexer {
       }
       this._pendingBlocks = [];
     }
-    // After flush, evict if needed
-    await this.evict();
+    
+    this._pruneInMemoryBuffer(
+      this._pendingTxs,
+      this._inMemoryMaxTxs,
+      EvictionReason.IN_MEMORY_TRANSACTION,
+      IndexerStore.TRANSACTIONS,
+      "txid"
+    );
+
+    this._pruneInMemoryBuffer(
+      this._pendingBlocks,
+      this._inMemoryMaxBlocks,
+      EvictionReason.IN_MEMORY_BLOCK,
+      IndexerStore.BLOCKS,
+      "hash"
+    );
   }
 
   /**
@@ -375,23 +357,23 @@ export class KaspaIndexer {
     };
 
     if (this.matchMode === MatchMode.ALL || this.matchMode === MatchMode.MATCHING) {
-      this._evictStore(IndexerStore.MATCHING_TRANSACTIONS, "txid", stdOnEvict(IndexerStore.MATCHING_TRANSACTIONS), now);
+      await this._evictStore(IndexerStore.MATCHING_TRANSACTIONS, "txid", stdOnEvict(IndexerStore.MATCHING_TRANSACTIONS), now);
     }
     if (this.matchMode === MatchMode.ALL || this.matchMode === MatchMode.TRANSACTIONS) {
-      this._evictStore(IndexerStore.TRANSACTIONS, "txid", stdOnEvict(IndexerStore.TRANSACTIONS), now);
+      await this._evictStore(IndexerStore.TRANSACTIONS, "txid", stdOnEvict(IndexerStore.TRANSACTIONS), now);
     }
     if (this.matchMode === MatchMode.ALL || this.matchMode === MatchMode.BLOCKS) {
-      this._evictStore(IndexerStore.BLOCKS, "hash", stdOnEvict(IndexerStore.BLOCKS), now);
+      await this._evictStore(IndexerStore.BLOCKS, "hash", stdOnEvict(IndexerStore.BLOCKS), now);
     }
     if (this.matchMode === MatchMode.CUSTOM) {
       if (this.indexAllMatchingTransactions) {
-        this._evictStore(IndexerStore.MATCHING_TRANSACTIONS, "txid", stdOnEvict(IndexerStore.MATCHING_TRANSACTIONS), now);
+        await this._evictStore(IndexerStore.MATCHING_TRANSACTIONS, "txid", stdOnEvict(IndexerStore.MATCHING_TRANSACTIONS), now);
       }
       if (this.indexAllTransactions) {
-        this._evictStore(IndexerStore.TRANSACTIONS, "txid", stdOnEvict(IndexerStore.TRANSACTIONS), now);
+        await this._evictStore(IndexerStore.TRANSACTIONS, "txid", stdOnEvict(IndexerStore.TRANSACTIONS), now);
       }
       if (this.indexAllBlocks) {
-        this._evictStore(IndexerStore.BLOCKS, "hash", stdOnEvict(IndexerStore.BLOCKS), now);
+        await this._evictStore(IndexerStore.BLOCKS, "hash", stdOnEvict(IndexerStore.BLOCKS), now);
       }
     }
   }
@@ -649,9 +631,56 @@ export class KaspaIndexer {
   }
 
   /** 
+   * (Internal) Helper to prune in-memory buffer to max size.
+   * @param {Array} buffer - The in-memory buffer array.
+   * @param {number} max - The maximum allowed size.
+   * @param {string} evictionReason - Reason for eviction.
+   * @param {string} storeName - Name of the store.
+   * @param {string} keyField - Key field name.
+   */   
+  _pruneInMemoryBuffer(buffer, max, evictionReason, storeName, keyField) {
+    while (buffer.length > max) {
+      const removed = buffer.shift();
+      if (this.onIndexerUpdate && removed) {
+        this.onIndexerUpdate({
+          type: IndexerEventType.EVICT,
+          data: {
+            key: removed.entry ? removed.entry[keyField] : removed[keyField],
+            reason: evictionReason,
+            storeName
+          }
+        });
+      }
+    }
+  }
+
+    /**
+   * Prune an IndexedDB store by TTL and/or max size.
+   * @param {string} storeName - The name of the store (use IndexerStore constant).
+   * @param {string} keyField - The key field name (e.g., "txid" or "hash").
+   * @param {function} onEvict - Callback for each evicted item.
+   * @returns {Promise<void>}
+   */
+  async _pruneIndexedDBStore(storeName, keyField, onEvict) {
+    await this._dbReady;
+    const now = Date.now();
+    const storeTx = this.db.transaction(storeName, "readwrite");
+    const store = storeTx.objectStore(storeName);
+  
+    // TTL-based pruning
+    if (this.ttlMs) {
+      await this._evictByTTL(store, keyField, now, this.ttlMs, onEvict);
+    }
+    // Size-based pruning
+    if (this.maxSize) {
+      this._evictBySize(store, keyField, this.maxSize, onEvict);
+    }
+  }
+
+  /** 
    * (Internal) Helper to evict from a given store, enforcing eviction priority. 
    */
-  _evictStore(storeName, keyField, onEvict, now) {
+  async _evictStore(storeName, keyField, onEvict, now) {
     const txReq = this.db.transaction(storeName, "readwrite");
     const store = txReq.objectStore(storeName);
 
@@ -689,11 +718,11 @@ export class KaspaIndexer {
       };
 
       if (this.priorityTTL) {
-        if (this.ttlMs) this._evictByTTL(store, keyField, now, this.ttlMs, onEvictAndRemove);
+        if (this.ttlMs) await this._evictByTTL(store, keyField, now, this.ttlMs, onEvictAndRemove);
         if (this.maxSize) this._evictBySize(store, keyField, this.maxSize, onEvictAndRemove);
       } else {
         if (this.maxSize) this._evictBySize(store, keyField, this.maxSize, onEvictAndRemove);
-        if (this.ttlMs) this._evictByTTL(store, keyField, now, this.ttlMs, onEvictAndRemove);
+        if (this.ttlMs) await this._evictByTTL(store, keyField, now, this.ttlMs, onEvictAndRemove);
       }
   }
 
@@ -729,27 +758,32 @@ export class KaspaIndexer {
   
     const batchThreshold = Math.floor(totalCount * this.batchThresholdRatio);
   
-    // Now, batch remove if expiredCount > batchThreshold
-    if (expiredCount > batchThreshold) {
-      const req = index.openCursor(range);
-      req.onsuccess = (e) => {
-        const cursor = e.target.result;
-        if (cursor) {
-          const entry = cursor.value;
-          if (entry.timestamp <= cutoff) {
-            const delReq = store.delete(cursor.primaryKey);
-            delReq.onerror = (err) => {
-              console.error("IndexedDB delete failed (TTL eviction):", err.target.error);
-            };
-            if (onEvict) onEvict({ key: cursor.primaryKey, reason: EvictionReason.TTL });
-            this._metrics.evictions.ttl++;
+    // Now, batch remove if expiredCount >= batchThreshold
+    if (expiredCount >= batchThreshold) {
+      await new Promise((resolve) => {
+        const req = index.openCursor(range);
+        req.onsuccess = (e) => {
+          const cursor = e.target.result;
+          if (cursor) {
+            const entry = cursor.value;
+            if (entry.timestamp <= cutoff) {
+              const delReq = store.delete(cursor.primaryKey);
+              delReq.onerror = (err) => {
+                console.error("IndexedDB delete failed (TTL eviction):", err.target.error);
+              };
+              if (onEvict) onEvict({ key: cursor.primaryKey, reason: EvictionReason.TTL });
+              this._metrics.evictions.ttl++;
+            }
+            cursor.continue();
+          } else {
+            resolve();
           }
-          cursor.continue();
-        }
-      };
-      req.onerror = (e) => {
-        console.error("IndexedDB openCursor failed (TTL eviction):", e.target.error);
-      };
+        };
+        req.onerror = (e) => {
+          console.error("IndexedDB openCursor failed (TTL eviction):", e.target.error);
+          resolve();
+        };
+      });
     }
     // Otherwise, keep your normal one-by-one eviction logic (if you want)
   }
