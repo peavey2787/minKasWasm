@@ -34,6 +34,7 @@ export const INDEXER_COUNTDOWN_DIV_ID = "indexerCountdown";
 export const INDEXER_PRIORITY_RADIOS_NAME = "indexerPriority";
 export const INDEXER_TTL_INPUT_ID = "indexerTtlInput";
 export const INDEXER_MAX_SIZE_INPUT_ID = "indexerMaxSizeInput";
+export const INDEXER_IN_MEMORY_MAX_INPUT_ID = "indexerInMemoryMaxInput";
 export const START_INDEXER_BTN_ID = "startIndexerBtn";
 export const TOGGLE_IN_MEMORY_BTN_ID = "toggleInMemoryBtn";
 export const TOGGLE_CACHED_BTN_ID = "toggleCachedBtn";
@@ -85,6 +86,7 @@ export function getIndexerCountdownDiv() { return document.getElementById(INDEXE
 export function getIndexerPriorityRadios() { return document.getElementsByName(INDEXER_PRIORITY_RADIOS_NAME); }
 export function getTtlInput() { return document.getElementById(INDEXER_TTL_INPUT_ID); }
 export function getMaxSizeInput() { return document.getElementById(INDEXER_MAX_SIZE_INPUT_ID); }
+export function getInMemoryMaxInput() { return document.getElementById(INDEXER_IN_MEMORY_MAX_INPUT_ID); }
 export function getStartIndexerBtn() { return document.getElementById(START_INDEXER_BTN_ID); }
 export function getToggleInMemoryBtn() { return document.getElementById(TOGGLE_IN_MEMORY_BTN_ID); }
 export function getToggleCachedBtn() { return document.getElementById(TOGGLE_CACHED_BTN_ID); }

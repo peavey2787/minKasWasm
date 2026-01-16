@@ -15,6 +15,32 @@ export let scanner = null;
 export let scanning = false;
 export let currentIndexerOptions = {};
 
+let inMemoryRenderTimer = null;
+const IN_MEMORY_RENDER_THROTTLE_MS = 250;
+
+function renderInMemoryLiveSnapshot() {
+  if (!scanner || !scanner.indexer) return;
+  renderUI.renderInMemoryAllTransactionsSection(scanner.indexer.getAllTransactions());
+  renderUI.renderInMemoryMatchingTransactionsSection(scanner.indexer.getAllMatchingTransactions());
+  renderUI.renderInMemoryBlocksSection(scanner.indexer.getAllBlocks());
+}
+
+function isInMemoryPanelOpen() {
+  const content = elements.getInMemorySections();
+  return !!content && content.style.display !== "none" && content.style.display !== "";
+}
+
+function scheduleInMemoryLiveSnapshot() {
+  // Don’t do heavy DOM work when the user can’t see it.
+  if (!isInMemoryPanelOpen()) return;
+
+  if (inMemoryRenderTimer) return;
+  inMemoryRenderTimer = setTimeout(() => {
+    inMemoryRenderTimer = null;
+    renderInMemoryLiveSnapshot();
+  }, IN_MEMORY_RENDER_THROTTLE_MS);
+}
+
 export async function handleConnectClick() {
   const statusDiv = elements.getStatusDiv();
   const url = elements.getNodeInput().value.trim();
@@ -29,6 +55,7 @@ export async function handleConnectClick() {
     // Get indexer options from UI
     const ttlInput = elements.getTtlInput();
     const maxSizeInput = elements.getMaxSizeInput();
+    const inMemoryMaxInput = elements.getInMemoryMaxInput();
     const priorityRadios = elements.getIndexerPriorityRadios();
     const matchModeSelect = elements.getMatchModeSelect();
     const indexAllTransactions = elements.getIndexAllTransactionsCheckbox().checked;
@@ -36,8 +63,10 @@ export async function handleConnectClick() {
     const indexAllBlocks = elements.getIndexAllBlocksCheckbox().checked;
     const flushIntervalInput = elements.getFlushIntervalInput();
     const flushIntervalSeconds = parseInt(flushIntervalInput?.value) || 5;
+    const flushInterval = flushIntervalSeconds * 1000;
     const ttlMinutes = parseInt(ttlInput?.value) || 1;
     const maxSize = parseInt(maxSizeInput?.value) || 500;
+    const inMemoryMax = parseInt(inMemoryMaxInput?.value) || 500;
     let priorityTTL = true;
     for (const radio of priorityRadios) {
       if (radio.checked && radio.value === "size") priorityTTL = false;
@@ -47,13 +76,13 @@ export async function handleConnectClick() {
     const onIndexerUpdate = (event) => {
       switch (event.type) {
         case IndexerEventType.TRANSACTION_IN_MEMORY:          
-          renderUI.renderInMemoryAllTransactionsSection([event.data]);
+          scheduleInMemoryLiveSnapshot();
           break;
         case IndexerEventType.MATCHING_TRANSACTION_IN_MEMORY:
-          renderUI.renderInMemoryMatchingTransactionsSection([event.data]);
+          scheduleInMemoryLiveSnapshot();
           break;
         case IndexerEventType.BLOCK_IN_MEMORY:
-          renderUI.renderInMemoryBlocksSection([event.data]);
+          scheduleInMemoryLiveSnapshot();
           break;
         case IndexerEventType.TRANSACTION_CACHED:
           renderUI.renderAllTransactionsSection([event.data]);
@@ -70,19 +99,19 @@ export async function handleConnectClick() {
             if (reason === EvictionReason.TTL || reason === EvictionReason.SIZE) {
               renderUI.removeMatchingTransactionFromUI(key);
             } else {
-              renderUI.removeInMemoryMatchingTransactionFromUI(key);
+              scheduleInMemoryLiveSnapshot();
             }
           } else if (storeName === IndexerStore.TRANSACTIONS) {
             if (reason === EvictionReason.TTL || reason === EvictionReason.SIZE) {
               renderUI.removeTransactionFromUI(key);
             } else {
-              renderUI.removeInMemoryTransactionFromUI(key);
+              scheduleInMemoryLiveSnapshot();
             }
           } else if (storeName === IndexerStore.BLOCKS) {
             if (reason === EvictionReason.TTL || reason === EvictionReason.SIZE) {
               renderUI.removeBlockFromUI(key);
             } else {
-              renderUI.removeInMemoryBlockFromUI(key);
+              scheduleInMemoryLiveSnapshot();
             }
           }
           break;
@@ -94,28 +123,33 @@ export async function handleConnectClick() {
     if (matchMode !== "custom") {
       currentIndexerOptions = {
         ttlMinutes,
-        flushIntervalSeconds,
+        flushInterval,
         maxSize,
         priorityTTL,
         matchMode,        
+        inMemoryMaxTxs: inMemoryMax,
+        inMemoryMaxBlocks: inMemoryMax,
         onIndexerUpdate
       };
     } else {
       currentIndexerOptions = {
         ttlMinutes,
-        flushIntervalSeconds,
+        flushInterval,
         maxSize,
         priorityTTL,
         matchMode,
         indexAllTransactions,
         indexAllMatchingTransactions,
         indexAllBlocks,
+        inMemoryMaxTxs: inMemoryMax,
+        inMemoryMaxBlocks: inMemoryMax,
         onIndexerUpdate
       };
     }
     scanner = new KaspaBlockScanner(kaspaClient, { indexerOptions: currentIndexerOptions });
     await scanner.indexer.initDB();
     renderUI.renderAllIndexerSections(scanner.indexer);
+    scheduleInMemoryLiveSnapshot();
   } catch (err) {
     console.error("Connection error:", err);
     statusDiv.textContent = "Connection failed: " + (err && err.message ? err.message : err);
@@ -252,6 +286,7 @@ export function handleToggleInMemoryClick() {
   if (content.style.display === "none" || !content.style.display) {
     content.style.display = "block";
     btn.textContent = "In-Memory (Live) Results ▲";
+    scheduleInMemoryLiveSnapshot(); // render immediately on open
   } else {
     content.style.display = "none";
     btn.textContent = "In-Memory (Live) Results ▼";

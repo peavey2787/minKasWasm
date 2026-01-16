@@ -56,6 +56,9 @@ export class KaspaIndexer {
   _flushInterval = 5000; // ms
   _flushTimer = null;
 
+  // Prevent multiple initDB calls
+  _initPromise = null;
+
   constructor({
     ttlMinutes = null,
     flushInterval = 5000,
@@ -97,7 +100,9 @@ export class KaspaIndexer {
   }
 
   async initDB() {
-    return new Promise((resolve, reject) => {
+    if (this.db) return this.db;
+    if (this._initPromise) return this._initPromise;
+    this._initPromise = new Promise((resolve, reject) => {
       const request = indexedDB.open(this.dbName, 2);
       request.onupgradeneeded = (e) => {
         const db = e.target.result;
@@ -121,7 +126,9 @@ export class KaspaIndexer {
         resolve(this.db);
       };
       request.onerror = (e) => reject(e);
+      request.onblocked = () => reject(new Error("IndexedDB open blocked (another tab/connection?)"));
     });
+    return this._initPromise;
   }
 
   start() {
@@ -264,7 +271,13 @@ export class KaspaIndexer {
    */
   async flush() {
     await this._dbReady;
-    // Batch flush transactions
+
+    // Temporary arrays to collect items for batched emission
+    const batchTxs = [];
+    const batchMatchingTxs = [];
+    const batchBlocks = [];
+
+    // 1. Batch flush transactions
     if (this._pendingTxs.length) {
       const txReqMatching = this.db.transaction(IndexerStore.MATCHING_TRANSACTIONS, "readwrite");
       const storeMatching = txReqMatching.objectStore(IndexerStore.MATCHING_TRANSACTIONS);
@@ -272,53 +285,70 @@ export class KaspaIndexer {
       const storeAll = txReqAll.objectStore(IndexerStore.TRANSACTIONS);
 
       for (const { entry, isMatch } of this._pendingTxs) {
+        // Perform DB Write
         if (isMatch) {
           storeMatching.put(entry);
         } else {
           storeAll.put(entry);
         }
-        // Notify for all transactions flushed to IndexedDB, respecting matchMode and indexAll* flags
-        if (typeof this.onIndexerUpdate === 'function') {
-          if (
+
+        // Collect for Batch Notification (Respecting filters)
+        if (
+          this.matchMode === MatchMode.ALL ||
+          this.matchMode === MatchMode.TRANSACTIONS ||
+          (this.matchMode === MatchMode.CUSTOM && this.indexAllTransactions)
+        ) {
+          batchTxs.push(entry);
+        }
+
+        if (
+          isMatch && (
             this.matchMode === MatchMode.ALL ||
-            this.matchMode === MatchMode.TRANSACTIONS ||
-            (this.matchMode === MatchMode.CUSTOM && this.indexAllTransactions)
-          ) {
-            this.onIndexerUpdate({ type: IndexerEventType.TRANSACTION_CACHED, data: entry });
-          }
-          if (
-            isMatch && (
-              this.matchMode === MatchMode.ALL ||
-              this.matchMode === MatchMode.MATCHING ||
-              (this.matchMode === MatchMode.CUSTOM && this.indexAllMatchingTransactions)
-            )
-          ) {
-            this.onIndexerUpdate({ type: IndexerEventType.MATCHING_TRANSACTION_CACHED, data: entry });
-          }
+            this.matchMode === MatchMode.MATCHING ||
+            (this.matchMode === MatchMode.CUSTOM && this.indexAllMatchingTransactions)
+          )
+        ) {
+          batchMatchingTxs.push(entry);
         }
       }
       this._pendingTxs = [];
     }
-    // Batch flush blocks
+
+    // 2. Batch flush blocks
     if (this._pendingBlocks.length) {
       const blockReq = this.db.transaction(IndexerStore.BLOCKS, "readwrite");
       const store = blockReq.objectStore(IndexerStore.BLOCKS);
+
       for (const blockEntry of this._pendingBlocks) {
         store.put(blockEntry);
-        // Only emit if user wants blocks cached
-        if (typeof this.onIndexerUpdate === 'function') {
-          if (
-            this.matchMode === MatchMode.ALL ||
-            this.matchMode === MatchMode.BLOCKS ||
-            (this.matchMode === MatchMode.CUSTOM && this.indexAllBlocks)
-          ) {
-            this.onIndexerUpdate({ type: IndexerEventType.BLOCK_CACHED, data: blockEntry });
-          }
+
+        // Collect for Batch Notification
+        if (
+          this.matchMode === MatchMode.ALL ||
+          this.matchMode === MatchMode.BLOCKS ||
+          (this.matchMode === MatchMode.CUSTOM && this.indexAllBlocks)
+        ) {
+          batchBlocks.push(blockEntry);
         }
       }
       this._pendingBlocks = [];
     }
-    
+
+    // 3. Emit Batch Events
+    // This happens once per flush cycle, drastically reducing serialization overhead
+    if (typeof this.onIndexerUpdate === 'function') {
+      if (batchTxs.length > 0) {
+        this.onIndexerUpdate({ type: IndexerEventType.TRANSACTION_CACHED, data: batchTxs });
+      }
+      if (batchMatchingTxs.length > 0) {
+        this.onIndexerUpdate({ type: IndexerEventType.MATCHING_TRANSACTION_CACHED, data: batchMatchingTxs });
+      }
+      if (batchBlocks.length > 0) {
+        this.onIndexerUpdate({ type: IndexerEventType.BLOCK_CACHED, data: batchBlocks });
+      }
+    }
+
+    // 4. Handle In-Memory Pruning
     this._pruneInMemoryBuffer(
       this._pendingTxs,
       this._inMemoryMaxTxs,
@@ -619,14 +649,28 @@ export class KaspaIndexer {
    * @returns {Promise<any>}
    */
   async _queryStore(storeName, processFn) {
-    return new Promise((resolve) => {
-      const txReq = this.db.transaction(storeName, "readonly");
-      const store = txReq.objectStore(storeName);
-      const req = store.getAll();
-      req.onsuccess = () => {
-        const result = processFn(req.result || []);
-        resolve(result);
-      };
+    return new Promise((resolve, reject) => {
+      try {
+        const tx = this.db.transaction(storeName, "readonly");
+        const store = tx.objectStore(storeName);
+        const req = store.getAll();
+
+        const finalize = (fn) => {
+          try {
+            resolve(fn());
+          } catch (err) {
+            reject(err);
+          }
+        };
+
+        req.onsuccess = () => finalize(() => processFn(req.result || []));
+        req.onerror = () => reject(req.error || new Error("IndexedDB getAll() failed"));
+
+        tx.onabort = () => reject(tx.error || new Error("IndexedDB transaction aborted"));
+        tx.onerror = () => reject(tx.error || new Error("IndexedDB transaction error"));
+      } catch (err) {
+        reject(err);
+      }
     });
   }
 
