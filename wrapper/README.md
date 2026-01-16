@@ -4,6 +4,33 @@
 
 This module implements a robust, event-driven indexer for Kaspa transactions and blocks in the browser, leveraging both in-memory buffers and IndexedDB for scalable caching. It is designed for high-throughput environments, supporting deduplication, batch flushing, TTL and size-based eviction, and real-time UI updates via event callbacks.
 
+## Coupled With the Block Scanner
+
+This project’s `KaspaBlockScanner` (in `wrapper/scanner.js`) creates and owns a `KaspaIndexer` instance at `scanner.indexer`.
+
+Enable indexing as part of scanning by passing `indexerOptions` into the scanner constructor:
+
+```js
+import { KaspaBlockScanner } from './scanner.js';
+import { MatchMode } from './indexer.js';
+
+const scanner = new KaspaBlockScanner(client, {
+  indexerOptions: {
+    ttlMinutes: 10,
+    maxSize: 500,
+    matchMode: MatchMode.ALL,
+    onIndexerUpdate: (event) => {
+      // stream updates into your UI
+    }
+  }
+});
+
+scanner.indexer.start();
+await scanner.start((block, matches) => {
+  // ...
+});
+```
+
 ## Features
 
 - **In-Memory & Persistent Caching:**

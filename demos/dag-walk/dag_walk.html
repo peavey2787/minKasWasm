@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kaspa DAG Walk Demo</title>
+  <link rel="stylesheet" href="../../styles.css" />
+  <link rel="stylesheet" href="dag_walk.css" />
+</head>
+<body>
+  <div class="demo-container">
+    <h2>Kaspa DAG Walk</h2>
+
+    <div class="controls">
+      <div class="checkbox-row">
+        <label for="publicResolverCheckbox">
+          <input type="checkbox" id="publicResolverCheckbox" checked />
+          Connect using public resolver
+        </label>
+      </div>
+
+      <label for="nodeInput">Node (ip:port or leave blank for resolver):</label>
+      <input type="text" id="nodeInput" placeholder="ip:port or leave blank for resolver" />
+
+      <label for="networkInput">Network:</label>
+      <select id="networkInput">
+        <option value="mainnet">mainnet</option>
+        <option value="testnet-10" selected>testnet-10</option>
+        <option value="testnet-11">testnet-11</option>
+      </select>
+
+      <button id="connectBtn">Connect</button>
+      <div id="statusDiv"></div>
+    </div>
+
+    <div class="controls">
+      <h3 style="margin: 0.5rem 0;">Walk Options</h3>
+
+      <label for="modeSelect">Mode:</label>
+      <select id="modeSelect">
+        <option value="walk_to_present" selected>Walk Forward to Present (walkDagToPresent)</option>
+        <option value="scan_forward">Scan Forward to Match (scanDagForward)</option>
+        <option value="scan_backward">Scan Backward to Match (scanDagBackward)</option>
+      </select>
+
+      <label for="startHashInput">Start Block Hash:</label>
+      <input type="text" id="startHashInput" placeholder="64-character hex block hash" />
+
+      <label for="maxSecondsInput">Max Seconds:</label>
+      <input type="number" id="maxSecondsInput" min="1" max="300" value="10" />
+
+      <label for="minTimestampInput">Min Timestamp (unix seconds, optional):</label>
+      <input type="number" id="minTimestampInput" min="0" step="1" placeholder="0" />
+
+      <div id="forwardOptions" style="display:none;">
+        <h3 style="margin: 0.5rem 0;">Forward Match Options</h3>
+
+        <label for="searchTextInput">Search Text:</label>
+        <input type="text" id="searchTextInput" placeholder="Text to search (required)" value="test" />
+
+        <label for="matchModeSelect">Match Mode (dag_walk.js):</label>
+        <select id="matchModeSelect">
+          <option value="contains" selected>contains</option>
+          <option value="cleaned_contains">cleaned_contains</option>
+          <option value="prefix">prefix</option>
+          <option value="exact">exact</option>
+        </select>
+      </div>
+
+      <div id="backwardOptions" style="display:none;">
+        <h3 style="margin: 0.5rem 0;">Backward Match Options</h3>
+
+        <label for="backwardTargetTypeSelect">Target Type:</label>
+        <select id="backwardTargetTypeSelect">
+          <option value="payload" selected>Payload (decoded contains)</option>
+          <option value="txid">TxID (exact)</option>
+          <option value="blockHash">Block Hash (exact)</option>
+        </select>
+
+        <label for="backwardTargetValueInput">Target Value:</label>
+        <input type="text" id="backwardTargetValueInput" placeholder="Text / txid / block hash" value="test" />
+
+        <label for="maxDepthInput">Max Depth (optional, Infinity if empty):</label>
+        <input type="number" id="maxDepthInput" min="1" step="1" placeholder="Infinity" />
+      </div>
+
+      <div class="actions">
+        <button id="runBtn" style="background:#49eacb;color:#231F20;border-color:#49eacb;">Run</button>
+        <button id="clearBtn">Clear Output</button>
+      </div>
+
+      <div id="statsDiv" class="stats"></div>
+    </div>
+
+    <div class="output" id="resultDiv"></div>
+    <div class="output log" id="logDiv"></div>
+  </div>
+
+  <script type="module" src="dag_walk_demo.js"></script>
+</body>
+</html>

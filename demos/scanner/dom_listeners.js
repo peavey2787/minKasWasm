@@ -37,7 +37,4 @@ export function attachListeners() {
 
   // Copy button
   elements.getCopyBtn().onclick = handlers.handleCopyClick;
-
-  // DAG walk Start button
-  elements.getDagwalkStartBtn().onclick = handlers.handleDagwalkStartClick;
 }
