@@ -1,13 +1,6 @@
 // dom_elements.js
 
 // Element ID constants
-export const DAGWALK_MIN_TIMESTAMP_INPUT_ID = "dagwalkMinTimestampInput";
-export const DAGWALK_BLOCK_HASH_INPUT_ID = "dagwalkBlockHashInput";
-export const DAGWALK_SEARCH_TEXT_INPUT_ID = "dagwalkSearchTextInput";
-export const DAGWALK_MAX_BLOCKS_INPUT_ID = "dagwalkMaxBlocksInput";
-export const DAGWALK_MATCH_MODE_SELECT_ID = "dagwalkMatchModeSelect";
-export const DAGWALK_START_BTN_ID = "dagwalkStartBtn";
-export const DAGWALK_RESULTS_ID = "dagwalkResults";
 export const CONNECT_BTN_ID = "connectBtn";
 export const NODE_INPUT_ID = "nodeInput";
 export const NETWORK_INPUT_ID = "networkInput";
@@ -59,13 +52,6 @@ export const INDEXER_BLOCKS_INFO_BAR_ID = "indexerBlocksInfoBar";
 export const INDEXER_FLUSH_COUNTDOWN_ID = "flushCountdown";
 
 // Getter functions
-export function getDagwalkMinTimestampInput() { return document.getElementById(DAGWALK_MIN_TIMESTAMP_INPUT_ID); }
-export function getDagwalkBlockHashInput() { return document.getElementById(DAGWALK_BLOCK_HASH_INPUT_ID); }
-export function getDagwalkSearchTextInput() { return document.getElementById(DAGWALK_SEARCH_TEXT_INPUT_ID); }
-export function getDagwalkMaxBlocksInput() { return document.getElementById(DAGWALK_MAX_BLOCKS_INPUT_ID); }
-export function getDagwalkMatchModeSelect() { return document.getElementById(DAGWALK_MATCH_MODE_SELECT_ID); }
-export function getDagwalkStartBtn() { return document.getElementById(DAGWALK_START_BTN_ID); }
-export function getDagwalkResultsDiv() { return document.getElementById(DAGWALK_RESULTS_ID); }
 export function getConnectBtn() { return document.getElementById(CONNECT_BTN_ID); }
 export function getNodeInput() { return document.getElementById(NODE_INPUT_ID); }
 export function getNetworkInput() { return document.getElementById(NETWORK_INPUT_ID); }

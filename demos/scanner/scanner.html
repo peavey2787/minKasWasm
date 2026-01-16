@@ -131,33 +131,6 @@
       </div>
     </div>    
   <div class="wallet-container">
-      <div class="dagwalk-container scanner-container">
-        <h2>Walking the DAG</h2>
-        <div class="dagwalk-controls" style="margin-bottom:1em;display:flex;flex-wrap:wrap;gap:1em;align-items:center;justify-content:center;">
-          <label for="dagwalkBlockHashInput">Start Block Hash:
-            <input type="text" id="dagwalkBlockHashInput" placeholder="Block hash" style="width:220px;">
-          </label>
-          <label for="dagwalkSearchTextInput">Search Text:
-            <input type="text" id="dagwalkSearchTextInput" placeholder="Search text" style="width:120px;">
-          </label>
-          <label for="dagwalkMaxBlocksInput">Max Blocks:
-            <input type="number" id="dagwalkMaxBlocksInput" min="1" max="50000" value="1000" style="width:80px;">
-          </label>
-          <label for="dagwalkMinTimestampInput">Min. Timestamp:
-            <input type="number" id="dagwalkMinTimestampInput" min="0" step="1" placeholder="Unix time (sec)" style="width:140px;">
-          </label>
-          <label for="dagwalkMatchModeSelect">Match Mode:
-            <select id="dagwalkMatchModeSelect">
-              <option value="all">All</option>
-              <option value="transactions">Transactions Only</option>
-              <option value="matching">Matching Only</option>
-              <option value="blocks">Blocks Only</option>
-            </select>
-          </label>
-          <button id="dagwalkStartBtn" style="background:#49eacb;color:#fff;">Walk DAG</button>
-        </div>
-        <div id="dagwalkResults" class="output matches-container" style="max-height:180px;overflow-y:auto;"></div>
-      </div>
     <h2>Wallet</h2>
     <div class="wallet-controls">
       <button id="createWalletBtn">Create/Open Wallet</button>

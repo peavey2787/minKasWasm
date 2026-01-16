@@ -20,6 +20,8 @@
     ol > li { margin-bottom: 2.1rem; }
     ul { margin-bottom: 1.2rem; }
     p { margin-bottom: 2.2rem; }
+    .params-box { background: #232223; border: 1px solid #49eacb44; border-radius: 8px; padding: 1rem 1rem; margin-top: 1rem; }
+    .params-title { color: #7fffd4; font-weight: bold; margin-bottom: 0.6rem; }
   </style>
 </head>
 <body>
@@ -30,15 +32,17 @@
       <h2>Demo Pages</h2>
       <ul class="demos">
         <li><a href="demos/scanner/scanner.html">Block Scanner & Wallet</a></li>
-        <li><a href="demos/demo.html">Full Wallet & RPC Demo</a></li>
-        <li><a href="demos/client_demo.html">Simple Connect Demo</a></li>
-        <li><a href="demos/rpc_demo.html">RPC Command Demo</a></li>
-        <li><a href="demos/encryption.html">Symmetric Encryption Demo</a></li>
-        <li><a href="demos/dh_encryption.html">Diffie–Hellman Encryption Demo</a></li>
+        <li><a href="demos/demo.html">Full Wallet & RPC</a></li>
+        <li><a href="demos/dag-walk/dag_walk.html">DAG Walk</a></li>
+        <li><a href="demos/client_demo.html">Simple Connect</a></li>
+        <li><a href="demos/rpc_demo.html">RPC Command</a></li>
+        <li><a href="demos/encryption.html">Symmetric Encryption</a></li>
+        <li><a href="demos/dh_encryption.html">Diffie–Hellman Encryption</a></li>
           <div class="section">
             <h2>Tests</h2>
             <ul class="demos">
-              <li><a href="tests/indexer/tests.html">Indexer Test Dashboard</a></li>
+              <li><a href="tests/indexer/tests.html">Indexer Tests</a></li>
+              <li><a href="tests/walking-the-dag/tests.html">DAG Walking Tests</a></li>
             </ul>
           </div>
       </ul>
@@ -53,11 +57,14 @@ import { connect } from './wrapper/kaspa_client.js';
 
 const client = await connect(rpcUrl, networkId, { onDisconnect });
           </pre>
-          <ul>
-            <li><code>rpcUrl</code>: Node ip:port (or <code>null</code> for resolver)</li>
-            <li><code>networkId</code>: e.g. <code>"mainnet"</code>, <code>"testnet-10"</code></li>
-            <li><code>onDisconnect</code>: Optional callback for disconnect events</li>
-          </ul>
+          <div class="params-box">
+            <div class="params-title">Client Parameters</div>
+            <ul>
+              <li><code>rpcUrl</code> (<code>string</code> | <code>null</code>): Node ip:port (or <code>null</code> for resolver)</li>
+              <li><code>networkId</code> (<code>string</code>): e.g. <code>"mainnet"</code>, <code>"testnet-10"</code></li>
+              <li><code>onDisconnect</code> (<code>function</code>, optional): Optional callback for disconnect events</li>
+            </ul>
+          </div>
         </li>
       </ol>
     </div>
@@ -71,12 +78,15 @@ import { init } from './wrapper/wallet_service.js';
 
 init({ rpcClient: client, networkId, balanceElementId, onBalanceChange });
           </pre>
-          <ul>
-            <li><code>rpcClient</code>: The connected Kaspa client</li>
-            <li><code>networkId</code>: Network string</li>
-            <li><code>balanceElementId</code>: (optional) DOM element ID to update balance</li>
-            <li><code>onBalanceChange</code>: (optional) callback for balance updates</li>
-          </ul>
+          <div class="params-box">
+            <div class="params-title">Wallet Init Parameters</div>
+            <ul>
+              <li><code>rpcClient</code> (<code>object</code>): The connected Kaspa client</li>
+              <li><code>networkId</code> (<code>string</code>): Network string</li>
+              <li><code>balanceElementId</code> (<code>string</code>, optional): DOM element ID to update balance</li>
+              <li><code>onBalanceChange</code> (<code>function</code>, optional): callback for balance updates</li>
+            </ul>
+          </div>
         </li>
         <li>
           <strong>Create/Import a wallet:</strong>
@@ -92,14 +102,17 @@ const { mnemonic, address } = await createWallet({
   discoverAddresses     // (optional, default true) Scan for used addresses
 });
           </pre>
-          <ul>
-            <li><code>password</code>: Wallet password</li>
-            <li><code>filename</code>: (optional) Wallet filename</li>
-            <li><code>userHint</code>: (optional) User hint for wallet</li>
-            <li><code>mnemonic</code>: (optional) Import mnemonic</li>
-            <li><code>storeMnemonic</code>: (optional) Store mnemonic in storage</li>
-            <li><code>discoverAddresses</code>: (optional, default <code>true</code>) Scan for used addresses</li>
-          </ul>
+          <div class="params-box">
+            <div class="params-title">createWallet Parameters</div>
+            <ul>
+              <li><code>password</code> (<code>string</code>): Wallet password</li>
+              <li><code>filename</code> (<code>string</code>, optional): Wallet filename</li>
+              <li><code>userHint</code> (<code>string</code>, optional): User hint for wallet</li>
+              <li><code>mnemonic</code> (<code>string</code>, optional): Import mnemonic</li>
+              <li><code>storeMnemonic</code> (<code>boolean</code>, optional): Store mnemonic in storage</li>
+              <li><code>discoverAddresses</code> (<code>boolean</code>, optional, default <code>true</code>): Scan for used addresses</li>
+            </ul>
+          </div>
         </li>
         <li>
           <strong>Send Kaspa:</strong>
@@ -113,12 +126,15 @@ await send({
   priorityFeeKas     // (optional) Extra priority fee in KAS
 });
           </pre>
-          <ul>
-            <li><code>amount</code>: Amount in KAS</li>
-            <li><code>toAddress</code>: Destination address</li>
-            <li><code>payload</code>: (optional) Payload string</li>
-            <li><code>priorityFeeKas</code>: (optional) Extra priority fee in KAS</li>
-          </ul>
+          <div class="params-box">
+            <div class="params-title">send Parameters</div>
+            <ul>
+              <li><code>amount</code> (<code>number</code>): Amount in KAS</li>
+              <li><code>toAddress</code> (<code>string</code>): Destination address</li>
+              <li><code>payload</code> (<code>string</code>, optional): Payload string</li>
+              <li><code>priorityFeeKas</code> (<code>number</code>, optional): Extra priority fee in KAS</li>
+            </ul>
+          </div>
         </li>
         <li>
           <strong>Other wallet functions:</strong>
@@ -129,10 +145,13 @@ const balance = await getSpendableBalance();
 const address = await generateNewAddress(); // generateNewAddress(change = false)
 const keypair = await generateNewKeypair(index); // index: child key index (number)
           </pre>
-          <ul>
-            <li><code>generateNewAddress(change)</code>: <code>change</code> (optional, default <code>false</code>) - if true, generates a change address</li>
-            <li><code>generateNewKeypair(index)</code>: <code>index</code> (number) - child key index</li>
-          </ul>
+          <div class="params-box">
+            <div class="params-title">Wallet Utility Parameters</div>
+            <ul>
+              <li><code>generateNewAddress(change)</code>: <code>change</code> (<code>boolean</code>, optional, default <code>false</code>) - if true, generates a change address</li>
+              <li><code>generateNewKeypair(index)</code>: <code>index</code> (<code>number</code>, integer) - child key index</li>
+            </ul>
+          </div>
         </li>
       </ol>
     </div>
@@ -147,9 +166,12 @@ import { getAllWallets } from './wrapper/wallet_service.js';
 const wallets = await getAllWallets();
 // wallets: Array of { filename, title, ... }
           </pre>
-          <ul>
-            <li><code>getAllWallets()</code>: Returns array of wallet file info objects</li>
-          </ul>
+          <div class="params-box">
+            <div class="params-title">getAllWallets Parameters</div>
+            <ul>
+              <li><code>getAllWallets()</code>: Returns array of wallet file info objects</li>
+            </ul>
+          </div>
         </li>
         <li>
           <strong>Delete a wallet by filename:</strong>
@@ -158,9 +180,12 @@ import { deleteWalletData } from './wrapper/storage.js';
 
 await deleteWalletData(filename); // filename: string
           </pre>
-          <ul>
-            <li><code>deleteWalletData(filename)</code>: Deletes wallet by filename from storage</li>
-          </ul>
+          <div class="params-box">
+            <div class="params-title">deleteWalletData Parameters</div>
+            <ul>
+              <li><code>deleteWalletData(filename)</code>: Deletes wallet by filename from storage</li>
+            </ul>
+          </div>
         </li>
       </ol>
     </div>
@@ -171,21 +196,220 @@ await deleteWalletData(filename); // filename: string
           <strong>Block Scanner usage:</strong>
           <pre>
 import { KaspaBlockScanner, SearchMode } from './wrapper/scanner.js';
+import { MatchMode } from './wrapper/indexer.js';
 
-const scanner = new KaspaBlockScanner(client); // client: connected Kaspa RPC client
-scanner.setSearch(searchString, SearchMode.INCLUDES); // searchString: string to search, mode: 'includes' or 'startsWith'
-await scanner.start((block, match, matchedPayload) => {
-  // block: block object
-  // match: true if payload matched
-  // matchedPayload: decoded payload string (if matched)
+// The scanner owns an indexer at: scanner.indexer
+const scanner = new KaspaBlockScanner(client, {
+  prefix: 'test',                 // optional search text for payloads
+  mode: SearchMode.INCLUDES,      // includes | startsWith | exact | endsWith
+  addresses: [],                  // optional list of addresses to watch
+  indexerOptions: {
+    ttlMinutes: 10,
+    flushInterval: 5000,
+    maxSize: 500,
+    matchMode: MatchMode.ALL,
+    onIndexerUpdate: (event) => {
+      // stream indexer updates into your UI
+    }
+  }
 });
+
+// Optional: enable indexing
+scanner.indexer.start();
+
+await scanner.start((block, matches) => {
+  // block: full block object
+  // matches: array of match objects found in this block
+});
+
 scanner.stop();
+scanner.indexer.stop();
           </pre>
-          <ul>
-            <li><code>setSearch(searchString, mode)</code>: <code>searchString</code> (string), <code>mode</code> (optional, <code>'includes'</code> or <code>'startsWith'</code>)</li>
-            <li><code>start(onBlock)</code>: <code>onBlock</code> (function) - callback for each block</li>
-            <li><code>stop()</code>: Stops the scanner</li>
-          </ul>
+          <div class="params-box">
+            <div class="params-title">Scanner Parameters</div>
+            <ul>
+              <li><code>new KaspaBlockScanner(client, options)</code>: (<code>constructor</code>) Creates a scanner instance.</li>
+              <li><code>client</code>: (<code>object</code>) Connected Kaspa RPC client (from <code>connect()</code>)</li>
+              <li><code>options.prefix</code>: (<code>string</code>, optional) Plain string to match in payloads (stored internally as hex for fast matching)</li>
+              <li><code>options.mode</code>: (<code>SearchMode</code>) One of <code>SearchMode.INCLUDES</code> | <code>STARTS_WITH</code> | <code>EXACT</code> | <code>ENDS_WITH</code></li>
+              <li><code>options.addresses</code>: (<code>string[]</code>, optional) List of addresses to watch (checks tx inputs/outputs)</li>
+              <li><code>options.indexerOptions</code>: (<code>object</code>, optional) Options passed to the built-in indexer instance (<code>scanner.indexer</code>)</li>
+            </ul>
+
+            <div class="params-title" style="margin-top:1rem;">Indexer Options (via <code>indexerOptions</code>)</div>
+            <ul>
+              <li><code>ttlMinutes</code>: (<code>number</code> | <code>null</code>) TTL for cached items (minutes). <code>null</code> disables TTL eviction.</li>
+              <li><code>flushInterval</code>: (<code>number</code>) Flush interval in ms for persisting buffered entries to IndexedDB.</li>
+              <li><code>maxSize</code>: (<code>number</code> | <code>null</code>) Max number of entries per store (size-based eviction). <code>null</code> disables size eviction.</li>
+              <li><code>priorityTTL</code>: (<code>boolean</code>) If true, evict by TTL before size (else size before TTL).</li>
+              <li><code>matchMode</code>: (<code>MatchMode</code>) <code>MatchMode.ALL</code> | <code>TRANSACTIONS</code> | <code>MATCHING</code> | <code>BLOCKS</code> | <code>CUSTOM</code></li>
+              <li><code>indexAllTransactions</code>, <code>indexAllMatchingTransactions</code>, <code>indexAllBlocks</code>: (<code>boolean</code>) Used when <code>matchMode=CUSTOM</code></li>
+              <li><code>onIndexerUpdate(event)</code>: (<code>function</code>) UI callback for live updates (in-memory + cached + evictions)</li>
+            </ul>
+          </div>
+
+          <div class="params-box">
+            <div class="params-title">Scanner Runtime API</div>
+            <ul>
+              <li><code>scanner.start((block, matches) =&gt; {})</code>: Subscribes to new blocks and invokes callback per block.</li>
+              <li><code>matches</code>: Array of match objects for that block (payload/address matches).</li>
+              <li><code>scanner.stop()</code>: Unsubscribes and resets scanner search state.</li>
+              <li><code>scanner.indexer.start()</code>/<code>stop()</code>: Starts/stops background flush + eviction timers.</li>
+            </ul>
+          </div>
+        </li>
+      </ol>
+    </div>
+
+    <div class="section">
+      <h2>Indexer</h2>
+      <ol>
+        <li>
+          <strong>Indexer usage (standalone):</strong>
+          <pre>
+import { KaspaIndexer, MatchMode } from './wrapper/indexer.js';
+
+const indexer = new KaspaIndexer({
+  ttlMinutes: 10,
+  flushInterval: 5000,
+  maxSize: 500,
+  priorityTTL: true,
+  matchMode: MatchMode.ALL,
+  onIndexerUpdate: (event) => {
+    // event.type: transaction-in-memory | matching-transaction-in-memory | block-in-memory | ...
+    // event.data: entry
+  }
+});
+
+await indexer.initDB();
+indexer.start();
+
+// later...
+const metrics = indexer.getMetrics();
+          </pre>
+          <div class="params-box">
+            <div class="params-title">Indexer Parameters</div>
+            <ul>
+              <li><code>new KaspaIndexer(options)</code>: (<code>constructor</code>) Creates an indexer instance.</li>
+              <li><code>ttlMinutes</code>: (<code>number</code> | <code>null</code>) TTL for cached items (minutes). <code>null</code> disables TTL eviction.</li>
+              <li><code>flushInterval</code>: (<code>number</code>) Flush interval in ms (how often buffers are flushed to IndexedDB).</li>
+              <li><code>maxSize</code>: (<code>number</code> | <code>null</code>) Max number of entries per store (size-based eviction). <code>null</code> disables size eviction.</li>
+              <li><code>batchThresholdRatio</code>: (<code>number</code>) Eviction batching threshold (fraction of store size before bulk-style TTL eviction triggers).</li>
+              <li><code>priorityTTL</code>: (<code>boolean</code>) If true, evict TTL before size (else size before TTL).</li>
+              <li><code>inMemoryMaxTxs</code>, <code>inMemoryMaxBlocks</code>: (<code>number</code>) In-memory buffering caps before triggering flush.</li>
+              <li><code>dbName</code>: (<code>string</code>) IndexedDB database name.</li>
+              <li><code>matchMode</code>: (<code>MatchMode</code>) <code>MatchMode.ALL</code> | <code>TRANSACTIONS</code> | <code>MATCHING</code> | <code>BLOCKS</code> | <code>CUSTOM</code></li>
+              <li><code>indexAllTransactions</code>, <code>indexAllMatchingTransactions</code>, <code>indexAllBlocks</code>: (<code>boolean</code>) Used when <code>matchMode=CUSTOM</code></li>
+              <li><code>onIndexerUpdate(event)</code>: (<code>function</code>) Called for in-memory adds, cached flushes, and evictions.</li>
+            </ul>
+          </div>
+
+          <div class="params-box">
+            <div class="params-title">Indexer Runtime API</div>
+            <ul>
+              <li><code>await initDB()</code>: Initializes IndexedDB stores.</li>
+              <li><code>start()</code>/<code>stop()</code>: Enables/disables background eviction + periodic flush.</li>
+              <li><code>getMetrics()</code>: (<code>object</code>) Returns counters for observability:</li>
+              <li><code>transactionsIndexed</code>: (<code>number</code>) Count of transactions indexed.</li>
+              <li><code>blocksIndexed</code>: (<code>number</code>) Count of blocks indexed.</li>
+              <li><code>evictions</code>: (<code>{ ttl: number, size: number }</code>) Eviction counters by reason.</li>
+              <li><code>cacheHits</code>: (<code>number</code>) Cache hit counter.</li>
+              <li><code>cacheMisses</code>: (<code>number</code>) Cache miss counter.</li>
+            </ul>
+          </div>
+        </li>
+      </ol>
+    </div>
+
+    <div class="section">
+      <h2>Walking the DAG</h2>
+      <ol>
+        <li>
+          <strong>Walk forward to present:</strong>
+          <pre>
+import { walkDagToPresent } from './wrapper/dag_walk.js';
+
+await walkDagToPresent({
+  client,
+  startHash,
+  maxSeconds: 10,
+  minTimestamp: 0,
+  logFn: console.log,
+  onBlock: (block) => {
+    // return true to stop early
+    return false;
+  }
+});
+          </pre>
+          <div class="params-box">
+            <div class="params-title">walkDagToPresent Parameters</div>
+            <ul>
+              <li><code>client</code> (object): Connected Kaspa RPC client.</li>
+              <li><code>startHash</code> (string): 64-char block hash (hex) to start from.</li>
+              <li><code>maxSeconds</code> (number): Time budget for the walk (required, must be &gt; 0).</li>
+              <li><code>minTimestamp</code> (number): Optional unix seconds filter (blocks older than this are skipped).</li>
+              <li><code>logFn(msg)</code> (function): Optional logger callback for streaming progress.</li>
+              <li><code>onBlock(block)</code> (function): Optional callback per block; return <code>true</code> to stop early.</li>
+            </ul>
+          </div>
+        </li>
+        <li>
+          <strong>Scan forward to match (payload):</strong>
+          <pre>
+import { scanDagForward } from './wrapper/dag_walk.js';
+
+const match = await scanDagForward({
+  client,
+  startHash,
+  searchText: 'hello',
+  matchMode: 'contains', // exact | prefix | contains | cleaned_contains
+  maxSeconds: 15,
+  minTimestamp: 0,
+  logFn: console.log
+});
+          </pre>
+          <div class="params-box">
+            <div class="params-title">scanDagForward Parameters</div>
+            <ul>
+              <li><code>client</code> (object): Connected Kaspa RPC client.</li>
+              <li><code>startHash</code> (string): 64-char block hash (hex) to start from.</li>
+              <li><code>searchText</code> (string): Required non-empty string to search for.</li>
+              <li><code>matchMode</code> (string): One of <code>exact</code> | <code>prefix</code> | <code>contains</code> | <code>cleaned_contains</code>.</li>
+              <li><code>maxSeconds</code> (number): Time budget for scanning (required, must be &gt; 0).</li>
+              <li><code>minTimestamp</code> (number): Optional unix seconds filter (blocks older than this are skipped).</li>
+              <li><code>logFn(msg)</code> (function): Optional logger callback.</li>
+            </ul>
+          </div>
+        </li>
+        <li>
+          <strong>Scan backward to match (custom matchFn):</strong>
+          <pre>
+import { scanDagBackward } from './wrapper/dag_walk.js';
+
+const match = await scanDagBackward({
+  client,
+  startHash,
+  maxSeconds: 15,
+  maxDepth: 5000, // optional (or Infinity)
+  logFn: console.log,
+  matchFn: (block, tx) => {
+    // return true when you found your match
+    return false;
+  }
+});
+          </pre>
+          <div class="params-box">
+            <div class="params-title">scanDagBackward Parameters</div>
+            <ul>
+              <li><code>client</code> (object): Connected Kaspa RPC client.</li>
+              <li><code>startHash</code> (string): 64-char block hash (hex) to start from.</li>
+              <li><code>matchFn(block, tx)</code> (function): Required predicate; return <code>true</code> to signal a match.</li>
+              <li><code>maxSeconds</code> (number): Time budget for scanning (required, must be &gt; 0).</li>
+              <li><code>maxDepth</code> (number | Infinity): Optional safety limit on unique blocks visited (<code>Infinity</code> allowed).</li>
+              <li><code>visited</code> (Set&lt;string&gt;): Optional <code>Set</code> for caller-managed de-duplication across runs.</li>
+              <li><code>logFn(msg)</code> (function): Optional logger callback.</li>
+            </ul>
+          </div>
         </li>
       </ol>
     </div>
@@ -201,10 +425,13 @@ const result = await runRpcCommand(client, '{"method":"getInfo","params":{}}');
 // client: connected Kaspa RPC client
 // cmdText: JSON string with { method, params }
           </pre>
-          <ul>
-            <li><code>client</code>: connected Kaspa RPC client</li>
-            <li><code>cmdText</code>: JSON string with <code>{ method, params }</code></li>
-          </ul>
+          <div class="params-box">
+            <div class="params-title">runRpcCommand Parameters</div>
+            <ul>
+              <li><code>client</code>: connected Kaspa RPC client</li>
+              <li><code>cmdText</code>: JSON string with <code>{ method, params }</code></li>
+            </ul>
+          </div>
         </li>
       </ol>
     </div>
@@ -222,10 +449,25 @@ const encrypted = encryptMessage(plaintext, password); // plaintext: string, pas
 // Decrypt
 const decrypted = decryptMessage(encrypted, password); // encrypted: object/string, password: string
           </pre>
-          <ul>
-            <li><code>encryptMessage(plaintext, password)</code>: <code>plaintext</code> (string), <code>password</code> (string)</li>
-            <li><code>decryptMessage(encrypted, password)</code>: <code>encrypted</code> (object/string), <code>password</code> (string)</li>
-          </ul>
+          <div class="params-box">
+            <div class="params-title">Symmetric Encryption Parameters</div>
+            <ul>
+              <li><code>encryptMessage(plaintext, password)</code></li>
+              <li><code>plaintext</code>: (<code>string</code>) The message/data you want to encrypt (utf-8 string).</li>
+              <li><code>password</code>: (<code>string</code>) User-supplied secret used to derive the encryption key (treat like a passphrase; don’t log it).</li>
+
+              <li style="margin-top:0.6rem;"><code>decryptMessage(encrypted, password)</code></li>
+              <li><code>encrypted</code>: (<code>object</code> | <code>string</code>) The encrypted payload produced by <code>encryptMessage</code> (object or serialized string).</li>
+              <li><code>password</code>: (<code>string</code>) Must be the same password used to encrypt (otherwise decryption fails).</li>
+            </ul>
+          </div>
+          <div class="params-box">
+            <div class="params-title">Symmetric Encryption API</div>
+            <ul>
+              <li><code>encryptMessage(plaintext, password)</code>: Returns an encrypted payload (object/string) suitable for transport/storage.</li>
+              <li><code>decryptMessage(encrypted, password)</code>: Returns the decrypted plaintext string.</li>
+            </ul>
+          </div>
         </li>
         <li>
           <strong>Diffie–Hellman Encryption usage:</strong>
@@ -242,12 +484,33 @@ const encrypted = dh.encrypt(message); // message: string
 // Decrypt
 const decrypted = dh.decrypt(encrypted); // encrypted: object/string
           </pre>
-          <ul>
-            <li><code>initiateHandshake(myPrivateKey, myPublicKey)</code>: <code>myPrivateKey</code> (hex string), <code>myPublicKey</code> (hex string)</li>
-            <li><code>respondToHandshake(peerPublicKeyHex)</code>: <code>peerPublicKeyHex</code> (hex string)</li>
-            <li><code>encrypt(message)</code>: <code>message</code> (string)</li>
-            <li><code>decrypt(encrypted)</code>: <code>encrypted</code> (object/string)</li>
-          </ul>
+          <div class="params-box">
+            <div class="params-title">Diffie–Hellman Parameters</div>
+            <ul>
+              <li><code>initiateHandshake(myPrivateKey, myPublicKey)</code></li>
+              <li><code>myPrivateKey</code>: (<code>string</code>, hex) Your private key as a hex string (keep secret; never send to the peer).</li>
+              <li><code>myPublicKey</code>: (<code>string</code>, hex) Your public key as a hex string (safe to share; used by the peer to derive the shared secret).</li>
+
+              <li style="margin-top:0.6rem;"><code>respondToHandshake(peerPublicKeyHex)</code></li>
+              <li><code>peerPublicKeyHex</code>: (<code>string</code>, hex) The peer’s public key (hex string) received from their handshake message.</li>
+
+              <li style="margin-top:0.6rem;"><code>encrypt(message)</code></li>
+              <li><code>message</code>: (<code>string</code>) Plaintext string to encrypt after the handshake completes.</li>
+
+              <li style="margin-top:0.6rem;"><code>decrypt(encrypted)</code></li>
+              <li><code>encrypted</code>: (<code>object</code> | <code>string</code>) Encrypted payload produced by <code>encrypt()</code> on either side of the session.</li>
+            </ul>
+          </div>
+          <div class="params-box">
+            <div class="params-title">DHSession API</div>
+            <ul>
+              <li><code>new DHSession()</code>: Creates a session instance (maintains handshake state / derived key material).</li>
+              <li><code>initiateHandshake(myPrivateKey, myPublicKey)</code>: Creates the initial handshake message to send to your peer.</li>
+              <li><code>respondToHandshake(peerPublicKeyHex)</code>: Completes the handshake using the peer public key; returns a response message.</li>
+              <li><code>encrypt(message)</code>: Encrypts a plaintext message for the peer; returns encrypted payload (object/string).</li>
+              <li><code>decrypt(encrypted)</code>: Decrypts an encrypted payload from the peer; returns plaintext string.</li>
+            </ul>
+          </div>
         </li>
       </ol>
     </div>

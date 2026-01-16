@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Kaspa DAG Walk Test Dashboard</title>
+  <style>
+    body { font-family: Segoe UI, Arial, sans-serif; }
+    .test-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+    .test-status {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+    }
+    .log-container {
+      max-height: 220px;
+      overflow: auto;
+      border: 1px solid #1f3d38;
+      border-radius: 8px;
+      background: #0f1414;
+      padding: 10px;
+    }
+    pre {
+      margin: 0;
+      color: #49eacb;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+  </style>
+</head>
+<body>
+  <h1>Kaspa DAG Walk Test Dashboard</h1>
+  <div style="margin-bottom:1em;">
+    <label for="inputStartBlockHash"><strong>Starting block hash:</strong></label>
+    <input type="text" id="inputStartBlockHash" placeholder="Enter starting block hash (64 hex chars)" style="width:420px;">
+    <div id="liveStartHashStatus" style="margin-top:6px;color:#49eacb;"></div>
+  </div>
+  <ul id="testList">
+    <li>
+      <div class="test-header">
+        <button id="btnWalkForwardToPresent">Walk Forward to Present</button>
+        <span id="statusWalkForwardToPresent" class="test-status" aria-label="status"></span>
+        <span id="spinnerWalkForwardToPresent" style="display:none;vertical-align:middle;"></span>
+      </div>
+      <div class="log-container">
+        <pre id="resultWalkForwardToPresent"></pre>
+      </div>
+    </li>
+    <li>
+      <div class="test-header">
+        <label for="inputBackwardToMatch">Match (hash, txid, or payload):</label>
+        <input type="text" id="inputBackwardToMatch" placeholder="Enter hash, txid, or payload" style="width:260px;">
+        <button id="btnWalkBackwardToMatch">Walk Backward to Match</button>
+        <span id="statusWalkBackwardToMatch" class="test-status" aria-label="status"></span>
+        <span id="spinnerWalkBackwardToMatch" style="display:none;vertical-align:middle;"></span>
+      </div>
+      <div class="log-container">
+        <pre id="resultWalkBackwardToMatch"></pre>
+      </div>
+    </li>
+    <li>
+      <div class="test-header">
+        <label for="inputForwardToMatch">Match (hash, txid, or payload):</label>
+        <input type="text" id="inputForwardToMatch" placeholder="Leave blank for auto payload discovery" style="width:260px;">
+        <button id="btnWalkForwardToMatch">Walk Forward to Match</button>
+        <span id="statusWalkForwardToMatch" class="test-status" aria-label="status"></span>
+        <span id="spinnerWalkForwardToMatch" style="display:none;vertical-align:middle;"></span>
+      </div>
+      <div class="log-container">
+        <pre id="resultWalkForwardToMatch"></pre>
+      </div>
+    </li>
+  </ul>
+  <script type="module">
+    import { connect } from '../../wrapper/kaspa_client.js';
+
+    const BLOCK_ADDED_EVENT = 'block-added';
+    const isValidHash = (h) => typeof h === 'string' && /^[a-fA-F0-9]{64}$/.test(h);
+
+    const startHashInput = document.getElementById('inputStartBlockHash');
+    const liveStatus = document.getElementById('liveStartHashStatus');
+
+    let latestLiveHash = null;
+    let userHasTyped = false;
+
+    startHashInput.addEventListener('input', () => {
+      userHasTyped = startHashInput.value.trim().length > 0;
+    });
+
+    function getEffectiveStartHash() {
+      const typed = startHashInput.value.trim();
+      if (isValidHash(typed)) return typed;
+      if (isValidHash(latestLiveHash)) return latestLiveHash;
+      return typed; // (invalid/empty) - tests will handle/fail with logs
+    }
+
+    async function initLiveStartHash() {
+      try {
+        liveStatus.textContent = 'Connecting (mainnet)…';
+        const client = await connect(null, 'mainnet');
+        liveStatus.textContent = 'Subscribing…';
+
+        await client.subscribeBlockAdded();
+
+        client.addEventListener(BLOCK_ADDED_EVENT, (event) => {
+          const block = event?.data?.block;
+          const hash = block?.hash || block?.header?.hash;
+          if (!isValidHash(hash)) return;
+
+          latestLiveHash = hash;
+          liveStatus.textContent = `Live: ${hash.slice(0, 8)}…`;
+
+          const typed = startHashInput.value.trim();
+          const typedValid = isValidHash(typed);
+          // Only auto-populate if user didn't provide a valid hash.
+          if (!typedValid && (!userHasTyped || typed.length === 0)) {
+            startHashInput.value = hash;
+            userHasTyped = false;
+          }
+        });
+
+        liveStatus.textContent = 'Waiting for new block…';
+      } catch (err) {
+        liveStatus.style.color = '#e74c3c';
+        liveStatus.textContent = `Live hash unavailable: ${err?.message || err}`;
+      }
+    }
+
+    // Start live subscription immediately on page load.
+    initLiveStartHash();
+
+    function showSpinner(spinnerId) {
+      const spinner = document.getElementById(spinnerId);
+      if (spinner) {
+        spinner.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="#49eacb" stroke-width="4" stroke-dasharray="60" stroke-dashoffset="40"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></circle></svg>`;
+        spinner.style.display = '';
+      }
+    }
+    function hideSpinner(spinnerId) {
+      const spinner = document.getElementById(spinnerId);
+      if (spinner) {
+        spinner.innerHTML = '';
+        spinner.style.display = 'none';
+      }
+    }
+
+    const icon = {
+      idle: '',
+      running: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="running"><circle cx="12" cy="12" r="10" stroke="#b6c2c2" stroke-width="3" stroke-dasharray="28" stroke-dashoffset="20"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></circle></svg>`,
+      pass: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="pass"><path d="M20 6L9 17l-5-5" stroke="#3ddc97" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+      fail: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="fail"><path d="M6 6l12 12M18 6L6 18" stroke="#ff6b6b" stroke-width="3" stroke-linecap="round"/></svg>`,
+      warn: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="warn"><path d="M12 9v5" stroke="#f5c542" stroke-width="3" stroke-linecap="round"/><circle cx="12" cy="17" r="1.4" fill="#f5c542"/><path d="M12 3l10 18H2L12 3z" stroke="#f5c542" stroke-width="2"/></svg>`
+    };
+
+    function setStatus(statusElemId, state) {
+      const el = document.getElementById(statusElemId);
+      if (!el) return;
+      el.innerHTML = icon[state] ?? icon.warn;
+      el.title = state;
+    }
+
+    function classifyResult(resultText) {
+      if (typeof resultText !== 'string') return 'warn';
+      if (resultText.includes('[PASS]')) return 'pass';
+      if (resultText.includes('[FAIL]')) return 'fail';
+      return 'warn';
+    }
+
+    document.getElementById('btnWalkForwardToPresent').onclick = async function() {
+      const { runTestWalkForwardToPresent } = await import('./test_walk_forward_to_present.js?v=' + Date.now());
+      const resultElem = document.getElementById('resultWalkForwardToPresent');
+      const startHash = getEffectiveStartHash();
+      resultElem.textContent = '[TEST] Walking DAG forward to present...\n';
+      setStatus('statusWalkForwardToPresent', 'running');
+      showSpinner('spinnerWalkForwardToPresent');
+      try {
+        const streamLog = (msg) => { resultElem.textContent += msg + '\n'; };
+        const result = await runTestWalkForwardToPresent({ logFn: streamLog, startHash });
+        if (result) resultElem.textContent += result + '\n';
+        setStatus('statusWalkForwardToPresent', classifyResult(result));
+      } finally {
+        hideSpinner('spinnerWalkForwardToPresent');
+      }
+    };
+    document.getElementById('btnWalkBackwardToMatch').onclick = async function() {
+      const { runTestWalkBackwardToMatch } = await import('./test_walk_backward_to_match.js?v=' + Date.now());
+      const resultElem = document.getElementById('resultWalkBackwardToMatch');
+      const startHash = getEffectiveStartHash();
+      const input = document.getElementById('inputBackwardToMatch').value.trim();
+      resultElem.textContent = '[TEST] Walking DAG backward to match...\n';
+      setStatus('statusWalkBackwardToMatch', 'running');
+      showSpinner('spinnerWalkBackwardToMatch');
+      try {
+        const streamLog = (msg) => { resultElem.textContent += msg + '\n'; };
+        const result = await runTestWalkBackwardToMatch({ startHash, matchText: input, logFn: streamLog });
+        if (result) resultElem.textContent += result + '\n';
+        setStatus('statusWalkBackwardToMatch', classifyResult(result));
+      } finally {
+        hideSpinner('spinnerWalkBackwardToMatch');
+      }
+    };
+    document.getElementById('btnWalkForwardToMatch').onclick = async function() {
+      const { runTestWalkForwardToMatch } = await import('./test_walk_forward_to_match.js?v=' + Date.now());
+      const resultElem = document.getElementById('resultWalkForwardToMatch');
+      const startHash = getEffectiveStartHash();
+      const input = document.getElementById('inputForwardToMatch').value.trim();
+      resultElem.textContent = '[TEST] Walking DAG forward to match...\n';
+      setStatus('statusWalkForwardToMatch', 'running');
+      showSpinner('spinnerWalkForwardToMatch');
+      try {
+        const streamLog = (msg) => { resultElem.textContent += msg + '\n'; };
+        const result = await runTestWalkForwardToMatch({ startHash, matchText: input, logFn: streamLog });
+        if (result) resultElem.textContent += result + '\n';
+        setStatus('statusWalkForwardToMatch', classifyResult(result));
+      } finally {
+        hideSpinner('spinnerWalkForwardToMatch');
+      }
+    };
+  </script>
+</body>
+</html>

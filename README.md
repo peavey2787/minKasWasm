@@ -2,6 +2,11 @@
 
 This project provides a browser-based Kaspa WASM SDK wrapper and a set of interactive demos. See below for how to use the wrapper modules in your own app.
 
+## Demos
+
+- Block scanner + wallet + indexer UI: `demos/scanner/scanner.html`
+- DAG walking UI (powered by `wrapper/dag_walk.js`): `demos/dag-walk/dag_walk.html`
+
 ## How to Use the Kaspa JS Wrapper
 
 ### Client
@@ -89,14 +94,88 @@ This project provides a browser-based Kaspa WASM SDK wrapper and a set of intera
 
 	```js
 	import { KaspaBlockScanner, SearchMode } from './wrapper/scanner.js';
+	import { MatchMode } from './wrapper/indexer.js';
 
-	const scanner = new KaspaBlockScanner(client);
-	scanner.setSearch(searchString, SearchMode.INCLUDES);
-	await scanner.start((block, match, matchedPayload) => {
-	  // handle block
+	// The scanner is coupled with an internal indexer at scanner.indexer
+	const scanner = new KaspaBlockScanner(client, {
+	  prefix: 'test',
+	  mode: SearchMode.INCLUDES,
+	  indexerOptions: {
+	    ttlMinutes: 10,
+	    flushInterval: 5000,
+	    maxSize: 500,
+	    matchMode: MatchMode.ALL,
+	    onIndexerUpdate: (event) => {
+	      // stream indexer events into your UI
+	    }
+	  }
 	});
+
+	// Start indexing when you want it (optional)
+	scanner.indexer.start();
+
+	await scanner.start((block, matches) => {
+	  // block: full block object
+	  // matches: array of match objects for this block
+	});
+
 	scanner.stop();
+	scanner.indexer.stop();
 	```
+
+### Indexer (Standalone)
+
+The indexer can also be used standalone (without the scanner). See `wrapper/README.md`.
+
+### Walking the DAG
+
+The DAG walker utilities live in `wrapper/dag_walk.js`.
+
+```js
+import { walkDagToPresent, scanDagForward, scanDagBackward } from './wrapper/dag_walk.js';
+
+await walkDagToPresent({
+  client,
+  startHash,
+  maxSeconds: 10,
+  minTimestamp: 0,
+  logFn: console.log,
+  onBlock: (block) => false
+});
+
+const forwardMatch = await scanDagForward({
+  client,
+  startHash,
+  searchText: 'hello',
+  matchMode: 'contains', // exact | prefix | contains | cleaned_contains
+  maxSeconds: 15,
+  minTimestamp: 0,
+  logFn: console.log
+});
+
+const backwardMatch = await scanDagBackward({
+  client,
+  startHash,
+  maxSeconds: 15,
+  maxDepth: 5000, // optional safety limit (or Infinity)
+  logFn: console.log,
+  matchFn: (block, tx) => false
+});
+```
+
+## Testing
+
+Browser-based test dashboard for the DAG walker:
+
+- `tests/walking-the-dag/tests.html`
+
+Included tests:
+
+- `tests/walking-the-dag/test_walk_forward_to_present.js`
+- `tests/walking-the-dag/test_walk_forward_to_match.js` (supports auto payload discovery when match input is blank)
+- `tests/walking-the-dag/test_walk_backward_to_match.js` (supports auto payload discovery when match input is blank)
+
+To run them, serve the repo via a local web server (e.g. Laragon) and open `tests/walking-the-dag/tests.html` in your browser.
 
 ### RPC Commands
 
