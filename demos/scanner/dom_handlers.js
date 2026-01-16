@@ -5,7 +5,7 @@ import * as elements from './dom_elements.js';
 import { KaspaBlockScanner, SearchMode } from "../../wrapper/scanner.js";
 import { connect } from "../../wrapper/kaspa_client.js";
 import { init, createWallet, send } from "../../wrapper/wallet_service.js";
-import { MatchMode, IndexerStore } from "../../wrapper/indexer.js";
+import { IndexerStore, IndexerEventType, EvictionReason } from "../../wrapper/indexer.js";
 import * as renderUI from './render_ui.js';
 
 // State (exported for controller)
@@ -34,6 +34,8 @@ export async function handleConnectClick() {
     const indexAllTransactions = elements.getIndexAllTransactionsCheckbox().checked;
     const indexAllMatchingTransactions = elements.getIndexAllMatchingTransactionsCheckbox().checked;
     const indexAllBlocks = elements.getIndexAllBlocksCheckbox().checked;
+    const flushIntervalInput = elements.getFlushIntervalInput();
+    const flushIntervalSeconds = parseInt(flushIntervalInput?.value) || 5;
     const ttlMinutes = parseInt(ttlInput?.value) || 1;
     const maxSize = parseInt(maxSizeInput?.value) || 500;
     let priorityTTL = true;
@@ -41,44 +43,85 @@ export async function handleConnectClick() {
       if (radio.checked && radio.value === "size") priorityTTL = false;
     }
     let matchMode = matchModeSelect.value;
-    const onTransaction = () => renderUI.renderAllIndexerSections(scanner);
-    const onEvict = () => renderUI.renderAllIndexerSections(scanner);
+    
+    const onIndexerUpdate = (event) => {
+      switch (event.type) {
+        case IndexerEventType.TRANSACTION_IN_MEMORY:          
+          renderUI.renderInMemoryAllTransactionsSection([event.data]);
+          break;
+        case IndexerEventType.MATCHING_TRANSACTION_IN_MEMORY:
+          renderUI.renderInMemoryMatchingTransactionsSection([event.data]);
+          break;
+        case IndexerEventType.BLOCK_IN_MEMORY:
+          renderUI.renderInMemoryBlocksSection([event.data]);
+          break;
+        case IndexerEventType.TRANSACTION_CACHED:
+          renderUI.renderAllTransactionsSection([event.data]);
+          break;
+        case IndexerEventType.MATCHING_TRANSACTION_CACHED:
+          renderUI.renderMatchingTransactionsSection([event.data]);
+          break;
+        case IndexerEventType.BLOCK_CACHED:
+          renderUI.renderAllBlocksSection([event.data]);
+          break;        
+        case IndexerEventType.EVICT: {
+          const { key, storeName, reason } = event.data;
+          if (storeName === IndexerStore.MATCHING_TRANSACTIONS) {
+            if (reason === EvictionReason.TTL || reason === EvictionReason.SIZE) {
+              renderUI.removeMatchingTransactionFromUI(key);
+            } else {
+              renderUI.removeInMemoryMatchingTransactionFromUI(key);
+            }
+          } else if (storeName === IndexerStore.TRANSACTIONS) {
+            if (reason === EvictionReason.TTL || reason === EvictionReason.SIZE) {
+              renderUI.removeTransactionFromUI(key);
+            } else {
+              renderUI.removeInMemoryTransactionFromUI(key);
+            }
+          } else if (storeName === IndexerStore.BLOCKS) {
+            if (reason === EvictionReason.TTL || reason === EvictionReason.SIZE) {
+              renderUI.removeBlockFromUI(key);
+            } else {
+              renderUI.removeInMemoryBlockFromUI(key);
+            }
+          }
+          break;
+        }
+        default:
+          console.log("Unknown indexer event type:", event.type);
+      }
+    };
     if (matchMode !== "custom") {
       currentIndexerOptions = {
         ttlMinutes,
+        flushIntervalSeconds,
         maxSize,
         priorityTTL,
-        matchMode,
-        onEvict,
-        onTransaction
+        matchMode,        
+        onIndexerUpdate
       };
     } else {
       currentIndexerOptions = {
         ttlMinutes,
+        flushIntervalSeconds,
         maxSize,
         priorityTTL,
         matchMode,
         indexAllTransactions,
         indexAllMatchingTransactions,
         indexAllBlocks,
-        onEvict,
-        onTransaction
+        onIndexerUpdate
       };
     }
     scanner = new KaspaBlockScanner(kaspaClient, { indexerOptions: currentIndexerOptions });
     await scanner.indexer.initDB();
-    renderUI.renderAllIndexerSections(scanner);
+    renderUI.renderAllIndexerSections(scanner.indexer);
   } catch (err) {
     console.error("Connection error:", err);
     statusDiv.textContent = "Connection failed: " + (err && err.message ? err.message : err);
   }
 }
 
-export function handleEvict(evictedItem, store) {
-  console.log("Evicted from store:", store, evictedItem);
-}
-
-// Additional handlers
 export async function handleStartStopClick() {
   const startStopBtn = elements.getStartStopBtn();
   const statusDiv = elements.getStatusDiv();
@@ -120,11 +163,13 @@ export function handleStartIndexerClick() {
   if (scanner && scanner.indexer && typeof scanner.indexer.start === "function") {
     scanner.indexer.start();
     renderUI.restartCountdown(scanner.indexer.ttlMs);
+    renderUI.restartFlushCountdown(scanner.indexer.flushInterval);
   }
 }
 
 export function handleStopIndexerClick() {
   renderUI.stopCountdown();
+  renderUI.stopFlushCountdown();
   const countdownDiv = elements.getIndexerCountdownDiv();
   countdownDiv.textContent = "";
   scanner.indexer.stop();
@@ -143,19 +188,19 @@ export function handleMatchModeChange() {
 export async function handleClearMatchingTxsClick() {
   if (!scanner || !scanner.indexer) return;
   await scanner.indexer.clearStore(IndexerStore.MATCHING_TRANSACTIONS);
-  renderUI.renderAllIndexerSections(scanner);
+  renderUI.clearAllCachedSections();
 }
 
 export async function handleClearAllTxsClick() {
   if (!scanner || !scanner.indexer) return;
   await scanner.indexer.clearStore(IndexerStore.TRANSACTIONS);
-  renderUI.renderAllIndexerSections(scanner);
+  renderUI.clearAllCachedSections();
 }
 
 export async function handleClearBlocksClick() {
   if (!scanner || !scanner.indexer) return;
   await scanner.indexer.clearStore(IndexerStore.BLOCKS);
-  renderUI.renderAllIndexerSections(scanner);
+  renderUI.clearAllCachedSections();
 }
 
 export function handleCreateWalletClick() {
@@ -198,5 +243,29 @@ export function handleCopyClick() {
       copyBtn.textContent = "Copied!";
       setTimeout(() => copyBtn.textContent = "Copy", 1000);
     });
+  }
+}
+
+export function handleToggleInMemoryClick() {
+  const btn = elements.getToggleInMemoryBtn();
+  const content = elements.getInMemorySections();
+  if (content.style.display === "none" || !content.style.display) {
+    content.style.display = "block";
+    btn.textContent = "In-Memory (Live) Results ▲";
+  } else {
+    content.style.display = "none";
+    btn.textContent = "In-Memory (Live) Results ▼";
+  }
+}
+
+export function handleToggleCachedClick() {
+  const btn = elements.getToggleCachedBtn();
+  const content = elements.getCachedSections();
+  if (content.style.display === "none" || !content.style.display) {
+    content.style.display = "block";
+    btn.textContent = "Cached Results (IndexedDB) ▲";
+  } else {
+    content.style.display = "none";
+    btn.textContent = "Cached Results (IndexedDB) ▼";
   }
 }

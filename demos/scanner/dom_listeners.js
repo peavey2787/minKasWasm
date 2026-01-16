@@ -16,6 +16,10 @@ export function attachListeners() {
   elements.getClearAllTxsBtn().onclick = handlers.handleClearAllTxsClick;
   elements.getClearBlocksBtn().onclick = handlers.handleClearBlocksClick;
 
+  // Toggle in-memory/cached buttons
+  elements.getToggleInMemoryBtn().onclick = handlers.handleToggleInMemoryClick;
+  elements.getToggleCachedBtn().onclick = handlers.handleToggleCachedClick;
+
   // Match mode select
   elements.getMatchModeSelect().onchange = handlers.handleMatchModeChange;
 

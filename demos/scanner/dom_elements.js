@@ -42,6 +42,21 @@ export const INDEXER_PRIORITY_RADIOS_NAME = "indexerPriority";
 export const INDEXER_TTL_INPUT_ID = "indexerTtlInput";
 export const INDEXER_MAX_SIZE_INPUT_ID = "indexerMaxSizeInput";
 export const START_INDEXER_BTN_ID = "startIndexerBtn";
+export const TOGGLE_IN_MEMORY_BTN_ID = "toggleInMemoryBtn";
+export const TOGGLE_CACHED_BTN_ID = "toggleCachedBtn";
+export const IN_MEMORY_SECTIONS_ID = "inMemorySections";
+export const CACHED_SECTIONS_ID = "cachedSections";
+export const IN_MEMORY_MATCHING_TXS_ID = "inMemoryMatchingTxs";
+export const IN_MEMORY_ALL_TXS_ID = "inMemoryAllTxs";
+export const IN_MEMORY_BLOCKS_ID = "inMemoryBlocks";
+export const FLUSH_INTERVAL_INPUT_ID = "flushIntervalInput";
+export const IN_MEMORY_MATCHING_TXS_INFO_BAR_ID = "inMemoryMatchingTxsInfoBar";
+export const IN_MEMORY_ALL_TXS_INFO_BAR_ID = "inMemoryAllTxsInfoBar";
+export const IN_MEMORY_BLOCKS_INFO_BAR_ID = "inMemoryBlocksInfoBar";
+export const INDEXER_MATCHING_TXS_INFO_BAR_ID = "indexerMatchingTxsInfoBar";
+export const INDEXER_ALL_TXS_INFO_BAR_ID = "indexerAllTxsInfoBar";
+export const INDEXER_BLOCKS_INFO_BAR_ID = "indexerBlocksInfoBar";
+export const INDEXER_FLUSH_COUNTDOWN_ID = "flushCountdown";
 
 // Getter functions
 export function getDagwalkMinTimestampInput() { return document.getElementById(DAGWALK_MIN_TIMESTAMP_INPUT_ID); }
@@ -85,3 +100,18 @@ export function getIndexerPriorityRadios() { return document.getElementsByName(I
 export function getTtlInput() { return document.getElementById(INDEXER_TTL_INPUT_ID); }
 export function getMaxSizeInput() { return document.getElementById(INDEXER_MAX_SIZE_INPUT_ID); }
 export function getStartIndexerBtn() { return document.getElementById(START_INDEXER_BTN_ID); }
+export function getToggleInMemoryBtn() { return document.getElementById(TOGGLE_IN_MEMORY_BTN_ID); }
+export function getToggleCachedBtn() { return document.getElementById(TOGGLE_CACHED_BTN_ID); }
+export function getInMemorySections() { return document.getElementById(IN_MEMORY_SECTIONS_ID); }
+export function getCachedSections() { return document.getElementById(CACHED_SECTIONS_ID); }
+export function getInMemoryMatchingTxsDiv() { return document.getElementById(IN_MEMORY_MATCHING_TXS_ID); }
+export function getInMemoryAllTxsDiv() { return document.getElementById(IN_MEMORY_ALL_TXS_ID); }
+export function getInMemoryBlocksDiv() { return document.getElementById(IN_MEMORY_BLOCKS_ID); }
+export function getFlushIntervalInput() { return document.getElementById(FLUSH_INTERVAL_INPUT_ID); }
+export function getInMemoryMatchingTxsInfoBar() { return document.getElementById(IN_MEMORY_MATCHING_TXS_INFO_BAR_ID); }
+export function getInMemoryAllTxsInfoBar() { return document.getElementById(IN_MEMORY_ALL_TXS_INFO_BAR_ID); }
+export function getInMemoryBlocksInfoBar() { return document.getElementById(IN_MEMORY_BLOCKS_INFO_BAR_ID); }
+export function getIndexerMatchingTxsInfoBar() { return document.getElementById(INDEXER_MATCHING_TXS_INFO_BAR_ID); }
+export function getIndexerAllTxsInfoBar() { return document.getElementById(INDEXER_ALL_TXS_INFO_BAR_ID); }
+export function getIndexerBlocksInfoBar() { return document.getElementById(INDEXER_BLOCKS_INFO_BAR_ID); }
+export function getIndexerFlushCountdownDiv() { return document.getElementById(INDEXER_FLUSH_COUNTDOWN_ID); }

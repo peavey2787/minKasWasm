@@ -48,10 +48,10 @@ export class KaspaBlockScanner {
     this.addresses = Array.isArray(addresses) ? addresses : [];
     this.searchMode = Object.values(SearchMode).includes(mode) ? mode : SearchMode.INCLUDES;
     this.indexer = new KaspaIndexer(indexerOptions);
-    // Ensure onTransaction is set after async initDB
+    // Ensure onIndexerUpdate is set after async initDB
     this.indexer.initDB().then(() => {
-      if (typeof indexerOptions.onTransaction === 'function') {
-        this.indexer.onTransaction = indexerOptions.onTransaction;
+      if (typeof indexerOptions.onIndexerUpdate === 'function') {
+        this.indexer.onIndexerUpdate = indexerOptions.onIndexerUpdate;
       }
     });
   }

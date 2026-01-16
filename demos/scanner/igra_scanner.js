@@ -95,9 +95,8 @@ function decodeRlp(bytes) {
       return items;
     }
   }
-  try {
-    // Parse until the buffer is consumed
-    const items = [];
+  try {    
+    const items = []; // Parse until the buffer is consumed
     while (i < bytes.length) {
       items.push(parse());
     }
