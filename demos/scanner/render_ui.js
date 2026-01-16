@@ -9,6 +9,7 @@ let flushCountdownStart = null;
 
 const MAX_MATCH_ROWS = 300;
 const MAX_SNAPSHOT_ROWS = 200;
+const MAX_BLOCK_ROWS = 300;
 
 export function addBlockToUI(block, match, matchedPayload) {
   const txCount = Array.isArray(block.transactions) ? block.transactions.length : 0;

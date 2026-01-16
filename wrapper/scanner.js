@@ -190,7 +190,6 @@ export class KaspaBlockScanner {
       blockHash: block.header.hash,
       blueScore: block.header.blueScore,
       blockDaaScore: block.header.daaScore,
-      timestamp: block.header.timestamp,
       payloadHex: tx.payload,
       decodedPayload,
       payloadMatch,

@@ -131,6 +131,54 @@ export class KaspaIndexer {
     return this._initPromise;
   }
 
+  /**
+   * Reset both IndexedDB stores and all in-memory buffers/metrics.
+   * Note: the DB connection must be open before clearing stores.
+   * @returns {Promise<void>}
+   */
+  async resetEverything() {
+    // Ensure the DB connection is established before clearing stores.
+    await this.initDB();
+
+    // Stop background work first so we don't race writes while clearing.
+    this.active = false;
+    this._stopEvictionTimer();
+    this._stopFlushTimer();
+
+    // Clear persistent stores.
+    for (const storeName of Object.values(IndexerStore)) {
+      await this.clearStore(storeName);
+    }
+
+    // Clear all in-memory state.
+    this._pendingTxs = [];
+    this._pendingBlocks = [];
+    this._txidCacheSet.clear();
+    this._txidCacheQueue = [];
+
+    // Reset metrics.
+    this._metrics = {
+      transactionsIndexed: 0,
+      blocksIndexed: 0,
+      evictions: { ttl: 0, size: 0 },
+      cacheHits: 0,
+      cacheMisses: 0
+    };
+  }
+
+  /**
+   * Fresh-start sequence:
+   * 1) Init DB (must be open to clear)
+   * 2) Reset everything (DB + memory)
+   * 3) Start normal indexing
+   * @returns {Promise<void>}
+   */
+  async freshStart() {
+    await this.initDB();
+    await this.resetEverything();
+    this.start();
+  }
+
   start() {
     this.active = true;
     this._startEvictionTimer();
@@ -414,6 +462,11 @@ export class KaspaIndexer {
    * @returns {Promise<void>}
    */
   async clearStore(storeName) {
+    // If clearStore is called before initDB(), _dbReady will never resolve.
+    // Ensure we have an open connection first.
+    if (!this.db) {
+      await this.initDB();
+    }
     await this._dbReady;
 
     // Validation: ensure storeName is one of the known constants

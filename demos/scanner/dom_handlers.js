@@ -85,13 +85,13 @@ export async function handleConnectClick() {
           scheduleInMemoryLiveSnapshot();
           break;
         case IndexerEventType.TRANSACTION_CACHED:
-          renderUI.renderAllTransactionsSection([event.data]);
+          renderUI.renderAllTransactionsSection(event.data);
           break;
         case IndexerEventType.MATCHING_TRANSACTION_CACHED:
-          renderUI.renderMatchingTransactionsSection([event.data]);
+          renderUI.renderMatchingTransactionsSection(event.data);
           break;
         case IndexerEventType.BLOCK_CACHED:
-          renderUI.renderAllBlocksSection([event.data]);
+          renderUI.renderAllBlocksSection(event.data);
           break;        
         case IndexerEventType.EVICT: {
           const { key, storeName, reason } = event.data;
@@ -193,11 +193,19 @@ export async function handleStartStopClick() {
   }
 }
 
-export function handleStartIndexerClick() {
-  if (scanner && scanner.indexer && typeof scanner.indexer.start === "function") {
-    scanner.indexer.start();
+export async function handleStartIndexerClick() {
+  if (!scanner || !scanner.indexer) return;
+  try {
+    if (typeof scanner.indexer.freshStart === "function") {
+      await scanner.indexer.freshStart();
+    } else {
+      await scanner.indexer.initDB();
+      scanner.indexer.start();
+    }
     renderUI.restartCountdown(scanner.indexer.ttlMs);
     renderUI.restartFlushCountdown(scanner.indexer.flushInterval);
+  } catch (err) {
+    console.error("Failed to start indexer:", err);
   }
 }
 
