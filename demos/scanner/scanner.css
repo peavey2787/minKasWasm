@@ -5,6 +5,18 @@
   font-weight: bold;
   color: #49eacb;
 }
+
+#indexerCountdown {
+  color: #ff3333 !important;
+  background: #fffbe6 !important;
+  border: 2px solid #ff3333 !important;
+  font-size: 2em !important;
+  font-weight: bold !important;
+  padding: 0.5em 1em !important;
+  margin: 1em 0 !important;
+  display: block !important;
+  z-index: 9999 !important;
+}
 #blocksContainer {
   max-height: 250px;
   overflow-y: auto;
