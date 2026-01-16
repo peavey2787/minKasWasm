@@ -10,8 +10,8 @@ export async function runTestFlush() {
     let flushedTxs = 0;
     let flushedBlocks = 0;
     const indexer = new KaspaIndexer({
-      inMemoryMaxTxs: 5,
-      inMemoryMaxBlocks: 5,
+      inMemoryMaxTxs: 10, // Set higher than 5 to prevent auto-flush
+      inMemoryMaxBlocks: 10,
       flushInterval: 10000, // Long interval so we control flush manually
       dbName,
       onIndexerUpdate: (event) => {
@@ -47,7 +47,7 @@ export async function runTestFlush() {
     }
 
     // Check that all items were flushed to IndexedDB
-    const cachedTxs = await indexer.getAllCachedTransactions();
+    const cachedTxs = await indexer.getAllCachedMatchingTransactions();
     if (cachedTxs.length !== 5) {
       return 'FAIL: Not all transactions flushed to IndexedDB (' + cachedTxs.length + ')';
     }

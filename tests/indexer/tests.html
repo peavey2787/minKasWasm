@@ -22,6 +22,10 @@
       <button id="btnFlush">Test Flush Logic</button>
       <pre id="resultFlush"></pre>
     </li>
+    <li>
+      <button id="btnEvictionPressure">Eviction Under Pressure</button>
+      <pre id="resultEvictionPressure"></pre>
+    </li>
     <!-- Add more tests here -->
   </ul>
   <script>
@@ -45,7 +49,15 @@
       const result = await runTestFlush();
       document.getElementById('resultFlush').textContent = result;
     };
-    // Add more listeners for new tests
+    document.getElementById('btnEvictionPressure').onclick = async function() {
+      const { runTestEvictionPressure } = await import('./test_eviction_pressure.js');
+      const resultElem = document.getElementById('resultEvictionPressure');
+      resultElem.textContent = '[TEST] Starting eviction under pressure test\n';
+      const result = await runTestEvictionPressure((msg) => {
+        resultElem.textContent += msg + '\n';
+      });
+      if (result) resultElem.textContent += result + '\n';
+    };
   </script>
 </body>
 </html>
