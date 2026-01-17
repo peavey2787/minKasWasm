@@ -79,12 +79,23 @@ export class KaspaBlockScanner {
     this.blockSubscription = (event) => {
       const block = event.data.block;
       const matches = [];
+
       this._indexBlockIfNeeded(block);
-      this._processBlockTransactions(block, matches);
+
+      // If there's nothing to do, don't iterate txs at all.
+      const hasPrefix = !!this.prefix;
+      const hasAddresses = Array.isArray(this.addresses) && this.addresses.length > 0;
+      const indexerActive = !!(this.indexer && this.indexer.active);
+
+      if (hasPrefix || hasAddresses || indexerActive) {
+        this._processBlockTransactions(block, matches);
+      }
+
       if (block && typeof onBlock === "function") {
         onBlock(block, matches);
       }
     };
+
     this.client.addEventListener(BlockScannerEvent.BLOCK_ADDED, this.blockSubscription);
   }
 
@@ -145,8 +156,12 @@ export class KaspaBlockScanner {
   }
 
   _matchAddress(tx) {
+    // If we're not watching addresses, do nothing.
+    if (!Array.isArray(this.addresses) || this.addresses.length === 0) return false;
+
     let addressMatch = false;
-    if (this.addresses.length > 0 && Array.isArray(tx.outputs)) {
+
+    if (Array.isArray(tx.outputs)) {
       for (const out of tx.outputs) {
         if (out.address && this.addresses.includes(out.address)) {
           addressMatch = true;
@@ -154,6 +169,7 @@ export class KaspaBlockScanner {
         }
       }
     }
+
     if (!addressMatch && Array.isArray(tx.inputs)) {
       for (const input of tx.inputs) {
         const senderAddress = input.previousOutpointAddress;
@@ -163,6 +179,7 @@ export class KaspaBlockScanner {
         }
       }
     }
+
     return addressMatch;
   }
 
@@ -170,10 +187,9 @@ export class KaspaBlockScanner {
     return {
       txid: tx.verboseData.transactionId,
       timestamp: tx.verboseData.blockTime,
-      blockHash: block.hash,
+      blockHash: block.header.hash,
       blueScore: block.header.blueScore,
       blockDaaScore: block.header.daaScore,
-      timestamp: block.header.timestamp,
       payloadHex: tx.payload,
       decodedPayload,
       payloadMatch,

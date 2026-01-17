@@ -15,8 +15,13 @@ export async function runTestFlush() {
       flushInterval: 10000, // Long interval so we control flush manually
       dbName,
       onIndexerUpdate: (event) => {
-        if (event.type === 'transaction-cached') flushedTxs++;
-        if (event.type === 'block-cached') flushedBlocks++;
+        // NOTE: flush emits BATCHED arrays (one event per flush)
+        if (event.type === 'transaction-cached') {
+          flushedTxs += Array.isArray(event.data) ? event.data.length : 1;
+        }
+        if (event.type === 'block-cached') {
+          flushedBlocks += Array.isArray(event.data) ? event.data.length : 1;
+        }
       }
     });
     await indexer.initDB();

@@ -15,6 +15,52 @@ export let scanner = null;
 export let scanning = false;
 export let currentIndexerOptions = {};
 
+let inMemoryRenderTimer = null;
+const IN_MEMORY_RENDER_THROTTLE_MS = 250;
+
+let cachedRenderTimer = null;
+const CACHED_RENDER_THROTTLE_MS = 350;
+
+function renderInMemoryLiveSnapshot() {
+  if (!scanner || !scanner.indexer) return;
+  renderUI.renderInMemoryAllTransactionsSection(scanner.indexer.getAllTransactions());
+  renderUI.renderInMemoryMatchingTransactionsSection(scanner.indexer.getAllMatchingTransactions());
+  renderUI.renderInMemoryBlocksSection(scanner.indexer.getAllBlocks());
+}
+
+function isInMemoryPanelOpen() {
+  const content = elements.getInMemorySections();
+  return !!content && content.style.display !== "none" && content.style.display !== "";
+}
+
+function isCachedPanelOpen() {
+  const content = elements.getCachedSections();
+  return !!content && content.style.display !== "none" && content.style.display !== "";
+}
+
+function scheduleInMemoryLiveSnapshot() {
+  // Don’t do heavy DOM work when the user can’t see it.
+  if (!isInMemoryPanelOpen()) return;
+
+  if (inMemoryRenderTimer) return;
+  inMemoryRenderTimer = setTimeout(() => {
+    inMemoryRenderTimer = null;
+    renderInMemoryLiveSnapshot();
+  }, IN_MEMORY_RENDER_THROTTLE_MS);
+}
+
+function scheduleCachedSnapshotRender() {
+  // Don’t do IndexedDB reads + DOM work when the user can’t see it.
+  if (!isCachedPanelOpen()) return;
+  if (!scanner || !scanner.indexer) return;
+
+  if (cachedRenderTimer) return;
+  cachedRenderTimer = setTimeout(async () => {
+    cachedRenderTimer = null;
+    await renderUI.renderAllIndexerSections(scanner.indexer);
+  }, CACHED_RENDER_THROTTLE_MS);
+}
+
 export async function handleConnectClick() {
   const statusDiv = elements.getStatusDiv();
   const url = elements.getNodeInput().value.trim();
@@ -29,6 +75,7 @@ export async function handleConnectClick() {
     // Get indexer options from UI
     const ttlInput = elements.getTtlInput();
     const maxSizeInput = elements.getMaxSizeInput();
+    const inMemoryMaxInput = elements.getInMemoryMaxInput();
     const priorityRadios = elements.getIndexerPriorityRadios();
     const matchModeSelect = elements.getMatchModeSelect();
     const indexAllTransactions = elements.getIndexAllTransactionsCheckbox().checked;
@@ -36,8 +83,10 @@ export async function handleConnectClick() {
     const indexAllBlocks = elements.getIndexAllBlocksCheckbox().checked;
     const flushIntervalInput = elements.getFlushIntervalInput();
     const flushIntervalSeconds = parseInt(flushIntervalInput?.value) || 5;
+    const flushInterval = flushIntervalSeconds * 1000;
     const ttlMinutes = parseInt(ttlInput?.value) || 1;
     const maxSize = parseInt(maxSizeInput?.value) || 500;
+    const inMemoryMax = parseInt(inMemoryMaxInput?.value) || 500;
     let priorityTTL = true;
     for (const radio of priorityRadios) {
       if (radio.checked && radio.value === "size") priorityTTL = false;
@@ -47,43 +96,29 @@ export async function handleConnectClick() {
     const onIndexerUpdate = (event) => {
       switch (event.type) {
         case IndexerEventType.TRANSACTION_IN_MEMORY:          
-          renderUI.renderInMemoryAllTransactionsSection([event.data]);
+          scheduleInMemoryLiveSnapshot();
           break;
         case IndexerEventType.MATCHING_TRANSACTION_IN_MEMORY:
-          renderUI.renderInMemoryMatchingTransactionsSection([event.data]);
+          scheduleInMemoryLiveSnapshot();
           break;
         case IndexerEventType.BLOCK_IN_MEMORY:
-          renderUI.renderInMemoryBlocksSection([event.data]);
+          scheduleInMemoryLiveSnapshot();
           break;
         case IndexerEventType.TRANSACTION_CACHED:
-          renderUI.renderAllTransactionsSection([event.data]);
+          scheduleCachedSnapshotRender();
           break;
         case IndexerEventType.MATCHING_TRANSACTION_CACHED:
-          renderUI.renderMatchingTransactionsSection([event.data]);
+          scheduleCachedSnapshotRender();
           break;
         case IndexerEventType.BLOCK_CACHED:
-          renderUI.renderAllBlocksSection([event.data]);
+          scheduleCachedSnapshotRender();
           break;        
         case IndexerEventType.EVICT: {
-          const { key, storeName, reason } = event.data;
-          if (storeName === IndexerStore.MATCHING_TRANSACTIONS) {
-            if (reason === EvictionReason.TTL || reason === EvictionReason.SIZE) {
-              renderUI.removeMatchingTransactionFromUI(key);
-            } else {
-              renderUI.removeInMemoryMatchingTransactionFromUI(key);
-            }
-          } else if (storeName === IndexerStore.TRANSACTIONS) {
-            if (reason === EvictionReason.TTL || reason === EvictionReason.SIZE) {
-              renderUI.removeTransactionFromUI(key);
-            } else {
-              renderUI.removeInMemoryTransactionFromUI(key);
-            }
-          } else if (storeName === IndexerStore.BLOCKS) {
-            if (reason === EvictionReason.TTL || reason === EvictionReason.SIZE) {
-              renderUI.removeBlockFromUI(key);
-            } else {
-              renderUI.removeInMemoryBlockFromUI(key);
-            }
+          const { reason } = event.data;
+          if (reason === EvictionReason.TTL || reason === EvictionReason.SIZE) {
+            scheduleCachedSnapshotRender();
+          } else {
+            scheduleInMemoryLiveSnapshot();
           }
           break;
         }
@@ -94,28 +129,33 @@ export async function handleConnectClick() {
     if (matchMode !== "custom") {
       currentIndexerOptions = {
         ttlMinutes,
-        flushIntervalSeconds,
+        flushInterval,
         maxSize,
         priorityTTL,
         matchMode,        
+        inMemoryMaxTxs: inMemoryMax,
+        inMemoryMaxBlocks: inMemoryMax,
         onIndexerUpdate
       };
     } else {
       currentIndexerOptions = {
         ttlMinutes,
-        flushIntervalSeconds,
+        flushInterval,
         maxSize,
         priorityTTL,
         matchMode,
         indexAllTransactions,
         indexAllMatchingTransactions,
         indexAllBlocks,
+        inMemoryMaxTxs: inMemoryMax,
+        inMemoryMaxBlocks: inMemoryMax,
         onIndexerUpdate
       };
     }
     scanner = new KaspaBlockScanner(kaspaClient, { indexerOptions: currentIndexerOptions });
     await scanner.indexer.initDB();
     renderUI.renderAllIndexerSections(scanner.indexer);
+    scheduleInMemoryLiveSnapshot();
   } catch (err) {
     console.error("Connection error:", err);
     statusDiv.textContent = "Connection failed: " + (err && err.message ? err.message : err);
@@ -159,11 +199,19 @@ export async function handleStartStopClick() {
   }
 }
 
-export function handleStartIndexerClick() {
-  if (scanner && scanner.indexer && typeof scanner.indexer.start === "function") {
-    scanner.indexer.start();
+export async function handleStartIndexerClick() {
+  if (!scanner || !scanner.indexer) return;
+  try {
+    if (typeof scanner.indexer.freshStart === "function") {
+      await scanner.indexer.freshStart();
+    } else {
+      await scanner.indexer.initDB();
+      scanner.indexer.start();
+    }
     renderUI.restartCountdown(scanner.indexer.ttlMs);
     renderUI.restartFlushCountdown(scanner.indexer.flushInterval);
+  } catch (err) {
+    console.error("Failed to start indexer:", err);
   }
 }
 
@@ -252,6 +300,7 @@ export function handleToggleInMemoryClick() {
   if (content.style.display === "none" || !content.style.display) {
     content.style.display = "block";
     btn.textContent = "In-Memory (Live) Results ▲";
+    scheduleInMemoryLiveSnapshot(); // render immediately on open
   } else {
     content.style.display = "none";
     btn.textContent = "In-Memory (Live) Results ▼";
@@ -264,6 +313,7 @@ export function handleToggleCachedClick() {
   if (content.style.display === "none" || !content.style.display) {
     content.style.display = "block";
     btn.textContent = "Cached Results (IndexedDB) ▲";
+    scheduleCachedSnapshotRender(); // render immediately on open
   } else {
     content.style.display = "none";
     btn.textContent = "Cached Results (IndexedDB) ▼";
