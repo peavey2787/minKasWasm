@@ -210,6 +210,8 @@ const scanner = new KaspaBlockScanner(client, {
     matchMode: MatchMode.ALL,
     onIndexerUpdate: (event) => {
       // stream indexer updates into your UI
+      // NOTE: *-cached events are batched per flush: event.data is an array.
+      // In-memory events provide a single entry.
     }
   }
 });
@@ -231,7 +233,7 @@ scanner.indexer.stop();
               <li><code>new KaspaBlockScanner(client, options)</code>: (<code>constructor</code>) Creates a scanner instance.</li>
               <li><code>client</code>: (<code>object</code>) Connected Kaspa RPC client (from <code>connect()</code>)</li>
               <li><code>options.prefix</code>: (<code>string</code>, optional) Plain string to match in payloads (stored internally as hex for fast matching)</li>
-              <li><code>options.mode</code>: (<code>SearchMode</code>) One of <code>SearchMode.INCLUDES</code> | <code>STARTS_WITH</code> | <code>EXACT</code> | <code>ENDS_WITH</code></li>
+              <li><code>options.mode</code>: (<code>SearchMode</code>) One of <code>SearchMode.INCLUDES</code> | <code>SearchMode.STARTS_WITH</code> | <code>SearchMode.EXACT</code> | <code>SearchMode.ENDS_WITH</code></li>
               <li><code>options.addresses</code>: (<code>string[]</code>, optional) List of addresses to watch (checks tx inputs/outputs)</li>
               <li><code>options.indexerOptions</code>: (<code>object</code>, optional) Options passed to the built-in indexer instance (<code>scanner.indexer</code>)</li>
             </ul>
@@ -277,7 +279,10 @@ const indexer = new KaspaIndexer({
   matchMode: MatchMode.ALL,
   onIndexerUpdate: (event) => {
     // event.type: transaction-in-memory | matching-transaction-in-memory | block-in-memory | ...
-    // event.data: entry
+    // event.data:
+    // - for *-in-memory: a single entry
+    // - for *-cached: an array of entries (batched per flush)
+    // - for evict: { key, reason, storeName }
   }
 });
 

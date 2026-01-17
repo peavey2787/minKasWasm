@@ -107,6 +107,8 @@ This project provides a browser-based Kaspa WASM SDK wrapper and a set of intera
 	    matchMode: MatchMode.ALL,
 	    onIndexerUpdate: (event) => {
 	      // stream indexer events into your UI
+	      // NOTE: *-cached events are batched per flush: event.data is an array.
+	      // In-memory events provide a single entry.
 	    }
 	  }
 	});

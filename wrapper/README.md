@@ -31,6 +31,14 @@ await scanner.start((block, matches) => {
 });
 ```
 
+## Store Routing
+
+- Matching transactions (`isMatch === true`): stored only in `MATCHING_TRANSACTIONS`.
+- Non-matching transactions: stored only in `TRANSACTIONS`.
+- Blocks: stored in `BLOCKS`.
+
+Matching transactions are **never duplicated** in both stores.
+
 ## Features
 
 - **In-Memory & Persistent Caching:**
@@ -94,8 +102,11 @@ await indexer.evict(); // Manually evict old/oversized items
 
 ### Querying Data
 ```js
-const tx = await indexer.getCachedTransaction(txid);
-const allTxs = await indexer.getAllCachedTransactions();
+// NOTE: Matching txs are stored in MATCHING_TRANSACTIONS, non-matching txs in TRANSACTIONS.
+// getCachedTransaction(txid) queries the MATCHING_TRANSACTIONS store.
+const matchingTx = await indexer.getCachedTransaction(txid);
+
+const allNonMatchingTxs = await indexer.getAllCachedTransactions();
 const blocks = await indexer.getAllCachedBlocks();
 ```
 
@@ -113,10 +124,10 @@ const metrics = indexer.getMetrics();
 - `transaction-in-memory`: Transaction added to in-memory buffer
 - `matching-transaction-in-memory`: Matching transaction added to buffer
 - `block-in-memory`: Block added to in-memory buffer
-- `transaction-cached`: Transaction flushed to IndexedDB
-- `matching-transaction-cached`: Matching transaction flushed to IndexedDB
-- `block-cached`: Block flushed to IndexedDB
-- `evict`: Item evicted from buffer or store
+- `transaction-cached`: Batch of transactions emitted after a flush (batched per flush; `event.data` is an array). Note: depending on `matchMode`/flags, this batch may include matching transactions as well.
+- `matching-transaction-cached`: Batch of matching transactions emitted after a flush (batched per flush; `event.data` is an array)
+- `block-cached`: Blocks flushed to IndexedDB (batched per flush; `event.data` is an array)
+- `evict`: Item evicted from an IndexedDB store (`event.data` is `{ key, reason, storeName }`)
 
 ## Indexing Modes
 - `ALL`: Index all transactions and blocks
@@ -128,8 +139,8 @@ const metrics = indexer.getMetrics();
 ## Eviction Reasons
 - `ttl`: Time-to-live expired
 - `size`: Exceeds max size
-- `in_memory_transaction`: In-memory transaction buffer overflow
-- `in_memory_block`: In-memory block buffer overflow
+
+Note: current eviction events are emitted for IndexedDB TTL/size enforcement.
 
 ## Internal Pruning & Eviction
 - **In-Memory Pruning:**
