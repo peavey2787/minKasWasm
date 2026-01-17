@@ -2,62 +2,402 @@
 <html>
 <head>
   <title>KaspaIndexer Test Dashboard</title>
-  <!-- Use ES modules for all test scripts -->
-  <script type="module" src="test_buffer_limits.js"></script>
-  <script type="module" src="test_eviction.js"></script>
-  <script type="module" src="test_flush.js"></script>
+  <link rel="stylesheet" href="../../styles.css">
+  <style>
+    #testList {
+      list-style: none;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+      gap: 12px;
+    }
+    .test-card {
+      border: 1px solid #49eacb;
+      border-radius: 10px;
+      padding: 12px;
+      background: #2d292a;
+    }
+    .test-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .test-title {
+      font-weight: 700;
+    }
+    .status {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid #49eacb44;
+      position: relative;
+      flex: 0 0 auto;
+    }
+    .status.idle {
+      background: transparent;
+    }
+    .status.running {
+      border-color: #49eacb;
+    }
+    .status.running::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      border-top-color: #49eacb;
+      animation: spin 0.8s linear infinite;
+    }
+    .status.pass {
+      border-color: #49eacb;
+      background: #49eacb22;
+    }
+    .status.pass::after {
+      content: '';
+      position: absolute;
+      left: 5px;
+      top: 3px;
+      width: 5px;
+      height: 9px;
+      border: solid #49eacb;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+    }
+    .status.fail {
+      border-color: #b00020;
+      background: rgba(176, 0, 32, 0.15);
+    }
+    .status.fail::before,
+    .status.fail::after {
+      content: '';
+      position: absolute;
+      left: 4px;
+      top: 8px;
+      width: 10px;
+      height: 2px;
+      background: #b00020;
+      transform-origin: center;
+    }
+    .status.fail::before { transform: rotate(45deg); }
+    .status.fail::after { transform: rotate(-45deg); }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .controls {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .log {
+      border: 1px solid #49eacb;
+      border-radius: 8px;
+      padding: 8px;
+      background: #231F20;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      max-height: 220px;
+      overflow: auto;
+    }
+  </style>
 </head>
 <body>
   <h1>KaspaIndexer Test Dashboard</h1>
   <ul id="testList">
-    <li>
-      <button id="btnBufferLimits">Test Buffer Limits</button>
-      <pre id="resultBufferLimits"></pre>
+    <li class="test-card">
+      <div class="test-header">
+        <div class="test-title">Buffer Limits</div>
+        <div id="status-bufferLimits" class="status idle"></div>
+      </div>
+      <div class="controls">
+        <button id="btnBufferLimits">Run</button>
+      </div>
+      <div id="log-bufferLimits" class="log"></div>
     </li>
-    <li>
-      <button id="btnEviction">Test Eviction Logic</button>
-      <pre id="resultEviction"></pre>
+
+    <li class="test-card">
+      <div class="test-header">
+        <div class="test-title">Eviction Logic</div>
+        <div id="status-eviction" class="status idle"></div>
+      </div>
+      <div class="controls">
+        <button id="btnEviction">Run</button>
+      </div>
+      <div id="log-eviction" class="log"></div>
     </li>
-    <li>
-      <button id="btnFlush">Test Flush Logic</button>
-      <pre id="resultFlush"></pre>
+
+    <li class="test-card">
+      <div class="test-header">
+        <div class="test-title">Flush Logic</div>
+        <div id="status-flush" class="status idle"></div>
+      </div>
+      <div class="controls">
+        <button id="btnFlush">Run</button>
+      </div>
+      <div id="log-flush" class="log"></div>
     </li>
-    <li>
-      <button id="btnEvictionPressure">Eviction Under Pressure</button>
-      <pre id="resultEvictionPressure"></pre>
+
+    <li class="test-card">
+      <div class="test-header">
+        <div class="test-title">Eviction Under Pressure</div>
+        <div id="status-evictionPressure" class="status idle"></div>
+      </div>
+      <div class="controls">
+        <button id="btnEvictionPressure">Run</button>
+      </div>
+      <div id="log-evictionPressure" class="log"></div>
     </li>
-    <!-- Add more tests here -->
+
+    <li class="test-card">
+      <div class="test-header">
+        <div class="test-title">Concurrency: Flush Guard</div>
+        <div id="status-concurrencyFlush" class="status idle"></div>
+      </div>
+      <div class="controls">
+        <button id="btnConcurrencyFlush">Run</button>
+      </div>
+      <div id="log-concurrencyFlush" class="log"></div>
+    </li>
+
+    <li class="test-card">
+      <div class="test-header">
+        <div class="test-title">Concurrency: Evict Guard</div>
+        <div id="status-concurrencyEvict" class="status idle"></div>
+      </div>
+      <div class="controls">
+        <button id="btnConcurrencyEvict">Run</button>
+      </div>
+      <div id="log-concurrencyEvict" class="log"></div>
+    </li>
+
+    <li class="test-card">
+      <div class="test-header">
+        <div class="test-title">Flush Enforces maxSize</div>
+        <div id="status-flushMaxSize" class="status idle"></div>
+      </div>
+      <div class="controls">
+        <button id="btnFlushMaxSize">Run</button>
+      </div>
+      <div id="log-flushMaxSize" class="log"></div>
+    </li>
+
+    <li class="test-card">
+      <div class="test-header">
+        <div class="test-title">Priority SIZE Skips TTL (Under Limit)</div>
+        <div id="status-prioritySize" class="status idle"></div>
+      </div>
+      <div class="controls">
+        <button id="btnPrioritySize">Run</button>
+      </div>
+      <div id="log-prioritySize" class="log"></div>
+    </li>
+
+    <li class="test-card">
+      <div class="test-header">
+        <div class="test-title">TTL Batch Threshold Ratio</div>
+        <div id="status-ttlThreshold" class="status idle"></div>
+      </div>
+      <div class="controls">
+        <button id="btnTTLThreshold">Run</button>
+      </div>
+      <div id="log-ttlThreshold" class="log"></div>
+    </li>
+
+    <li class="test-card">
+      <div class="test-header">
+        <div class="test-title">MatchMode Matrix</div>
+        <div id="status-matchMode" class="status idle"></div>
+      </div>
+      <div class="controls">
+        <button id="btnMatchMode">Run</button>
+      </div>
+      <div id="log-matchMode" class="log"></div>
+    </li>
+
+    <li class="test-card">
+      <div class="test-header">
+        <div class="test-title">resetEverything()</div>
+        <div id="status-resetEverything" class="status idle"></div>
+      </div>
+      <div class="controls">
+        <button id="btnResetEverything">Run</button>
+      </div>
+      <div id="log-resetEverything" class="log"></div>
+    </li>
+
+    <li class="test-card">
+      <div class="test-header">
+        <div class="test-title">freshStart() Sequence</div>
+        <div id="status-freshStart" class="status idle"></div>
+      </div>
+      <div class="controls">
+        <button id="btnFreshStart">Run</button>
+      </div>
+      <div id="log-freshStart" class="log"></div>
+    </li>
+
+    <li class="test-card">
+      <div class="test-header">
+        <div class="test-title">IndexedDB Error Paths</div>
+        <div id="status-idbError" class="status idle"></div>
+      </div>
+      <div class="controls">
+        <button id="btnIDBError">Run</button>
+      </div>
+      <div id="log-idbError" class="log"></div>
+    </li>
+
+    <li class="test-card">
+      <div class="test-header">
+        <div class="test-title">Dedup Cache Behavior</div>
+        <div id="status-dedup" class="status idle"></div>
+      </div>
+      <div class="controls">
+        <button id="btnDedup">Run</button>
+      </div>
+      <div id="log-dedup" class="log"></div>
+    </li>
   </ul>
-  <script>
-    document.getElementById('btnBufferLimits').onclick = async function() {
-      const { runTestBufferLimits } = await import('./test_buffer_limits.js');
-      const result = await runTestBufferLimits();
-      document.getElementById('resultBufferLimits').textContent = result;
-    };
-    document.getElementById('btnEviction').onclick = async function() {
-      const { runTestEviction } = await import('./test_eviction.js');
-      const resultElem = document.getElementById('resultEviction');
-      resultElem.textContent = '[TEST] Starting eviction logic test\n';
-      // Patch: pass a log callback to stream logs
-      const result = await runTestEviction((msg) => {
-        resultElem.textContent += msg + '\n';
-      });
-      if (result) resultElem.textContent += result + '\n';
-    };
-    document.getElementById('btnFlush').onclick = async function() {
-      const { runTestFlush } = await import('./test_flush.js');
-      const result = await runTestFlush();
-      document.getElementById('resultFlush').textContent = result;
-    };
-    document.getElementById('btnEvictionPressure').onclick = async function() {
-      const { runTestEvictionPressure } = await import('./test_eviction_pressure.js');
-      const resultElem = document.getElementById('resultEvictionPressure');
-      resultElem.textContent = '[TEST] Starting eviction under pressure test\n';
-      const result = await runTestEvictionPressure((msg) => {
-        resultElem.textContent += msg + '\n';
-      });
-      if (result) resultElem.textContent += result + '\n';
-    };
+  <script type="module">
+    function setStatus(testId, state) {
+      const el = document.getElementById('status-' + testId);
+      if (!el) return;
+      el.className = 'status ' + state;
+    }
+
+    function clearLog(testId) {
+      const el = document.getElementById('log-' + testId);
+      if (el) el.textContent = '';
+    }
+
+    function appendLog(testId, msg) {
+      const el = document.getElementById('log-' + testId);
+      if (!el) return;
+      el.textContent += msg + '\n';
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function isPassResult(text) {
+      const t = String(text || '');
+
+      // Strict markers only (avoid false-fails from expected messages like "forced open error").
+      const hasFailMarker = /(^|\n)\s*(\[FAIL\]|FAIL:|\[ERROR\]|ERROR:)/i.test(t);
+      if (hasFailMarker) return false;
+
+      const hasPassMarker = /(^|\n)\s*(\[PASS\]|PASS:|\[TEST\]\s*PASS)/i.test(t);
+      return hasPassMarker;
+    }
+
+    async function runDashboardTest({ testId, importPath, exportName }) {
+      setStatus(testId, 'running');
+      clearLog(testId);
+      appendLog(testId, '[TEST] Running ' + exportName + ' from ' + importPath);
+
+      try {
+        const mod = await import(importPath);
+        const fn = mod[exportName];
+        if (typeof fn !== 'function') {
+          throw new Error('Export not found: ' + exportName);
+        }
+        const result = await fn((msg) => appendLog(testId, msg));
+        if (result) appendLog(testId, String(result));
+        setStatus(testId, isPassResult(result) ? 'pass' : 'fail');
+      } catch (err) {
+        appendLog(testId, 'ERROR: ' + (err && err.message ? err.message : err));
+        setStatus(testId, 'fail');
+      }
+    }
+
+    document.getElementById('btnBufferLimits').onclick = () => runDashboardTest({
+      testId: 'bufferLimits',
+      importPath: './test_buffer_limits.js',
+      exportName: 'runTestBufferLimits'
+    });
+
+    document.getElementById('btnEviction').onclick = () => runDashboardTest({
+      testId: 'eviction',
+      importPath: './test_eviction.js',
+      exportName: 'runTestEviction'
+    });
+
+    document.getElementById('btnFlush').onclick = () => runDashboardTest({
+      testId: 'flush',
+      importPath: './test_flush.js',
+      exportName: 'runTestFlush'
+    });
+
+    document.getElementById('btnEvictionPressure').onclick = () => runDashboardTest({
+      testId: 'evictionPressure',
+      importPath: './test_eviction_pressure.js',
+      exportName: 'runTestEvictionPressure'
+    });
+
+    document.getElementById('btnConcurrencyFlush').onclick = () => runDashboardTest({
+      testId: 'concurrencyFlush',
+      importPath: './test_concurrency_flush.js',
+      exportName: 'runTestConcurrencyFlush'
+    });
+
+    document.getElementById('btnConcurrencyEvict').onclick = () => runDashboardTest({
+      testId: 'concurrencyEvict',
+      importPath: './test_concurrency_evict.js',
+      exportName: 'runTestConcurrencyEvict'
+    });
+
+    document.getElementById('btnFlushMaxSize').onclick = () => runDashboardTest({
+      testId: 'flushMaxSize',
+      importPath: './test_flush_enforces_maxsize.js',
+      exportName: 'runTestFlushEnforcesMaxSize'
+    });
+
+    document.getElementById('btnPrioritySize').onclick = () => runDashboardTest({
+      testId: 'prioritySize',
+      importPath: './test_priority_size_skips_ttl_cycle.js',
+      exportName: 'runTestPrioritySizeSkipsTTLCycle'
+    });
+
+    document.getElementById('btnTTLThreshold').onclick = () => runDashboardTest({
+      testId: 'ttlThreshold',
+      importPath: './test_ttl_batch_threshold_ratio.js',
+      exportName: 'runTestTTLBatchThresholdRatio'
+    });
+
+    document.getElementById('btnMatchMode').onclick = () => runDashboardTest({
+      testId: 'matchMode',
+      importPath: './test_matchmode_matrix.js',
+      exportName: 'runTestMatchModeMatrix'
+    });
+
+    document.getElementById('btnResetEverything').onclick = () => runDashboardTest({
+      testId: 'resetEverything',
+      importPath: './test_reset_everything.js',
+      exportName: 'runTestResetEverything'
+    });
+
+    document.getElementById('btnFreshStart').onclick = () => runDashboardTest({
+      testId: 'freshStart',
+      importPath: './test_fresh_start_sequence.js',
+      exportName: 'runTestFreshStartSequence'
+    });
+
+    document.getElementById('btnIDBError').onclick = () => runDashboardTest({
+      testId: 'idbError',
+      importPath: './test_indexeddb_error_paths.js',
+      exportName: 'runTestIndexedDBErrorPaths'
+    });
+
+    document.getElementById('btnDedup').onclick = () => runDashboardTest({
+      testId: 'dedup',
+      importPath: './test_dedup_cache_behavior.js',
+      exportName: 'runTestDedupCacheBehavior'
+    });
   </script>
 </body>
 </html>
