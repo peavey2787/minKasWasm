@@ -57,7 +57,8 @@ export function renderSection({ item, container, itemClass, infoColor = "#e67e22
 
   // Set data attribute for removal lookup
   if (item.txid) div.setAttribute("data-txid", item.txid);
-  if (item.hash) div.setAttribute("data-hash", item.hash);
+  const hash = item?.hash || item?.header?.hash;
+  if (hash) div.setAttribute("data-hash", hash);
 
   targetContainer.insertBefore(div, targetContainer.children[1] || null);
 
@@ -70,6 +71,7 @@ export function renderSection({ item, container, itemClass, infoColor = "#e67e22
 }
 
 export function updateInfoBarOnAdd({ infoBarElem, newTimestamp, infoColor }) {
+  if (!infoBarElem) return;
   let count = 0;
   let oldest = null;
   let newest = null;
@@ -85,22 +87,32 @@ export function updateInfoBarOnAdd({ infoBarElem, newTimestamp, infoColor }) {
   }
 
   count += 1;
-  const newDate = new Date(newTimestamp);
-
-  if (!oldest || newDate < oldest) oldest = newDate;
-  if (!newest || newDate > newest) newest = newDate;
+  const ts = Number(newTimestamp);
+  const newDate = Number.isFinite(ts) ? new Date(ts) : new Date(newTimestamp);
+  if (!Number.isNaN(newDate.getTime())) {
+    if (!oldest || newDate < oldest) oldest = newDate;
+    if (!newest || newDate > newest) newest = newDate;
+  }
 
   infoBarElem.style = `color:${infoColor};font-size:0.98em;margin-bottom:0.5em;`;
-  infoBarElem.textContent = `Count: ${count} | Oldest: ${oldest.toLocaleString()} | Newest: ${newest.toLocaleString()}`;
+  infoBarElem.textContent = `Count: ${count} | Oldest: ${oldest ? oldest.toLocaleString() : ""} | Newest: ${newest ? newest.toLocaleString() : ""}`;
 }
 
 export function clearAllCachedSections() {
-  elements.getIndexerAllTxsDiv().innerHTML = "<em>No cached transactions.</em>";
-  elements.getIndexerMatchingTxsDiv().innerHTML = "<em>No cached matching transactions.</em>";
-  elements.getIndexerBlocksDiv().innerHTML = "<em>No cached blocks.</em>";
+  clearIframeContainer(elements.getIndexerAllTxsDiv());
+  clearIframeContainer(elements.getIndexerMatchingTxsDiv());
+  clearIframeContainer(elements.getIndexerBlocksDiv());
+
+  const allTxBar = elements.getIndexerAllTxsInfoBar?.();
+  const matchTxBar = elements.getIndexerMatchingTxsInfoBar?.();
+  const blocksBar = elements.getIndexerBlocksInfoBar?.();
+  if (allTxBar) allTxBar.textContent = "Count: 0 | Oldest:  | Newest: ";
+  if (matchTxBar) matchTxBar.textContent = "Count: 0 | Oldest:  | Newest: ";
+  if (blocksBar) blocksBar.textContent = "Count: 0 | Oldest:  | Newest: ";
 }
 
 export function updateInfoBarAfterRemoval(container, itemClass, infoBarElem) {
+  if (!infoBarElem) return;
   let prevCount = 0, oldest = "", newest = "";
   if (infoBarElem.textContent) {
     // This regex will always match, even if oldest/newest are empty
@@ -132,84 +144,62 @@ export async function renderAllIndexerSections(indexer) {
 }
 
 export function renderMatchingTransactionsSection(matchingTxs) {
-  if (Array.isArray(matchingTxs)) {
-    for (const tx of matchingTxs) {
-      renderSection({
-        item: tx,
-        container: elements.getIndexerMatchingTxsDiv(),
-        itemClass: "indexer-tx",
-        infoColor: "#49eacb",
-        getItemText: tx => `TxID: ${tx.txid?.slice(0,8)}... | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`
-      });
-    }
-  } else {
-    renderSection({
-      item: matchingTxs,
-      container: elements.getIndexerMatchingTxsDiv(),
-      itemClass: "indexer-tx",
-      infoColor: "#49eacb",
-      getItemText: tx => `TxID: ${tx.txid?.slice(0,8)}... | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`
-    });
-  }
+  const container = elements.getIndexerMatchingTxsDiv();
+  const infoBar = elements.getIndexerMatchingTxsInfoBar();
+  const items = Array.isArray(matchingTxs) ? matchingTxs : (matchingTxs ? [matchingTxs] : []);
+  renderIframeSnapshot({
+    items,
+    container,
+    infoBarElem: infoBar,
+    infoColor: "#49eacb",
+    itemClass: "indexer-tx",
+    getItemText: tx => `TxID: ${tx.txid?.slice(0,8)}... | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`,
+    keyAttr: "data-txid",
+    keyGetter: (tx) => tx?.txid
+  });
 }
 
 export function renderAllTransactionsSection(allTxs) {
-  if (Array.isArray(allTxs)) {
-    for (const tx of allTxs) {
-      renderSection({
-        item: tx,
-        container: elements.getIndexerAllTxsDiv(),
-        itemClass: "indexer-tx",
-        infoColor: "#49eacb",
-        getItemText: tx => `TxID: ${tx.txid?.slice(0,8)}... | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`
-      });
-    }
-  } else {
-    renderSection({
-      item: allTxs,
-      container: elements.getIndexerAllTxsDiv(),
-      itemClass: "indexer-tx",
-      infoColor: "#49eacb",
-      getItemText: tx => `TxID: ${tx.txid?.slice(0,8)}... | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`
-    });
-  }
+  const container = elements.getIndexerAllTxsDiv();
+  const infoBar = elements.getIndexerAllTxsInfoBar();
+  const items = Array.isArray(allTxs) ? allTxs : (allTxs ? [allTxs] : []);
+  renderIframeSnapshot({
+    items,
+    container,
+    infoBarElem: infoBar,
+    infoColor: "#49eacb",
+    itemClass: "indexer-tx",
+    getItemText: tx => `TxID: ${tx.txid?.slice(0,8)}... | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`,
+    keyAttr: "data-txid",
+    keyGetter: (tx) => tx?.txid
+  });
 }
 
 export function renderAllBlocksSection(blocks) {
-  if (Array.isArray(blocks)) {
-    for (const block of blocks) {
-      renderSection({
-        item: block,
-        container: elements.getIndexerBlocksDiv(),
-        itemClass: "block indexed-block",
-        infoColor: "#49eacb",
-        getItemText: block => {
-          const txCount = Array.isArray(block.transactions) ? block.transactions.length : 0;
-          const header = block.header;
-          return `Hash: ${header?.hash?.slice(0,6)}... | BlueScore: ${header?.blueScore} | Txs: ${txCount}`;
-        }
-      });
-    }
-  } else {
-    renderSection({
-      item: blocks,
-      container: elements.getIndexerBlocksDiv(),
-      itemClass: "block indexed-block",
-      infoColor: "#49eacb",
-      getItemText: block => {
-        const txCount = Array.isArray(block.transactions) ? block.transactions.length : 0;
-        const header = block.header;
-        return `Hash: ${header?.hash?.slice(0,6)}... | BlueScore: ${header?.blueScore} | Txs: ${txCount} | Time: ${new Date(block.timestamp).toLocaleTimeString()}`;
-      }
-    });
-  }
+  const container = elements.getIndexerBlocksDiv();
+  const infoBar = elements.getIndexerBlocksInfoBar();
+  const items = Array.isArray(blocks) ? blocks : (blocks ? [blocks] : []);
+  renderIframeSnapshot({
+    items,
+    container,
+    infoBarElem: infoBar,
+    infoColor: "#49eacb",
+    itemClass: "block indexed-block",
+    getItemText: (block) => {
+      const txCount = Array.isArray(block?.transactions) ? block.transactions.length : 0;
+      const header = block?.header;
+      return `Hash: ${header?.hash?.slice(0,6)}... | BlueScore: ${header?.blueScore} | Txs: ${txCount} | Time: ${new Date(block?.timestamp).toLocaleTimeString()}`;
+    },
+    keyAttr: "data-hash",
+    keyGetter: (block) => block?.hash || block?.header?.hash
+  });
 }
 
 export function renderInMemoryMatchingTransactionsSection(matchingTxs) {
   const container = elements.getInMemoryMatchingTxsDiv();
   const infoBar = elements.getInMemoryMatchingTxsInfoBar();
   const items = Array.isArray(matchingTxs) ? matchingTxs : (matchingTxs ? [matchingTxs] : []);
-  renderInMemorySnapshot({
+  renderIframeSnapshot({
     items,
     container,
     infoBarElem: infoBar,
@@ -225,7 +215,7 @@ export function renderInMemoryAllTransactionsSection(allTxs) {
   const container = elements.getInMemoryAllTxsDiv();
   const infoBar = elements.getInMemoryAllTxsInfoBar();
   const items = Array.isArray(allTxs) ? allTxs : (allTxs ? [allTxs] : []);
-  renderInMemorySnapshot({
+  renderIframeSnapshot({
     items,
     container,
     infoBarElem: infoBar,
@@ -241,7 +231,7 @@ export function renderInMemoryBlocksSection(blocks) {
   const container = elements.getInMemoryBlocksDiv();
   const infoBar = elements.getInMemoryBlocksInfoBar();
   const items = Array.isArray(blocks) ? blocks : (blocks ? [blocks] : []);
-  renderInMemorySnapshot({
+  renderIframeSnapshot({
     items,
     container,
     infoBarElem: infoBar,
@@ -253,7 +243,7 @@ export function renderInMemoryBlocksSection(blocks) {
       return `Hash: ${header?.hash?.slice(0,6)}... | BlueScore: ${header?.blueScore} | Txs: ${txCount} | Time: ${new Date(block.timestamp).toLocaleTimeString()}`;
     },
     keyAttr: "data-hash",
-    keyGetter: (block) => block.header.hash
+    keyGetter: (block) => block?.hash || block?.header?.hash
   });
 }
 
@@ -265,7 +255,7 @@ function clearIframeContainer(container) {
 }
 
 
-function renderInMemorySnapshot({ items, container, infoBarElem, infoColor, itemClass, getItemText, keyAttr, keyGetter }) {
+function renderIframeSnapshot({ items, container, infoBarElem, infoColor, itemClass, getItemText, keyAttr, keyGetter }) {
   clearIframeContainer(container);
 
   const iframeDoc = container?.contentDocument || container?.contentWindow?.document;
@@ -310,9 +300,16 @@ function renderInMemorySnapshot({ items, container, infoBarElem, infoColor, item
   }
 }
 
+function queryIframeElement(container, selector) {
+  if (!container || container.tagName !== "IFRAME") return null;
+  const iframeDoc = container.contentDocument || container.contentWindow?.document;
+  if (!iframeDoc) return null;
+  return iframeDoc.querySelector(selector);
+}
+
 export function removeMatchingTransactionFromUI(txid) {
   const container = elements.getIndexerMatchingTxsDiv();
-  const el = container.querySelector(`[data-txid="${txid}"]`);
+  const el = queryIframeElement(container, `[data-txid="${txid}"]`);
   if (el) {
     el.remove();
     updateInfoBarAfterRemoval(container, "indexer-tx", elements.getIndexerMatchingTxsInfoBar());
@@ -320,7 +317,7 @@ export function removeMatchingTransactionFromUI(txid) {
 }
 export function removeTransactionFromUI(txid) {
   const container = elements.getIndexerAllTxsDiv();
-  const el = container.querySelector(`[data-txid="${txid}"]`);
+  const el = queryIframeElement(container, `[data-txid="${txid}"]`);
   if (el) {
     el.remove();
     updateInfoBarAfterRemoval(container, "indexer-tx", elements.getIndexerAllTxsInfoBar());
@@ -329,7 +326,7 @@ export function removeTransactionFromUI(txid) {
 
 export function removeBlockFromUI(hash) {
   const container = elements.getIndexerBlocksDiv();
-  const el = container.querySelector(`[data-hash="${hash}"]`);
+  const el = queryIframeElement(container, `[data-hash="${hash}"]`);
   if (el) {
     el.remove();
     updateInfoBarAfterRemoval(container, "block", elements.getIndexerBlocksInfoBar());
@@ -338,7 +335,7 @@ export function removeBlockFromUI(hash) {
 
 export function removeInMemoryMatchingTransactionFromUI(txid) {
   const container = elements.getInMemoryMatchingTxsDiv();
-  const el = container.querySelector(`[data-txid="${txid}"]`);
+  const el = queryIframeElement(container, `[data-txid="${txid}"]`);
   if (el) {
     el.remove();
     updateInfoBarAfterRemoval(container, "indexer-tx", elements.getInMemoryMatchingTxsInfoBar());
@@ -347,7 +344,7 @@ export function removeInMemoryMatchingTransactionFromUI(txid) {
 
 export function removeInMemoryTransactionFromUI(txid) {
   const container = elements.getInMemoryAllTxsDiv();
-  const el = container.querySelector(`[data-txid="${txid}"]`);
+  const el = queryIframeElement(container, `[data-txid="${txid}"]`);
   if (el) {
     el.remove();
     updateInfoBarAfterRemoval(container, "indexer-tx", elements.getInMemoryAllTxsInfoBar());
@@ -356,7 +353,7 @@ export function removeInMemoryTransactionFromUI(txid) {
 
 export function removeInMemoryBlockFromUI(hash) {
   const container = elements.getInMemoryBlocksDiv();
-  const el = container.querySelector(`[data-hash="${hash}"]`);
+  const el = queryIframeElement(container, `[data-hash="${hash}"]`);
   if (el) {
     el.remove();
     updateInfoBarAfterRemoval(container, "block", elements.getInMemoryBlocksInfoBar());

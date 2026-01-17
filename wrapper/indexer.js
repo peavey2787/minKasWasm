@@ -882,7 +882,6 @@ export class KaspaIndexer {
         };
       });
     }
-    // Otherwise, keep your normal one-by-one eviction logic (if you want)
   }
 
   /** 

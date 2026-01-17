@@ -40,6 +40,9 @@
   </div>
   <div class="indexer-container scanner-container">
     <h2>Transaction Indexer</h2>
+    <h3>IMPORTANT: You must set these settings before connecting!</h3>
+    <p>The flush is how often the in-memory data is written to the IndexedDB.</p>
+    <p>The TTL is how often the data in the indexedDB will be pruned</p>
     <div class="indexer-controls" style="margin-bottom:1em;display:flex;flex-wrap:wrap;gap:1em;align-items:center;justify-content:center;">
       <label style="margin-bottom:0;">TTL (minutes): <input type="number" id="indexerTtlInput" min="1" max="1440" value="1" style="width:60px;"></label>      
       <div style="margin-bottom:0.5em;">
