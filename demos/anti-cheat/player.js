@@ -3,7 +3,7 @@
 import { send } from '../../wrapper/wallet_service.js';
 import { $, $$ } from './dom_elements.js';
 import { state, resetPlayerState } from './state.js';
-import { setStatus, log, createGrid } from './utils.js';
+import { setStatus, log, createGrid, showInsufficientFundsModal } from './utils.js';
 import { MerkleTree, hashLeafSync, sha256Hex, merkleRootSha256Hex } from './merkle.js';
 
 function updatePlayerGrid() {
@@ -120,6 +120,16 @@ async function anchorToKaspa() {
 
   const payload = `${prefix}:${JSON.stringify(payloadObj)}`;
 
+  const requiredKAS = 0.2;
+  if (state.walletBalanceMatureNumber != null && state.walletBalanceMatureNumber < requiredKAS) {
+    showInsufficientFundsModal({
+      requiredKAS,
+      balanceKAS: state.walletBalanceMatureKAS,
+      address: state.walletAddress,
+    });
+    return;
+  }
+
   try {
     state.anchorInFlight = true;
     log('anchorTxPanel', `Anchoring round=${payloadObj.round} moves=${payloadObj.moves.length} root=${root.slice(0, 16)}...`);
@@ -136,6 +146,15 @@ async function anchorToKaspa() {
     log('anchorTxPanel', `✓ Anchored root: ${root.slice(0, 16)}... (prev_root chained)`);
   } catch (err) {
     log('anchorTxPanel', `✗ Anchor failed: ${err.message}`);
+
+    const msg = String(err?.message ?? err);
+    if (/insufficient|not enough|balance|utxo|fund/i.test(msg)) {
+      showInsufficientFundsModal({
+        requiredKAS: 0.2,
+        balanceKAS: state.walletBalanceMatureKAS,
+        address: state.walletAddress,
+      });
+    }
   } finally {
     state.anchorInFlight = false;
   }

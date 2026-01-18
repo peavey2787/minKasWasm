@@ -87,6 +87,7 @@ h1 {
 
 input[type="text"],
 input[type="number"],
+textarea,
 select {
   background: var(--bg-dark);
   color: var(--accent);
@@ -100,9 +101,73 @@ select {
 
 input[type="text"]:focus,
 input[type="number"]:focus,
+textarea:focus,
 select:focus {
   border-color: #7fffd4;
   box-shadow: 0 0 0 2px rgba(73, 234, 203, 0.25);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 70px;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.mt-2 { margin-top: 1rem; }
+.mt-1 { margin-top: 0.5rem; }
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 9999;
+}
+
+.modal-overlay.hidden { display: none; }
+
+.modal-card {
+  width: 100%;
+  max-width: 560px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+  overflow: hidden;
+}
+
+.modal-header {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.1em;
+}
+
+.modal-body {
+  padding: 1rem 1.25rem;
+  color: var(--text);
+  font-size: 0.95em;
+  line-height: 1.45;
+}
+
+.modal-body code {
+  color: var(--accent);
+}
+
+.modal-actions {
+  padding: 0.9rem 1.25rem 1.1rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 input[type="number"] {

@@ -7,6 +7,19 @@ export const USE_PUBLIC_RESOLVER_ID = 'usePublicResolver';
 export const NODE_URL_ID = 'nodeUrl';
 export const CONNECT_BTN_ID = 'connectBtn';
 
+// Wallet UI
+export const WALLET_STATUS_ID = 'walletStatus';
+export const WALLET_ADDRESS_ID = 'walletAddress';
+export const COPY_WALLET_BTN_ID = 'copyWalletBtn';
+export const WALLET_BALANCE_ID = 'walletBalance';
+
+// Modal
+export const MODAL_OVERLAY_ID = 'modalOverlay';
+export const MODAL_TITLE_ID = 'modalTitle';
+export const MODAL_BODY_ID = 'modalBody';
+export const MODAL_CLOSE_BTN_ID = 'modalCloseBtn';
+export const MODAL_COPY_BTN_ID = 'modalCopyBtn';
+
 // VRF Sources
 export const KASPA_BLOCK_COUNT_ID = 'kaspaBlockCount';
 export const BTC_BLOCK_COUNT_ID = 'btcBlockCount';
@@ -73,6 +86,16 @@ export function getNetworkSelect() { return $(NETWORK_SELECT_ID); }
 export function getUsePublicResolver() { return $(USE_PUBLIC_RESOLVER_ID); }
 export function getNodeUrl() { return $(NODE_URL_ID); }
 export function getConnectBtn() { return $(CONNECT_BTN_ID); }
+export function getWalletStatus() { return $(WALLET_STATUS_ID); }
+export function getWalletAddress() { return $(WALLET_ADDRESS_ID); }
+export function getCopyWalletBtn() { return $(COPY_WALLET_BTN_ID); }
+export function getWalletBalance() { return $(WALLET_BALANCE_ID); }
+
+export function getModalOverlay() { return $(MODAL_OVERLAY_ID); }
+export function getModalTitle() { return $(MODAL_TITLE_ID); }
+export function getModalBody() { return $(MODAL_BODY_ID); }
+export function getModalCloseBtn() { return $(MODAL_CLOSE_BTN_ID); }
+export function getModalCopyBtn() { return $(MODAL_COPY_BTN_ID); }
 export function getKaspaBlockCountInput() { return $(KASPA_BLOCK_COUNT_ID); }
 export function getBtcBlockCountInput() { return $(BTC_BLOCK_COUNT_ID); }
 export function getQrngBytesInput() { return $(QRNG_BYTES_ID); }

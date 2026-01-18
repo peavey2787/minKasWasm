@@ -9,6 +9,8 @@ export const state = {
   scanner: null,
   walletAddress: null,
   walletReady: false,
+  walletBalanceMatureKAS: null,
+  walletBalanceMatureNumber: null,
 
   // Indexer event routing (no buffering here; the indexer owns storage)
   indexerUpdateHandlers: new Set(),

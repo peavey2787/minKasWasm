@@ -2,6 +2,83 @@
 
 import { $, $$ } from './dom_elements.js';
 
+export async function copyToClipboard(text) {
+  const value = String(text ?? '');
+  if (!value) return false;
+
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch (e) {
+    // Fallback
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = value;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+export function showModal({ title = 'Notice', bodyHtml = '', showCopy = false, copyText = '' } = {}) {
+  const overlay = $('modalOverlay');
+  if (!overlay) return;
+
+  const titleEl = $('modalTitle');
+  const bodyEl = $('modalBody');
+  const closeBtn = $('modalCloseBtn');
+  const copyBtn = $('modalCopyBtn');
+
+  if (titleEl) titleEl.textContent = title;
+  if (bodyEl) bodyEl.innerHTML = bodyHtml;
+
+  if (copyBtn) {
+    copyBtn.style.display = showCopy ? '' : 'none';
+    copyBtn.onclick = async () => {
+      const ok = await copyToClipboard(copyText);
+      copyBtn.textContent = ok ? 'Copied' : 'Copy Failed';
+      setTimeout(() => { copyBtn.textContent = 'Copy Address'; }, 1200);
+    };
+  }
+
+  const hide = () => {
+    overlay.classList.add('hidden');
+  };
+
+  if (closeBtn) closeBtn.onclick = hide;
+  overlay.onclick = (e) => {
+    if (e.target === overlay) hide();
+  };
+
+  overlay.classList.remove('hidden');
+}
+
+export function showInsufficientFundsModal({ requiredKAS, balanceKAS, address } = {}) {
+  const req = typeof requiredKAS === 'number' ? requiredKAS : Number(requiredKAS);
+  const balStr = balanceKAS ?? '--';
+  const addr = address ?? '';
+  showModal({
+    title: 'Insufficient Funds for Anchoring',
+    bodyHtml: `
+      <div>
+        <p>Anchoring requires funds in the demo wallet.</p>
+        <p><strong>Required:</strong> ${Number.isFinite(req) ? req : '--'} KAS</p>
+        <p><strong>Current mature balance:</strong> ${String(balStr)} KAS</p>
+        <p style="margin-top:0.75rem; word-break:break-all;"><strong>Wallet address:</strong><br><code>${addr}</code></p>
+      </div>
+    `,
+    showCopy: !!addr,
+    copyText: addr,
+  });
+}
+
 /**
  * Set status badge text and type
  */

@@ -42,6 +42,28 @@
         </div>
         <button id="connectBtn">Connect</button>
       </div>
+
+      <div class="mt-2" style="border-top:1px solid var(--border); padding-top:1rem;">
+        <div class="section-header" style="margin-bottom:0.75rem;">
+          <h3 style="margin:0; color:var(--accent); font-size:1.05em;">Wallet</h3>
+          <span id="walletStatus" class="status-badge pending">Not Ready</span>
+        </div>
+
+        <div class="controls-row" style="align-items:flex-end;">
+          <div class="control-group" style="flex:1; min-width:260px;">
+            <label for="walletAddress">Wallet Address</label>
+            <input type="text" id="walletAddress" placeholder="Connect to create/open demo wallet" readonly>
+          </div>
+          <button id="copyWalletBtn" class="secondary" disabled>Copy</button>
+          <div class="control-group">
+            <label>Balance (mature)</label>
+            <div id="walletBalance" class="status-badge pending">--</div>
+          </div>
+        </div>
+        <p style="color:var(--text-muted);font-size:0.85em;margin:0.25rem 0 0;">
+          Fund this address to enable anchoring. Anchoring sends a small payload transaction.
+        </p>
+      </div>
     </div>
 
     <!-- Tab Navigation (VRF and NIST only - Player/Spectator are always visible) -->
@@ -286,6 +308,20 @@
       </div>
     </div>
 
+  </div>
+
+  <!-- Modal overlay (used for insufficient funds / important alerts) -->
+  <div id="modalOverlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modalTitle">Notice</h3>
+      </div>
+      <div id="modalBody" class="modal-body"></div>
+      <div class="modal-actions">
+        <button id="modalCopyBtn" class="secondary" style="display:none;">Copy Address</button>
+        <button id="modalCloseBtn">Close</button>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="main.js"></script>

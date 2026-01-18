@@ -4,9 +4,27 @@ import { connect } from '../../wrapper/kaspa_client.js';
 import { KaspaBlockScanner } from '../../wrapper/scanner.js';
 import { MatchMode } from '../../wrapper/indexer.js';
 import { init as walletInit, createWallet } from '../../wrapper/wallet_service.js';
-import { $, getNetworkSelect, getUsePublicResolver, getNodeUrl, getConnectBtn } from './dom_elements.js';
+import { $, getNetworkSelect, getUsePublicResolver, getNodeUrl, getConnectBtn, getWalletAddress, getCopyWalletBtn, getWalletBalance, getWalletStatus } from './dom_elements.js';
 import { state } from './state.js';
-import { setStatus } from './utils.js';
+import { copyToClipboard, setStatus } from './utils.js';
+
+function setWalletUi({ address = '', balanceKAS = null, ready = false } = {}) {
+  const addrEl = getWalletAddress();
+  const copyBtn = getCopyWalletBtn();
+  const balEl = getWalletBalance();
+  const statusEl = getWalletStatus();
+
+  if (addrEl) addrEl.value = address || '';
+  if (copyBtn) copyBtn.disabled = !address;
+  if (balEl) {
+    balEl.textContent = balanceKAS == null ? '--' : `${balanceKAS} KAS`;
+    balEl.className = `status-badge ${ready ? 'connected' : 'pending'}`;
+  }
+  if (statusEl) {
+    statusEl.textContent = ready ? 'Ready' : 'Not Ready';
+    statusEl.className = `status-badge ${ready ? 'connected' : 'pending'}`;
+  }
+}
 
 export async function handleConnect() {
   const networkId = getNetworkSelect().value;
@@ -74,6 +92,12 @@ export async function handleConnect() {
         rpcClient: state.client,
         networkId,
         logger: (...args) => console.log('[Wallet]', ...args),
+        onBalanceChange: (matureBalance) => {
+          state.walletBalanceMatureKAS = matureBalance;
+          const n = Number(matureBalance);
+          state.walletBalanceMatureNumber = Number.isFinite(n) ? n : null;
+          setWalletUi({ address: state.walletAddress, balanceKAS: matureBalance, ready: state.walletReady });
+        }
       });
 
       const { address } = await createWallet({
@@ -86,9 +110,11 @@ export async function handleConnect() {
 
       state.walletAddress = address;
       state.walletReady = true;
+      setWalletUi({ address: state.walletAddress, balanceKAS: state.walletBalanceMatureKAS, ready: true });
       console.log('[Connection] Wallet ready:', address);
     } catch (e) {
       state.walletReady = false;
+      setWalletUi({ address: '', balanceKAS: null, ready: false });
       console.warn('[Connection] Wallet init/create failed (anchoring disabled):', e);
     }
 
@@ -115,6 +141,20 @@ export function initConnection() {
       }
     });
   }
+
+  // Wallet copy button
+  const copyBtn = getCopyWalletBtn();
+  if (copyBtn) {
+    copyBtn.addEventListener('click', async () => {
+      const addr = state.walletAddress || getWalletAddress()?.value || '';
+      const ok = await copyToClipboard(addr);
+      copyBtn.textContent = ok ? 'Copied' : 'Copy Failed';
+      setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1200);
+    });
+  }
+
+  // Initialize wallet UI defaults
+  setWalletUi({ address: '', balanceKAS: null, ready: false });
 
   getConnectBtn().addEventListener('click', handleConnect);
 }
