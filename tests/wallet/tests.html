@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Kaspa Wallet Test Dashboard</title>
+  <link rel="stylesheet" href="../../styles.css">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <h1>Kaspa Wallet Test Dashboard</h1>
+
+  <div class="top-controls" style="margin-bottom: 12px;">
+    <div class="button-row" style="width: 100%; align-items: flex-end;">
+      <div style="min-width: 220px; flex: 0 0 auto;">
+        <label for="selNetworkId" style="margin-top: 0;"><strong>Network</strong></label>
+        <select id="selNetworkId">
+          <option value="testnet-12">testnet-12</option>
+          <option value="testnet-11">testnet-11</option>
+          <option value="testnet-10">testnet-10</option>
+          <option value="mainnet">mainnet</option>
+        </select>
+      </div>
+
+      <div style="flex: 1 1 420px; min-width: 260px;">
+        <label for="inputRpcUrl" style="margin-top: 0;"><strong>Node URL</strong> (only when not using public resolver)</label>
+        <input id="inputRpcUrl" type="text" placeholder="ws://127.0.0.1:16110" />
+      </div>
+
+      <div class="toggle" style="margin-top: 22px;">
+        <input type="checkbox" id="chkUsePublicResolver" checked />
+        <label for="chkUsePublicResolver">Use public resolver</label>
+      </div>
+
+      <div style="flex: 0 0 auto; margin-top: 22px;">
+        <button id="btnConnect">Connect</button>
+      </div>
+    </div>
+
+    <div style="width: 100%;">
+      <div id="connectionStatus" class="note">Not connected.</div>
+    </div>
+  </div>
+
+  <div class="top-controls">
+    <div class="button-row">
+      <button id="btnRunAllSafe">Run All (Safe Tests Only)</button>
+      <button id="btnRunAllAll" disabled>Run All (Including Destructive/Stress)</button>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div class="toggle">
+      <input type="checkbox" id="toggleDestructive" />
+      <label for="toggleDestructive">Enable Destructive</label>
+    </div>
+    <div class="toggle">
+      <input type="checkbox" id="toggleStress" />
+      <label for="toggleStress">Enable Stress</label>
+    </div>
+    <div class="toggle">
+      <input type="checkbox" id="toggleMultiTab" />
+      <label for="toggleMultiTab">Enable Multi-tab</label>
+    </div>
+
+    <div style="width: 100%;">
+      <div class="note">
+        Safe default: only Non-destructive + Funding-gated tests run. Destructive/Stress/Multi-tab tests require explicit opt-in toggles.
+      </div>
+    </div>
+  </div>
+
+  <ul id="testList">
+  </ul>
+
+  <script type="module" src="./wallet_test_runner.js"></script>
+</body>
+</html>

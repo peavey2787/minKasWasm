@@ -1,0 +1,194 @@
+/* Wallet test dashboard styles (extracted from tests.html)
+   Designed to match tests/indexer/tests.html card grid + log styling.
+*/
+
+#testList {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 12px;
+}
+
+.test-card {
+  border: 1px solid #49eacb;
+  border-radius: 10px;
+  padding: 12px;
+  background: #2d292a;
+}
+
+.test-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.test-title {
+  font-weight: 700;
+}
+
+.status {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #49eacb44;
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.status.idle {
+  background: transparent;
+}
+
+.status.running {
+  border-color: #49eacb;
+}
+
+.status.running::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: #49eacb;
+  animation: spin 0.8s linear infinite;
+}
+
+.status.pass {
+  border-color: #49eacb;
+  background: #49eacb22;
+}
+
+.status.pass::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 3px;
+  width: 5px;
+  height: 9px;
+  border: solid #49eacb;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.status.fail {
+  border-color: #b00020;
+  background: rgba(176, 0, 32, 0.15);
+}
+
+.status.fail::before,
+.status.fail::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 8px;
+  width: 10px;
+  height: 2px;
+  background: #b00020;
+  transform-origin: center;
+}
+
+.status.fail::before {
+  transform: rotate(45deg);
+}
+
+.status.fail::after {
+  transform: rotate(-45deg);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.log {
+  border: 1px solid #49eacb;
+  border-radius: 8px;
+  padding: 8px;
+  background: #231F20;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.top-controls {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid #49eacb;
+  border-radius: 10px;
+  background: #2d292a;
+}
+
+.toggle {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid #49eacb44;
+  border-radius: 8px;
+  background: #231F20;
+}
+
+.toggle input {
+  width: auto;
+  margin: 0;
+}
+
+.note {
+  color: #49eacb;
+  opacity: 0.9;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.danger {
+  border-color: #b00020;
+  color: #ffb3c1;
+}
+
+.danger button {
+  border-color: #b00020;
+  color: #ffb3c1;
+}
+
+.danger button:hover,
+.danger button:focus {
+  background: #b00020;
+  color: #231F20;
+  border-color: #b00020;
+}
+
+.button-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.spacer {
+  flex: 1 1 auto;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

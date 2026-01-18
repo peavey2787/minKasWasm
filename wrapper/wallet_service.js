@@ -4,7 +4,10 @@ import {
   kaspaToSompi,
   sompiToKaspaString,
   AccountsDiscoveryKind,
-  Address
+  estimateTransactions,
+  Generator,
+  calculateStorageMass,
+  maximumStandardTransactionMass
 } from '../kas-wasm/kaspa.js';
 import { storeWalletData } from './storage.js';
 import * as utilities from './utilities.js';
@@ -16,6 +19,13 @@ let walletInitialized = false;
 let walletSecret = null;
 let accountId = null;
 let filename = DEFAULT_FILENAME;
+let currentNetworkId = null;
+let currentAccountIndex = 0;
+let log = () => {};
+// State flags
+let walletOpened = false;
+let walletConnected = false;
+let walletStarted = false;
 
 
 /**
@@ -28,9 +38,14 @@ let filename = DEFAULT_FILENAME;
  * @param {string|null} [params.balanceElementId] - Optional DOM element ID to update balance.
  * @param {function|null} [params.onBalanceChange] - Optional callback to receive balance updates.
  */ 
-export function init({ rpcClient, networkId, balanceElementId = null, onBalanceChange = null} = {}) {
+export function init({ rpcClient, networkId, balanceElementId = null, onBalanceChange = null, logger = null} = {}) {
 
   if (walletInitialized) return;
+
+  // Use the provided logger, or a no-op if not supplied
+  log = typeof logger === 'function' ? logger : () => {};
+
+  currentNetworkId = networkId;
 
   // 1. Construct wallet with proper options
   wallet = new Wallet({
@@ -49,17 +64,19 @@ export function init({ rpcClient, networkId, balanceElementId = null, onBalanceC
       const matureBalance = sompiToKaspaString(bal.mature);
     
       // You can update your UI or call a callback here    
-      console.log("Balance changed:", matureBalance, "KAS");
+      log("Balance changed:", matureBalance, "KAS");
     
       try{
+
         // Example: update a DOM element
         let balanceResult = null;
         if(balanceElementId) {
           balanceResult = document.getElementById(balanceElementId);
           balanceResult.textContent = `Balance:\n${matureBalance} KAS`;    
         }
+
       } catch(err) {
-        //console.error("Error updating balance element:", err);
+        log("Error updating balance element:", err);
       }
 
       if(typeof onBalanceChange === 'function') {
@@ -69,6 +86,28 @@ export function init({ rpcClient, networkId, balanceElementId = null, onBalanceC
   });
 
   walletInitialized = true;
+}
+
+/**
+ * Close the wallet and reset internal state.
+ */
+export async function closeWallet() {
+  try {
+    await wallet.walletClose();
+  } catch (err) {
+    log("Error closing wallet:", err);
+    throw err;
+  }
+  wallet = null;
+  walletInitialized = false;
+  walletSecret = null;
+  accountId = null;
+  currentAccountIndex = 0;
+  filename = DEFAULT_FILENAME;
+  log = () => {};
+  walletOpened = false;
+  walletConnected = false;
+  walletStarted = false;
 }
 
 
@@ -95,17 +134,43 @@ export async function createWallet({ password, filename = DEFAULT_FILENAME, user
 
   // 2. Try to open the wallet (if it exists)
   try {
-    console.log("Attempting to open wallet...");
-    await wallet.walletOpen({ filename, walletSecret });
-    // 3. Connect and start wallet
-    await wallet.connect();  
-    await wallet.start();
+
+    if(!walletOpened) {
+      log("Opening wallet...");
+      const descriptors = await wallet.walletOpen({ 
+        accountDescriptors: true,
+        filename,
+        walletSecret
+      });
+      log("Wallet accounts:", descriptors);
+      if(descriptors) {
+        walletOpened = true;
+        log("Wallet opened.");
+      }
+    }
+    
+    if(!walletConnected) {
+      // 3. Connect and start wallet
+      log("Connecting wallet...");
+      await wallet.connect();
+      walletConnected = true;
+      log("Wallet connected.");
+    }
+    
+    if(!walletStarted) {
+      log("Starting wallet...");
+      await wallet.start();
+      walletStarted = true;
+      log("Wallet started.");
+    }
+
     // 4. Activate the account to get events like balance changes
     const address = await activateAccount();
-    console.log("Wallet opened successfully.");  
+
     return { address };
+
   } catch (err) {
-    // If wallet doesn't exist, proceed to create a new one
+    // If wallet doesn't exist, create a new one
     return await _createNewWallet({ password, filename, userHint, mnemonic, storeMnemonic, discoverAddresses });
   }
 }
@@ -122,9 +187,9 @@ export async function createWallet({ password, filename = DEFAULT_FILENAME, user
  * @param {boolean} params.discoverAddresses - Whether to perform address discovery.
  * @returns {Promise<{mnemonic: string, address: string}>} - The mnemonic and receiving address.
  */
-export async function _createNewWallet({ password, filename = DEFAULT_FILENAME, userHint = "", mnemonic = null, storeMnemonic = false, discoverAddresses = true }) {
+async function _createNewWallet({ password, filename = DEFAULT_FILENAME, userHint = "", mnemonic = null, storeMnemonic = false, discoverAddresses = true }) {
   
-  console.log("Creating new wallet...");
+  log("Creating new wallet...");
   
   // 1. Create or import mnemonic
   const mnemonicPhrase = mnemonic || utilities.generateMnemonic(24);
@@ -143,13 +208,18 @@ export async function _createNewWallet({ password, filename = DEFAULT_FILENAME, 
     if (msg.includes("Wallet already exists")) {
       // Suppress this specific error, do nothing
     } else {
-      // Propogate the error
+      // Propogate the unknown error
       throw new Error("Error creating wallet: " + msg);
     }
   }
 
   // 3. Open wallet
-  await wallet.walletOpen({ filename, walletSecret });
+  if(!walletOpened){
+    log("Opening newly created wallet...");
+    await wallet.walletOpen({ filename, walletSecret });
+    walletOpened = true;
+    log("Wallet opened.");
+  }
 
   // 4. Insert mnemonic key
   let prvKeyData =  await wallet.prvKeyDataCreate({
@@ -180,24 +250,37 @@ export async function _createNewWallet({ password, filename = DEFAULT_FILENAME, 
   }
 
   // 8. Connect and start wallet
-  await wallet.connect();  
-  await wallet.start();
+  if(!walletConnected) {
+    log("Connecting wallet...");
+    await wallet.connect();
+    walletConnected = true;
+    log("Wallet connected.");
+  }
+
+  if(!walletStarted) {
+    log("Starting wallet...");
+    await wallet.start();
+    walletStarted = true;
+    log("Wallet started.");
+  }
 
   // 9. Optionally, perform accounts discovery to sync with network
   // if you are importing existing wallet
   if(discoverAddresses) {
+    log("Performing accounts discovery...");
     const results = await wallet.accountsDiscovery({
       accountScanExtent: 10,              // scan first 10 accounts
       addressScanExtent: 50,             // scan first 50 addresses per account
       bip39_mnemonic: mnemonicPhrase, 
       discoveryKind: AccountsDiscoveryKind.BIP44
     });
+    log("Accounts discovery completed.");
   }
 
   // 10. Activate the account to get events like balance changes
   const address = await activateAccount();
 
-  console.log("Wallet created and data stored securely.");
+  log("Wallet created and data stored securely.");
 
   return  { address, mnemonic: mnemonicPhrase };
 }
@@ -208,13 +291,127 @@ export async function _createNewWallet({ password, filename = DEFAULT_FILENAME, 
  * @param {number} [accountIndex=0] - The account index to activate.
  * @returns {Promise<string>} - The receiving address of the activated account.
  */
-export async function activateAccount(accountIndex = 0) {
-    // 10. Activate account to enable balance tracking
+export async function activateAccount(accountIndex = 0) {  
+  // 10. Activate account to enable balance tracking
+  log("Activating account...");
+  currentAccountIndex = accountIndex;
   const accounts = await wallet.accountsEnumerate();
   accountId = accounts.accountDescriptors[accountIndex].accountId;
   const address = accounts.accountDescriptors[accountIndex].receiveAddress;
   await wallet.accountsActivate({ accountId });
+  log("Account activated. Receiving address:", address);
   return address;
+}
+
+
+/**
+ * Estimate the transaction fee for a send operation.
+ * Uses the SDK's Generator to calculate accurate mass and fees based on actual UTXOs.
+ * @param {Object} params
+ * @param {string} params.amount - Amount in KAS to send
+ * @param {string} params.toAddress - Destination address
+ * @param {string} [params.payload] - Optional payload (hex string or UTF-8 text)
+ * @param {string} [params.priorityFeeKas] - Optional priority fee in KAS (extra on top of base fee)
+ * @returns {Promise<{ mass: bigint, fees: bigint, feesKas: string, priorityFee: bigint, baseFee: bigint }>}
+ */
+export async function estimateTransactionFee({ amount, toAddress, payload, priorityFeeKas }) {
+
+  // Validate inputs
+  if (toAddress == null || toAddress === '') {
+    throw new Error('Invalid address: ' + toAddress);
+  }
+  if (amount == null || isNaN(Number(amount))) {
+    throw new Error(amount, ' Kas, Amount must be >= MIN_KAS_AMOUNT');
+  }
+
+  // Get account info
+  const accounts = await wallet.accountsEnumerate({});
+  if (!accounts.accountDescriptors?.length) {
+    throw new Error('No accounts found in wallet.');
+  }
+  const activeAccount = accounts.accountDescriptors[currentAccountIndex];
+  const changeAddress = activeAccount.changeAddress;
+  const receiveAddress = activeAccount.receiveAddress;
+
+  // Validate addresses but keep them as strings to avoid cross-WASM-instance class mismatches.
+  utilities.validateAddress(changeAddress);
+  utilities.validateAddress(toAddress);
+
+  // Get UTXOs for the account addresses
+  log("Fetching UTXOs for addresses...");
+  const addresses = [receiveAddress, changeAddress].filter(Boolean);
+  const utxoResult = await wallet.rpc.getUtxosByAddresses(addresses);
+  const utxoEntries =
+    Array.isArray(utxoResult) ? utxoResult :
+    Array.isArray(utxoResult?.entries) ? utxoResult.entries :
+    [];
+  
+  if (utxoEntries.length === 0) throw new Error('No UTXOs...');
+
+  // Match the official SDK example: sort by amount ascending.
+  utxoEntries.sort((a, b) => (a.amount > b.amount ? 1 : -1));
+
+  log(`UTXOs fetched: ${utxoEntries.length} entries.`);
+
+  // Build output
+  const amountSompi = kaspaToSompi(amount);
+  const outputs = [{
+    // Pass as string (validated above)
+    address: String(toAddress),
+    amount: amountSompi
+  }];
+
+  // Priority fee (extra on top of base network fee)
+  let priorityFee = 0n;
+  if (priorityFeeKas != null && priorityFeeKas !== '') {
+    priorityFee = kaspaToSompi(priorityFeeKas);
+  }
+
+  // Prepare payload if provided
+  let payloadHex = undefined;
+  if (payload) {
+    // Check if it's already hex or needs conversion
+    if (/^[0-9a-fA-F]*$/.test(payload) && payload.length % 2 === 0) {
+      payloadHex = payload;
+    } else {
+      // Convert UTF-8 to hex
+      payloadHex = utilities.stringToHex(payload);
+    }
+  }
+
+  const settings = {
+    entries: utxoEntries,
+    utxoEntries: utxoEntries,
+    outputs,
+    changeAddress: String(changeAddress),
+    priorityFee,
+    payload: payloadHex,
+    networkId: currentNetworkId
+  };
+
+  let estimate;
+  try {
+    const generator = new Generator(settings);
+    estimate = await generator.estimate();    
+    try { generator.free(); } catch { /* ignore */ }
+    log("Generator estimate completed.");
+  } catch (err) {
+   throw new Error('Generator estimate failed: ' + (err && err.message ? err.message : String(err)));
+  }
+
+  // estimate contains: { mass, fees, ... } from GeneratorSummary
+  const totalFees = estimate.fees ?? 0n;
+  const mass = estimate.mass ?? 0n;
+  const baseFee = totalFees - priorityFee;
+
+  return {
+    mass,
+    fees: totalFees,
+    feesKas: sompiToKaspaString(totalFees),
+    priorityFee,
+    baseFee,
+    utxos: utxoEntries
+  };
 }
 
 
@@ -227,12 +424,14 @@ export async function activateAccount(accountIndex = 0) {
  * @param {string|number|BigInt} [params.priorityFeeKas] - Optional extra priority fee in KAS.
  * @returns {Promise<Object>} - The transaction result.
  */
-
 export async function send({ amount, toAddress, payload, priorityFeeKas }) {
  
   if (!walletInitialized || !wallet) {
     throw new Error("Wallet not initialized. Call init() first.");
   }
+
+  // Normalize toAddress
+  const toAddressObj = utilities.validateAddress(toAddress);
 
   // Determine priority fee:
   // - If custom fee provided: use it as extra priority fee on top of base network fee
@@ -268,12 +467,6 @@ export async function send({ amount, toAddress, payload, priorityFeeKas }) {
       `Insufficient funds: required ${required.toString()}, available ${spendable.toString()}`
     );
   }
-
-  // Convert address string to Address object
-  let addressObj = toAddress;
-  if (typeof toAddress === "string") {
-    addressObj = new Address(toAddress);
-  }
   
   // Build request - priorityFeeSompi is extra fee on top of the base network fee
   const sendRequest = {
@@ -281,7 +474,7 @@ export async function send({ amount, toAddress, payload, priorityFeeKas }) {
     accountId: accountId,
     priorityFeeSompi: priorityFeeSompiChecked,
     destination: [{
-      address: addressObj,
+      address: toAddressObj,
       amount: amountSompi
     }]
   };
@@ -304,7 +497,7 @@ export async function send({ amount, toAddress, payload, priorityFeeKas }) {
   try {
     return await wallet.accountsSend(sendRequest);
   } catch (err) {
-    throw new Error('Transaction failed', err);
+    throw new Error('Transaction failed', { cause: err });
   }
 }
 
@@ -313,7 +506,6 @@ export async function send({ amount, toAddress, payload, priorityFeeKas }) {
  * Get the spendable (mature) balance for the current wallet account.
  * @returns {Promise<BigInt>} - The spendable balance in sompi (BigInt).
  */
-
 export async function getSpendableBalance() {
 
   const res = await wallet.accountsGet({ accountId });
@@ -341,7 +533,6 @@ export async function getSpendableBalance() {
  * @param {boolean} [change=false] - If true, generate a change address; otherwise, receiving address.
  * @returns {Promise<string>} - The new address as a string.
  */
-
 export async function generateNewAddress(change = false) {   
   const addr = await wallet.accountsCreateNewAddress({  
     accountId: accountId,  
@@ -357,7 +548,6 @@ export async function generateNewAddress(change = false) {
  * @param {number} index - The child index for key derivation.
  * @returns {Promise<{privateKey: string, publicKey: string}>} - The derived keypair.
  */
-
 export async function generateNewKeypair(index) {
   const xprv = await utilities.getXPrvFromStorage(filename, walletSecret);
   const xprvHex = xprv.toString();

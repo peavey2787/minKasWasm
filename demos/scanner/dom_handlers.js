@@ -257,11 +257,7 @@ export function handleCreateWalletClick() {
   setTimeout(async () => {
     if (!scanner || !kaspaClient) return alert("Connect to a node first!");
     const networkId = elements.getNetworkInput().value.trim();
-    if(networkId === "public") {
-      await init({rpcClient: kaspaClient, networkId: "mainnet", balanceElementId: "balanceResult" });
-    } else {
-      await init({rpcClient: kaspaClient, networkId, balanceElementId: "balanceResult" });
-    }
+    await init({rpcClient: kaspaClient, networkId, balanceElementId: "balanceResult" });
     const { address } = await createWallet({ password: "1234" });
     walletInitialized = true;
     elements.getReceiveAddressLabel().textContent = address;

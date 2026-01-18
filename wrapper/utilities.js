@@ -1,5 +1,5 @@
 import * as secp from "https://esm.sh/@noble/secp256k1";
-import {  signMessage, verifyMessage, XPrv, Mnemonic, PrivateKeyGenerator, PublicKeyGenerator } from '../kas-wasm/kaspa.js';
+import { signMessage, verifyMessage, XPrv, Mnemonic, PrivateKeyGenerator, PublicKeyGenerator, Address } from '../kas-wasm/kaspa.js';
 import { loadWalletData } from './storage.js';
 
 const MAX_PAYLOAD_BYTES = 32 * 1024; // 32KB
@@ -24,6 +24,26 @@ export async function getMnemonicFromStorage(filename, masterPassword) {
   const walletData = await loadWalletData(filename, masterPassword);
   const mnemonic = walletData.mnemonic;
   return mnemonic;
+}
+
+/** * Validate and normalize a Kaspa address.
+ * @param {string|Address} address - The address to validate.
+ * @returns {Address} The validated Address object.
+ * @throws {Error} If the address is invalid.
+ */
+export function validateAddress(address) {  
+  if (address == null || address === '') {
+    throw new Error('Invalid address: ' + address);
+  }  
+  if (typeof address === "string") {
+    try{
+      address = new Address(address);
+      return address;
+    } catch (err) {
+      throw new Error('Invalid address format: ' + address);
+    }
+  }
+  return address;
 }
 
 /**
