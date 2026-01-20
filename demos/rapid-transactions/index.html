@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rapid Transactions</title>
+  <link rel="stylesheet" href="../../styles.css">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="container">
+    <div class="section-card">
+      <div class="section-header">
+        <h2>Rapid Transactions</h2>
+        <span id="status" class="status-badge pending">Booting…</span>
+      </div>
+
+      <div class="stats-row stats-row-4 mt-2">
+        <div class="stat"><div class="k">Network</div><div class="v" id="net">--</div></div>
+        <div class="stat"><div class="k">Address</div><div class="v mono" id="addr">--</div></div>
+        <div class="stat"><div class="k">Balance (mature)</div><div class="v" id="bal">--</div></div>
+        <div class="stat"><div class="k">Loop</div><div class="v" id="loopState">Stopped</div></div>
+      </div>
+
+      <div class="controls-row mt-2">
+        <button id="btnStart" class="secondary" disabled>Start sending (1 KAS / 5s)</button>
+        <button id="btnStop" class="secondary" disabled>Stop</button>
+      </div>
+
+      <div class="stats-row stats-row-4 mt-2">
+        <div class="stat"><div class="k">Sent</div><div class="v" id="sent">0</div></div>
+        <div class="stat"><div class="k">Received</div><div class="v" id="received">0</div></div>
+        <div class="stat"><div class="k">Last txid</div><div class="v mono" id="lastTxid">--</div></div>
+        <div class="stat"><div class="k">Latency (last)</div><div class="v" id="latency">--</div></div>
+      </div>
+
+      <details class="mt-2" open>
+        <summary class="muted">Log</summary>
+        <pre id="log" class="log-panel"></pre>
+      </details>
+
+      <p class="muted mt-2">
+        Auto-connects to <span class="mono">testnet-10</span> and opens/creates wallet <span class="mono">rapid_tx_wallet</span> with password <span class="mono">1234</span>.
+      </p>
+    </div>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

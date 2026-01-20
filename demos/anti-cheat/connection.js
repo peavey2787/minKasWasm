@@ -6,7 +6,25 @@ import { MatchMode } from '../../wrapper/indexer.js';
 import { init as walletInit, createWallet } from '../../wrapper/wallet_service.js';
 import { $, getNetworkSelect, getUsePublicResolver, getNodeUrl, getConnectBtn, getWalletAddress, getCopyWalletBtn, getWalletBalance, getWalletStatus } from './dom_elements.js';
 import { state } from './state.js';
-import { copyToClipboard, setStatus } from './utils.js';
+import { copyToClipboard, setStatus, showInsufficientFundsModal } from './utils.js';
+
+function maybeShowNoFundsModalOnce() {
+  if (state.noFundsModalShown) return;
+  const now = Date.now();
+  if (!state.noFundsModalEligibleUntilMs || now > state.noFundsModalEligibleUntilMs) return;
+  if (!state.walletReady || !state.walletAddress) return;
+
+  const n = state.walletBalanceMatureNumber;
+  // Only show if mature balance is exactly 0 (or effectively 0).
+  if (typeof n === 'number' && Number.isFinite(n) && n <= 0) {
+    state.noFundsModalShown = true;
+    showInsufficientFundsModal({
+      requiredKAS: 0.2,
+      balanceKAS: state.walletBalanceMatureKAS,
+      address: state.walletAddress,
+    });
+  }
+}
 
 function setWalletUi({ address = '', balanceKAS = null, ready = false } = {}) {
   const addrEl = getWalletAddress();
@@ -30,6 +48,10 @@ export async function handleConnect() {
   const networkId = getNetworkSelect().value;
   const useResolver = getUsePublicResolver().checked;
   const nodeUrl = getNodeUrl().value.trim();
+
+  // Allow showing the modal only during the initial connect window.
+  state.noFundsModalShown = false;
+  state.noFundsModalEligibleUntilMs = Date.now() + 30_000;
 
   setStatus('connectionStatus', 'Connecting...', 'pending');
 
@@ -97,6 +119,14 @@ export async function handleConnect() {
           const n = Number(matureBalance);
           state.walletBalanceMatureNumber = Number.isFinite(n) ? n : null;
           setWalletUi({ address: state.walletAddress, balanceKAS: matureBalance, ready: state.walletReady });
+
+          // Connect-time-only: if mature balance is 0, show modal once.
+          // Never show during gameplay (player.js no longer triggers it).
+          if (state.walletBalanceMatureNumber != null && state.walletBalanceMatureNumber > 0) {
+            // If we see any positive balance during the connect window, disable the modal forever.
+            state.noFundsModalEligibleUntilMs = 0;
+          }
+          maybeShowNoFundsModalOnce();
         }
       });
 
@@ -112,6 +142,9 @@ export async function handleConnect() {
       state.walletReady = true;
       setWalletUi({ address: state.walletAddress, balanceKAS: state.walletBalanceMatureKAS, ready: true });
       console.log('[Connection] Wallet ready:', address);
+
+      // If balance callback already fired before wallet was marked ready, this catches it.
+      maybeShowNoFundsModalOnce();
     } catch (e) {
       state.walletReady = false;
       setWalletUi({ address: '', balanceKAS: null, ready: false });

@@ -58,6 +58,20 @@ export function validatePayload(payload) {
 }
 
 /**
+ * Convert optional payload string to hex (or accept already-hex).
+ * Returns undefined when no payload.
+ */
+export function payloadToHex(payload) {
+  if (!payload) return undefined;
+
+  // If already hex and even length, keep it
+  if (/^[0-9a-fA-F]*$/.test(payload) && payload.length % 2 === 0) return payload;
+
+  // Otherwise treat as UTF-8 text
+  return stringToHex(payload);
+}
+
+/**
  * Convert a JS string to a hex-encoded byte string (UTF-8).
  * @param {string} str - The string to encode.
  * @returns {string} Hex-encoded string.
@@ -221,6 +235,34 @@ export async function deriveReceivingChildKeyPair({xprvHex, network = NETWORK, a
   const addr = pubGen.receiveAddressAsString(network, index);
 
   return {  privateKey: privKey.toString(), publicKey: pubKey.toString(), address: addr  };
+}
+
+/**
+ * Derive a change child key pair and address from an XPrv hex.
+ * @param {Object} params
+ * @param {string} params.xprvHex - Extended private key as hex string.
+ * @param {string} [params.network=NETWORK] - Network name or ID.
+ * @param {bigint} [params.accountIndex=0n] - Account index (BigInt).
+ * @param {number} [params.index=0] - Child index.
+ * @returns {Promise<{privateKey: string, publicKey: string, address: string}>} Key pair and address.
+ */
+export async function deriveChangeChildKeyPair({ xprvHex, network = NETWORK, accountIndex = 0n, index = 0 }) {
+  if (typeof index !== "number" || index < 0) {
+    throw new Error("Index must be a non-negative integer");
+  }
+
+  // Generate private key
+  const gen = new PrivateKeyGenerator(xprvHex, false, accountIndex);
+  const privKey = gen.changeKey(index);
+
+  // Generate public key
+  const pubKey = privKey.toPublicKey();
+
+  // Generate address
+  const pubGen = PublicKeyGenerator.fromMasterXPrv(xprvHex, false, accountIndex);
+  const addr = pubGen.changeAddressAsString(network, index);
+
+  return { privateKey: privKey.toString(), publicKey: pubKey.toString(), address: addr };
 }
 
 /**

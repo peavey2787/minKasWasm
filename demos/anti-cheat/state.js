@@ -12,6 +12,11 @@ export const state = {
   walletBalanceMatureKAS: null,
   walletBalanceMatureNumber: null,
 
+  // UI gating: show the "insufficient funds" modal only once at connect-time
+  // (and only if mature balance is 0). Never show it during gameplay.
+  noFundsModalShown: false,
+  noFundsModalEligibleUntilMs: 0,
+
   // Indexer event routing (no buffering here; the indexer owns storage)
   indexerUpdateHandlers: new Set(),
 
@@ -30,11 +35,24 @@ export const state = {
   anchorInterval: 250,
   anchorTimer: null,
 
+  // Session (new each "Start Game")
+  sessionId: null,
+  playerStartPos: { x: 4, y: 4 },
+  moveSeq: 0,
+
   // Merkle-chain anchoring (bounded, continuous)
   anchorRound: 0,
   anchorPrevRoot: null,
   roundMovesPacked: '',
+  roundMoveDts: [],         // ms deltas from roundT0
+  roundT0: null,            // ms epoch of first move in this batch
+  roundSeq0: null,          // first move sequence in this batch
   anchorInFlight: false,
+
+  // Anchor backlog (to prevent missed moves): if an anchor tx fails, keep it here
+  // and include it as a prior anchor in the next successful tx payload.
+  anchorBacklog: [],        // array of { obj, root }
+  anchorBacklogMax: 25,
 
   // Spectator state
   spectatorActive: false,
@@ -44,6 +62,23 @@ export const state = {
   spectatorTimer: null,
   spectatorLastRoot: null,
   spectatorLastRound: null,
+
+  // Spectator chain state (ordering anchors by prev_root)
+  spectatorSessionId: null,
+  spectatorExpectedPrevRoot: null,
+  spectatorExpectedRound: 0,
+  spectatorLastSeq: -1,
+  spectatorPendingByPrevRoot: new Map(),
+  spectatorSeenKeys: new Set(),
+
+  // Latency stats (ms)
+  spectatorLatency: {
+    last: null,
+    avg: null,
+    max: null,
+    count: 0,
+    sum: 0
+  },
 };
 
 export function addIndexerUpdateHandler(handler) {
@@ -61,10 +96,16 @@ export function resetPlayerState() {
   state.playerPos = { x: 4, y: 4 };
   state.moveLog = [];
   state.merkleTree = new MerkleTree();
+  state.moveSeq = 0;
   state.anchorRound = 0;
   state.anchorPrevRoot = null;
   state.roundMovesPacked = '';
+  state.roundMoveDts = [];
+  state.roundT0 = null;
+  state.roundSeq0 = null;
   state.anchorInFlight = false;
+  state.anchorBacklog = [];
+  state.anchorBacklogMax = 25;
   if (state.anchorTimer) {
     clearInterval(state.anchorTimer);
     state.anchorTimer = null;
@@ -79,6 +120,18 @@ export function resetSpectatorState() {
   state.seenMerkleRoots = new Set();
   state.spectatorLastRoot = null;
   state.spectatorLastRound = null;
+
+  // Chain ordering state
+  state.spectatorSessionId = null;
+  state.spectatorExpectedPrevRoot = 'GENESIS';
+  state.spectatorExpectedRound = 0;
+  state.spectatorLastSeq = -1;
+  state.spectatorPendingByPrevRoot = new Map();
+  state.spectatorSeenKeys = new Set();
+
+  // Latency stats
+  state.spectatorLatency = { last: null, avg: null, max: null, count: 0, sum: 0 };
+
   if (state.spectatorTimer) {
     clearInterval(state.spectatorTimer);
     state.spectatorTimer = null;

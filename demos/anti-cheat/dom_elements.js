@@ -66,15 +66,18 @@ export const MOVE_LOG_PANEL_ID = 'moveLogPanel';
 export const MERKLE_TREE_PANEL_ID = 'merkleTreePanel';
 export const ANCHOR_TX_PANEL_ID = 'anchorTxPanel';
 
+// Player (extended)
+export const PLAYER_SESSION_BADGE_ID = 'playerSessionBadge';
+
 // Spectator
 export const SPECTATOR_STATUS_ID = 'spectatorStatus';
-export const SPECTATOR_PREFIX_ID = 'spectatorPrefix';
 export const START_SPECTATOR_BTN_ID = 'startSpectatorBtn';
+export const REPLAY_SPECTATOR_BTN_ID = 'replaySpectatorBtn';
 export const STOP_SPECTATOR_BTN_ID = 'stopSpectatorBtn';
 export const SPECTATOR_GRID_ID = 'spectatorGrid';
 export const SPECTATOR_LOG_PANEL_ID = 'spectatorLogPanel';
-export const SPECTATOR_MOVE_PANEL_ID = 'spectatorMovePanel';
-export const SPECTATOR_VERIFY_PANEL_ID = 'spectatorVerifyPanel';
+export const SPECTATOR_SESSION_BADGE_ID = 'spectatorSessionBadge';
+export const SPECTATOR_LATENCY_BADGE_ID = 'spectatorLatencyBadge';
 
 // Generic getter
 export const $ = (id) => document.getElementById(id);

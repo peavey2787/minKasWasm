@@ -256,7 +256,10 @@
         <div class="game-panel">
           <div class="panel-header">
             <h3>🕹️ Player</h3>
-            <span id="playerStatus" class="status-badge pending">Not Started</span>
+            <div style="display:flex; gap:.5rem; align-items:center;">
+              <span id="playerSessionBadge" class="status-badge pending">session: --</span>
+              <span id="playerStatus" class="status-badge pending">Not Started</span>
+            </div>
           </div>
           <p class="panel-desc">Use arrow keys or WASD to move the block.</p>
           
@@ -287,12 +290,17 @@
         <div class="game-panel">
           <div class="panel-header">
             <h3>👁️ Spectator</h3>
-            <span id="spectatorStatus" class="status-badge pending">Not Watching</span>
+            <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
+              <span id="spectatorSessionBadge" class="status-badge pending">session: --</span>
+              <span id="spectatorLatencyBadge" class="status-badge pending">latency: --</span>
+              <span id="spectatorStatus" class="status-badge pending">Not Watching</span>
+            </div>
           </div>
           <p class="panel-desc">Live replay from blockchain anchors.</p>
           
           <div class="controls-row compact">
-            <button id="startSpectatorBtn">Start Watching</button>
+            <button id="startSpectatorBtn">Watch Live</button>
+            <button id="replaySpectatorBtn" class="secondary">Replay From Start</button>
             <button id="stopSpectatorBtn" class="danger" disabled>Stop</button>
           </div>
 

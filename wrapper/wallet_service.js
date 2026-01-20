@@ -4,10 +4,7 @@ import {
   kaspaToSompi,
   sompiToKaspaString,
   AccountsDiscoveryKind,
-  estimateTransactions,
-  Generator,
-  calculateStorageMass,
-  maximumStandardTransactionMass
+  Generator
 } from '../kas-wasm/kaspa.js';
 import { storeWalletData } from './storage.js';
 import * as utilities from './utilities.js';
@@ -26,6 +23,22 @@ let log = () => {};
 let walletOpened = false;
 let walletConnected = false;
 let walletStarted = false;
+
+
+/**
+ * Get internal wallet context for advanced flows (UTXO selection, WASM tx builder, etc.)
+ */
+export function getWalletContext() {
+  return {
+    wallet,
+    walletInitialized,
+    accountId,
+    filename,
+    currentNetworkId,
+    currentAccountIndex,
+    log,
+  };
+}
 
 
 /**
@@ -48,11 +61,22 @@ export function init({ rpcClient, networkId, balanceElementId = null, onBalanceC
   currentNetworkId = networkId;
 
   // 1. Construct wallet with proper options
-  wallet = new Wallet({
+  const walletOptions = {
     resident: false,
-    networkId,
-    resolver: rpcClient.resolver || undefined
-  });
+    networkId
+  };
+
+  // If the RPC client is using a direct URL, pass it to the wallet
+  if (rpcClient.url) {
+    walletOptions.url = rpcClient.url;
+    log("Initializing wallet with direct connect to RPC URL:", rpcClient.url);
+  } else {
+    // Otherwise fall back to resolver mode
+    walletOptions.resolver = rpcClient.resolver;
+    log("Initializing wallet with public node using RPC resolver.");
+  }
+
+  wallet = new Wallet(walletOptions);
 
   // 2. Add the balance event listener to update balance on changes
   wallet.addEventListener("balance", (event) => {
@@ -87,6 +111,7 @@ export function init({ rpcClient, networkId, balanceElementId = null, onBalanceC
 
   walletInitialized = true;
 }
+
 
 /**
  * Close the wallet and reset internal state.
@@ -425,7 +450,6 @@ export async function estimateTransactionFee({ amount, toAddress, payload, prior
  * @returns {Promise<Object>} - The transaction result.
  */
 export async function send({ amount, toAddress, payload, priorityFeeKas }) {
- 
   if (!walletInitialized || !wallet) {
     throw new Error("Wallet not initialized. Call init() first.");
   }
@@ -441,10 +465,6 @@ export async function send({ amount, toAddress, payload, priorityFeeKas }) {
   if(priorityFeeKas > 0) {
     priorityFeeSompi = kaspaToSompi(priorityFeeKas);
   }  
-
-  // Check balance
-  let spendable;
-  spendable = await getSpendableBalance();
   
   // Convert amount to sompi and ensure BigInt
   let amountSompi;
@@ -457,15 +477,6 @@ export async function send({ amount, toAddress, payload, priorityFeeKas }) {
   let priorityFeeSompiChecked = priorityFeeSompi;
   if (typeof priorityFeeSompiChecked !== "bigint") {
     priorityFeeSompiChecked = BigInt(priorityFeeSompiChecked);    
-  }
-  
-  // Calculate required total and check against spendable
-  let required;
-  required = amountSompi + priorityFeeSompiChecked;
-  if (spendable < required) {
-    throw new Error(
-      `Insufficient funds: required ${required.toString()}, available ${spendable.toString()}`
-    );
   }
   
   // Build request - priorityFeeSompi is extra fee on top of the base network fee
@@ -497,7 +508,8 @@ export async function send({ amount, toAddress, payload, priorityFeeKas }) {
   try {
     return await wallet.accountsSend(sendRequest);
   } catch (err) {
-    throw new Error('Transaction failed', { cause: err });
+    const causeMsg = err && err.message ? err.message : String(err);
+    throw new Error(`Transaction failed: ${causeMsg}`, { cause: err });
   }
 }
 
@@ -614,4 +626,47 @@ export async function getMnemonic({ theFilename = '', password = '' } = {}) {
     password = walletSecret;
   }
   return await utilities.getMnemonicFromStorage(theFilename, password);
+}
+
+
+/**
+ * Return derived signing keys for the active account.
+ * This avoids exposing walletSecret to callers.
+ *
+ * NOTE: For now this is “demo-simple” and derives index 0 receive+change keys.
+ * If you start using multiple address indexes, expand this to a range.
+ */
+export async function getDefaultSigningKeysForActiveAccount() {
+  if (!walletInitialized || !wallet) throw new Error("Wallet not initialized. Call init() first.");
+  if (!walletSecret) throw new Error("Wallet secret not set (create/open wallet first).");
+
+  const accounts = await wallet.accountsEnumerate({});
+  const active = accounts?.accountDescriptors?.[currentAccountIndex];
+  if (!active) throw new Error("Active account not found.");
+
+  // Your utilities derive functions accept "mainnet"/"testnet" (not "testnet-10")
+  const netName = String(currentNetworkId || '').toLowerCase().startsWith('testnet') ? 'testnet' : 'mainnet';
+
+  const xprv = await utilities.getXPrvFromStorage(filename, walletSecret);
+  const xprvHex = xprv.toString();
+
+  const receive0 = await utilities.deriveReceivingChildKeyPair({
+    xprvHex,
+    network: netName,
+    accountIndex: BigInt(currentAccountIndex),
+    index: 0,
+  });
+
+  // If you added deriveChangeChildKeyPair earlier, use it; otherwise add it to utilities.js.
+  const change0 = await utilities.deriveChangeChildKeyPair({
+    xprvHex,
+    network: netName,
+    accountIndex: BigInt(currentAccountIndex),
+    index: 0,
+  });
+
+  return {
+    receive: receive0, // { privateKey, publicKey, address }
+    change: change0,   // { privateKey, publicKey, address }
+  };
 }

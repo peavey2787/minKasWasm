@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rapid Transactions — Manual UTXO → Build → Sign → Submit</title>
+  <link rel="stylesheet" href="../../styles.css">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="container">
+    <div class="section-card">
+      <div class="section-header">
+        <h2>Rapid Transactions (No accountsSend)</h2>
+        <span id="connStatus" class="status-badge disconnected">Disconnected</span>
+      </div>
+
+      <p class="muted">
+        This demo sends a transaction without <code>wallet.accountsSend()</code> by doing:
+        <strong>get UTXOs → select inputs → createTransactions → PendingTransaction.sign → PendingTransaction.submit</strong>.
+      </p>
+
+      <div class="controls-row">
+        <div class="control-group">
+          <label for="networkId">Network</label>
+          <select id="networkId">
+            <option value="testnet-10" selected>testnet-10</option>
+            <option value="testnet-11">testnet-11</option>
+            <option value="testnet-12">testnet-12</option>
+            <option value="mainnet">mainnet</option>
+          </select>
+        </div>
+        <div class="control-group" style="flex:1; min-width:260px;">
+          <label for="nodeUrl">Node URL (optional)</label>
+          <input id="nodeUrl" type="text" placeholder="wss://... or blank for resolver" />
+        </div>
+        <button id="btnConnect">Connect</button>
+      </div>
+
+      <div class="mt-2" style="border-top:1px solid var(--border); padding-top:1rem;">
+        <div class="section-header" style="margin-bottom:0.75rem;">
+          <h3 style="margin:0; color:var(--accent); font-size:1.05em;">Wallet</h3>
+          <span id="walletStatus" class="status-badge pending">Not Ready</span>
+        </div>
+
+        <div class="controls-row" style="align-items:flex-end;">
+          <div class="control-group" style="min-width:220px;">
+            <label for="walletFilename">Filename</label>
+            <input id="walletFilename" type="text" value="rapid_tx_demo" />
+          </div>
+          <div class="control-group" style="min-width:220px;">
+            <label for="walletPassword">Password</label>
+            <input id="walletPassword" type="password" value="demo123" />
+          </div>
+          <button id="btnWallet" class="secondary" disabled>Open/Create Wallet</button>
+
+          <div class="control-group" style="flex:1; min-width:300px;">
+            <label>Receive address</label>
+            <div class="row-inline">
+              <input id="walletReceive" type="text" readonly placeholder="--" />
+              <button id="btnCopyReceive" class="secondary" disabled>Copy</button>
+            </div>
+          </div>
+          <div class="control-group" style="flex:1; min-width:300px;">
+            <label>Change address</label>
+            <input id="walletChange" type="text" readonly placeholder="--" />
+          </div>
+          <div class="control-group">
+            <label>Balance (mature)</label>
+            <div id="walletBalance" class="status-badge pending">--</div>
+          </div>
+        </div>
+
+        <details class="mt-2">
+          <summary class="muted">Wallet debug log</summary>
+          <pre id="log_wallet" class="log-panel"></pre>
+        </details>
+      </div>
+
+      <div class="mt-2" style="border-top:1px solid var(--border); padding-top:1rem;">
+        <div class="section-header" style="margin-bottom:0.75rem;">
+          <h3 style="margin:0; color:var(--accent); font-size:1.05em;">Step 1 — Get UTXOs</h3>
+          <span id="utxoStatus" class="status-badge pending">Not fetched</span>
+        </div>
+
+        <div class="controls-row" style="align-items:flex-end;">
+          <div class="control-group">
+            <label class="checkbox-label" style="margin-top:1.65rem;">
+              <input id="utxoScopeReceive" type="checkbox" checked>
+              Receive
+            </label>
+          </div>
+          <div class="control-group">
+            <label class="checkbox-label" style="margin-top:1.65rem;">
+              <input id="utxoScopeChange" type="checkbox" checked>
+              Change
+            </label>
+          </div>
+          <button id="btnFetchUtxos" class="secondary" disabled>Fetch UTXOs</button>
+        </div>
+
+        <div class="stats-row stats-row-4 mt-2">
+          <div class="stat"><div class="k">UTXO count</div><div class="v" id="utxoCount">--</div></div>
+          <div class="stat"><div class="k">Total (KAS)</div><div class="v" id="utxoTotal">--</div></div>
+          <div class="stat"><div class="k">Min/Max (KAS)</div><div class="v" id="utxoMinMax">--</div></div>
+          <div class="stat"><div class="k">Median (KAS)</div><div class="v" id="utxoMedian">--</div></div>
+        </div>
+
+        <div class="table-wrap mt-2">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width:30px;"><input id="utxoSelectAll" type="checkbox" /></th>
+                <th>Amount (KAS)</th>
+                <th>Amount (sompi)</th>
+                <th>Outpoint</th>
+                <th>Addr kind</th>
+              </tr>
+            </thead>
+            <tbody id="utxoTableBody"></tbody>
+          </table>
+        </div>
+
+        <details class="mt-2">
+          <summary class="muted">UTXO debug log</summary>
+          <pre id="log_utxo" class="log-panel"></pre>
+        </details>
+      </div>
+
+      <div class="mt-2" style="border-top:1px solid var(--border); padding-top:1rem;">
+        <div class="section-header" style="margin-bottom:0.75rem;">
+          <h3 style="margin:0; color:var(--accent); font-size:1.05em;">Step 2 — Select UTXOs</h3>
+          <span id="selectStatus" class="status-badge pending">None</span>
+        </div>
+
+        <div class="controls-row" style="align-items:flex-end;">
+          <div class="control-group" style="min-width:190px;">
+            <label for="selectTargetKas">Target amount (KAS)</label>
+            <input id="selectTargetKas" type="text" value="0.50" />
+          </div>
+          <div class="control-group" style="min-width:160px;">
+            <label for="selectMaxInputs">Max inputs</label>
+            <input id="selectMaxInputs" type="number" min="1" step="1" value="10" />
+          </div>
+          <button id="btnAutoSelect" class="secondary" disabled>Auto-select (largest→smallest)</button>
+          <button id="btnClearSelect" class="secondary" disabled>Clear selection</button>
+        </div>
+
+        <div class="stats-row stats-row-4 mt-2">
+          <div class="stat"><div class="k">Selected count</div><div class="v" id="selCount">--</div></div>
+          <div class="stat"><div class="k">Selected sum (KAS)</div><div class="v" id="selSum">--</div></div>
+          <div class="stat"><div class="k">Target (KAS)</div><div class="v" id="selTarget">--</div></div>
+          <div class="stat"><div class="k">Coverage</div><div class="v" id="selCoverage">--</div></div>
+        </div>
+
+        <details class="mt-2">
+          <summary class="muted">Selection debug log</summary>
+          <pre id="log_select" class="log-panel"></pre>
+        </details>
+      </div>
+
+      <div class="mt-2" style="border-top:1px solid var(--border); padding-top:1rem;">
+        <div class="section-header" style="margin-bottom:0.75rem;">
+          <h3 style="margin:0; color:var(--accent); font-size:1.05em;">Step 3 — Build Transaction</h3>
+          <span id="buildStatus" class="status-badge pending">Not built</span>
+        </div>
+
+        <div class="controls-row" style="align-items:flex-end;">
+          <div class="control-group" style="flex:1; min-width:320px;">
+            <label for="toAddress">To address</label>
+            <input id="toAddress" type="text" placeholder="kaspa:..." />
+          </div>
+          <div class="control-group" style="min-width:190px;">
+            <label for="sendAmountKas">Amount (KAS)</label>
+            <input id="sendAmountKas" type="text" value="0.5" />
+          </div>
+          <div class="control-group" style="min-width:190px;">
+            <label for="priorityFeeKas">Priority fee (KAS)</label>
+            <input id="priorityFeeKas" type="text" value="0" />
+          </div>
+        </div>
+
+        <div class="controls-row mt-2" style="align-items:flex-end;">
+          <div class="control-group" style="flex:1; min-width:320px;">
+            <label for="payload">Payload (optional)</label>
+            <input id="payload" type="text" placeholder="text or hex" />
+          </div>
+          <div class="control-group" style="flex:1; min-width:320px;">
+            <label for="changeAddressOverride">Change address override (optional)</label>
+            <input id="changeAddressOverride" type="text" placeholder="blank = wallet change address" />
+          </div>
+          <button id="btnEstimate" class="secondary" disabled>Estimate</button>
+          <button id="btnBuild" class="secondary" disabled>Build</button>
+        </div>
+
+        <div class="stats-row stats-row-4 mt-2">
+          <div class="stat"><div class="k">Mass</div><div class="v" id="txMass">--</div></div>
+          <div class="stat"><div class="k">Fee (KAS)</div><div class="v" id="txFee">--</div></div>
+          <div class="stat"><div class="k">Change (KAS)</div><div class="v" id="txChange">--</div></div>
+          <div class="stat"><div class="k">Min sigs</div><div class="v" id="txMinSigs">--</div></div>
+        </div>
+
+        <details class="mt-2" open>
+          <summary class="muted">PendingTransaction JSON</summary>
+          <pre id="txJson" class="json-panel"></pre>
+        </details>
+
+        <details class="mt-2">
+          <summary class="muted">Build debug log</summary>
+          <pre id="log_build" class="log-panel"></pre>
+        </details>
+      </div>
+
+      <div class="mt-2" style="border-top:1px solid var(--border); padding-top:1rem;">
+        <div class="section-header" style="margin-bottom:0.75rem;">
+          <h3 style="margin:0; color:var(--accent); font-size:1.05em;">Step 4 — Sign Transaction</h3>
+          <span id="signStatus" class="status-badge pending">Not signed</span>
+        </div>
+
+        <div class="controls-row" style="align-items:flex-end;">
+          <button id="btnDeriveKeys" class="secondary" disabled>Derive keys</button>
+          <button id="btnSign" class="secondary" disabled>Sign</button>
+          <div class="control-group" style="flex:1; min-width:320px;">
+            <label>Derived receive[0]</label>
+            <input id="derivedReceive" type="text" readonly placeholder="--" />
+          </div>
+          <div class="control-group" style="flex:1; min-width:320px;">
+            <label>Derived change[0]</label>
+            <input id="derivedChange" type="text" readonly placeholder="--" />
+          </div>
+        </div>
+
+        <details class="mt-2">
+          <summary class="muted">Sign debug log</summary>
+          <pre id="log_sign" class="log-panel"></pre>
+        </details>
+      </div>
+
+      <div class="mt-2" style="border-top:1px solid var(--border); padding-top:1rem;">
+        <div class="section-header" style="margin-bottom:0.75rem;">
+          <h3 style="margin:0; color:var(--accent); font-size:1.05em;">Step 5 — Submit Transaction</h3>
+          <span id="submitStatus" class="status-badge pending">Not submitted</span>
+        </div>
+
+        <div class="controls-row" style="align-items:flex-end;">
+          <button id="btnSubmit" class="secondary" disabled>Submit</button>
+          <div class="control-group" style="flex:1; min-width:360px;">
+            <label>Txid</label>
+            <div class="row-inline">
+              <input id="txid" type="text" readonly placeholder="--" />
+              <button id="btnCopyTxid" class="secondary" disabled>Copy</button>
+            </div>
+          </div>
+        </div>
+
+        <details class="mt-2" open>
+          <summary class="muted">Submit response JSON</summary>
+          <pre id="submitJson" class="json-panel"></pre>
+        </details>
+
+        <details class="mt-2">
+          <summary class="muted">Submit debug log</summary>
+          <pre id="log_submit" class="log-panel"></pre>
+        </details>
+      </div>
+
+      <div class="mt-2" style="border-top:1px solid var(--border); padding-top:1rem;">
+        <div class="section-header" style="margin-bottom:0.75rem;">
+          <h3 style="margin:0; color:var(--accent); font-size:1.05em;">Session</h3>
+          <span class="status-badge pending">Logs & export</span>
+        </div>
+        <div class="controls-row" style="align-items:flex-end;">
+          <button id="btnClearLogs" class="secondary">Clear logs</button>
+          <button id="btnExport" class="secondary">Export session JSON</button>
+        </div>
+        <p class="muted mt-2" style="margin-bottom:0;">Each step writes its own debug log above.</p>
+      </div>
+
+    </div>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

@@ -130,6 +130,28 @@ textarea {
 
 .modal-overlay.hidden { display: none; }
 
+/* Spectator catch-up banner (shown when live mode is behind) */
+.spectator-behind-banner {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 9998;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(230, 126, 34, 0.14);
+  border: 1px solid rgba(230, 126, 34, 0.45);
+  color: #ffd37a;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  display: none;
+  max-width: 420px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+}
+
+.spectator-behind-banner.on {
+  display: block;
+}
+
 .modal-card {
   width: 100%;
   max-width: 560px;
