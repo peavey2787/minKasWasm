@@ -3,9 +3,10 @@
 
 import * as elements from './dom_elements.js';
 import { connect } from '../../wrapper/transport/kaspa_client.js';
-import { walkDagToPresent, scanDagForward, scanDagBackward } from '../../wrapper/intelligence/dag_walk.js';
+import { IntelligenceFacade } from '../../wrapper/intelligence/intelligenceFacade.js';
 
 let kaspaClient = null;
+let intelligence = null;
 let statsTimer = null;
 let runStartedAtMs = 0;
 let stats = null;
@@ -188,6 +189,8 @@ export async function handleConnectClick() {
   setStatus('Connecting...');
   try {
     kaspaClient = usePublicResolver ? await connect(null, networkId) : await connect(url, networkId);
+    intelligence = new IntelligenceFacade(kaspaClient);
+    await intelligence.indexer.initDB();
     setStatus('Connected');
     appendLog(`[OK] Connected (network=${networkId}${usePublicResolver ? ', resolver' : `, node=${url || '(empty)'}`}).`);
   } catch (err) {
@@ -242,29 +245,10 @@ export async function handleRunClick() {
 
   try {
     if (mode === 'walk_to_present') {
-      let blocksSeen = 0;
-      const last = { hash: '', blueScore: null, timestamp: null, txCount: null };
-
-      await walkDagToPresent({
-        client: kaspaClient,
-        startHash,
-        maxSeconds,
-        minTimestamp,
-        logFn: appendLog,
-        onBlock: (block) => {
-          blocksSeen++;
-          last.hash = getBlockHash(block);
-          last.blueScore = block?.verboseData?.blueScore ?? block?.header?.blueScore ?? null;
-          last.timestamp = Number(block?.verboseData?.timestamp ?? block?.header?.timestamp ?? 0) || null;
-          last.txCount = Array.isArray(block?.transactions) ? block.transactions.length : null;
-          return false;
-        }
-      });
+      await intelligence.syncFrom(startHash, appendLog);
 
       setResult(
-        `walkDagToPresent complete\n` +
-        `Blocks seen: ${blocksSeen}\n` +
-        (last.hash ? `Last block: ${last.hash}\nBlueScore: ${last.blueScore}\nTimestamp: ${last.timestamp}\nTxs: ${last.txCount}` : '')
+        `syncFrom (walkDagToPresent) complete. See logs for details.`
       );
       return;
     }
@@ -273,15 +257,7 @@ export async function handleRunClick() {
       const searchText = elements.getSearchTextInput().value;
       const matchMode = elements.getMatchModeSelect().value;
 
-      const match = await scanDagForward({
-        client: kaspaClient,
-        startHash,
-        searchText,
-        matchMode,
-        maxSeconds,
-        minTimestamp,
-        logFn: appendLog
-      });
+      const match = await intelligence.findPayload(startHash, searchText, matchMode);
 
       if (!match) {
         setResult('scanDagForward: no match found.');
@@ -335,14 +311,7 @@ export async function handleRunClick() {
         return cleaned.toLowerCase().includes(targetValue.toLowerCase());
       };
 
-      const match = await scanDagBackward({
-        client: kaspaClient,
-        startHash,
-        matchFn,
-        maxSeconds,
-        maxDepth,
-        logFn: appendLog
-      });
+      const match = await intelligence.findHistorical(startHash, matchFn);
 
       if (!match) {
         setResult('scanDagBackward: no match found.');

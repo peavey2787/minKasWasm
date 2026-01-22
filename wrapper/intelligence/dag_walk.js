@@ -68,7 +68,7 @@ export async function walkDagToPresent({ client, startHash, maxSeconds = 30, min
             timestamp: blockTime,
             // Use utilities to turn every WASM tx into a plain JS object
             transactions: Array.isArray(block.transactions) 
-              ? block.transactions.map(t => utilities.dehydrateTx(t, block))
+              ? block.transactions.map(t => dehydrateTx(t, block))
               : []
           };
 
@@ -301,7 +301,6 @@ function createWorkerRpc(worker) {
  * @param {number} [options.maxSeconds=30] - Time budget for scanning
  * @param {number} [options.minTimestamp=0] - Minimum block timestamp to consider
  * @param {function} [options.logFn] - Optional logging function
- * @param {Object} options.utilities - Utilities module for dehydrating transactions
  * @returns {Promise<Object|null>} - Match object or null if not found
  */
 export async function scanDagForward({ client, startHash, searchText, matchMode, maxSeconds = 30, minTimestamp = 0, logFn, utilities } = {}) {
@@ -423,7 +422,7 @@ export async function scanDagForward({ client, startHash, searchText, matchMode,
         
         for (const tx of blockTxs) {
           // Use the utility to create a safe JS copy
-          const dehydrated = utilities.dehydrateTx(tx, block);
+          const dehydrated = dehydrateTx(tx, block);
           
           if (dehydrated && dehydrated.payloadHex) {
             txs.push(dehydrated);
@@ -523,7 +522,7 @@ export async function scanDagForward({ client, startHash, searchText, matchMode,
  * @param {number} [options.maxDepth=Infinity] - Optional safety limit for number of unique blocks visited
  * @returns {Promise<Object|null>} - Match object or null if not found
  */
-export async function scanDagBackward({ client, startHash, matchFn, maxSeconds = 30, maxDepth = Infinity, visited = new Set(), logFn, utilities } = {}) {
+export async function scanDagBackward({ client, startHash, matchFn, maxSeconds = 30, maxDepth = Infinity, visited = new Set(), logFn } = {}) {
   if (!client) throw new Error('scanDagBackward: client is required');
   if (typeof startHash !== 'string' || startHash.length === 0) throw new Error('scanDagBackward: startHash is required');
   if (typeof matchFn !== 'function') throw new Error('scanDagBackward: matchFn must be a function');
@@ -597,7 +596,7 @@ export async function scanDagBackward({ client, startHash, matchFn, maxSeconds =
             // CRITICAL: Dehydrate BEFORE the finally block calls tx.free()
             return {
               blockHash,
-              tx: utilities.dehydrateTx(tx, block)
+              tx: dehydrateTx(tx, block)
             };
           }
         }
