@@ -97,11 +97,13 @@ export class IntelligenceFacade {
    * Sync from a specific point. 
    * Feeds the indexer, which triggers the 'IN_MEMORY' and 'CACHED' events.
    */
-  async syncFrom(startHash, logFn = null) {
+  async syncFrom(startHash, logFn = null, { maxSeconds = 30, minTimestamp = 0 } = {}) {
     return walkDagToPresent({
       client: this.client,
       startHash,
       logFn,
+      maxSeconds,
+      minTimestamp,
       onBlock: (block) => {
         this.indexer.addBlock(block);
         return false; 
@@ -109,12 +111,27 @@ export class IntelligenceFacade {
     });
   }
 
-  async findPayload(startHash, searchText, mode = 'contains') {
-    return scanDagForward({ client: this.client, startHash, searchText, matchMode: mode });
+  async findPayload(startHash, searchText, mode = 'contains', { maxSeconds = 30, minTimestamp = 0, logFn = null } = {}) {
+    return scanDagForward({ 
+      client: this.client, 
+      startHash, 
+      searchText, 
+      matchMode: mode, 
+      maxSeconds, 
+      minTimestamp, 
+      logFn 
+    });
   }
 
-  async findHistorical(startHash, matchFn) {
-    return scanDagBackward({ client: this.client, startHash, matchFn });
+  async findHistorical(startHash, matchFn, { maxSeconds = 30, maxDepth = Infinity, logFn = null } = {}) {
+    return scanDagBackward({ 
+      client: this.client, 
+      startHash, 
+      matchFn, 
+      maxSeconds, 
+      maxDepth, 
+      logFn 
+    });
   }
 
   shutdown() {

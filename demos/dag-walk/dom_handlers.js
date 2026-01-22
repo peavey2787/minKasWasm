@@ -245,7 +245,7 @@ export async function handleRunClick() {
 
   try {
     if (mode === 'walk_to_present') {
-      await intelligence.syncFrom(startHash, appendLog);
+      await intelligence.syncFrom(startHash, appendLog, { maxSeconds, minTimestamp });
 
       setResult(
         `syncFrom (walkDagToPresent) complete. See logs for details.`
@@ -257,7 +257,7 @@ export async function handleRunClick() {
       const searchText = elements.getSearchTextInput().value;
       const matchMode = elements.getMatchModeSelect().value;
 
-      const match = await intelligence.findPayload(startHash, searchText, matchMode);
+      const match = await intelligence.findPayload(startHash, searchText, matchMode, { maxSeconds, minTimestamp, logFn: appendLog });
 
       if (!match) {
         setResult('scanDagForward: no match found.');
@@ -311,7 +311,7 @@ export async function handleRunClick() {
         return cleaned.toLowerCase().includes(targetValue.toLowerCase());
       };
 
-      const match = await intelligence.findHistorical(startHash, matchFn);
+      const match = await intelligence.findHistorical(startHash, matchFn, { maxSeconds, maxDepth, logFn: appendLog });
 
       if (!match) {
         setResult('scanDagBackward: no match found.');
