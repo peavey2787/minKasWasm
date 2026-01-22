@@ -2,11 +2,9 @@
 // All handler functions for DAG walk demo UI
 
 import * as elements from './dom_elements.js';
-import { connect } from '../../wrapper/transport/kaspa_client.js';
-import { IntelligenceFacade } from '../../wrapper/intelligence/intelligenceFacade.js';
+import { KaspaPortal } from '../../wrapper/kaspaPortal.js';
 
-let kaspaClient = null;
-let intelligence = null;
+const portal = new KaspaPortal();
 let statsTimer = null;
 let runStartedAtMs = 0;
 let stats = null;
@@ -188,13 +186,10 @@ export async function handleConnectClick() {
 
   setStatus('Connecting...');
   try {
-    kaspaClient = usePublicResolver ? await connect(null, networkId) : await connect(url, networkId);
-    intelligence = new IntelligenceFacade(kaspaClient);
-    await intelligence.indexer.initDB();
+    await portal.connect(usePublicResolver ? null : url, networkId);
     setStatus('Connected');
     appendLog(`[OK] Connected (network=${networkId}${usePublicResolver ? ', resolver' : `, node=${url || '(empty)'}`}).`);
   } catch (err) {
-    kaspaClient = null;
     const msg = err?.message ? err.message : String(err);
     setStatus(`Connection failed: ${msg}`);
     appendLog(`[ERROR] Connection failed: ${msg}`);
@@ -217,7 +212,7 @@ export function handleClearClick() {
 }
 
 export async function handleRunClick() {
-  if (!kaspaClient) {
+  if (!portal.client) {
     setResult('Connect first.');
     return;
   }
@@ -245,7 +240,7 @@ export async function handleRunClick() {
 
   try {
     if (mode === 'walk_to_present') {
-      await intelligence.syncFrom(startHash, appendLog, { maxSeconds, minTimestamp });
+      await portal.intelligence.syncFrom(startHash, appendLog, { maxSeconds, minTimestamp });
 
       setResult(
         `syncFrom (walkDagToPresent) complete. See logs for details.`
@@ -257,7 +252,7 @@ export async function handleRunClick() {
       const searchText = elements.getSearchTextInput().value;
       const matchMode = elements.getMatchModeSelect().value;
 
-      const match = await intelligence.findPayload(startHash, searchText, matchMode, { maxSeconds, minTimestamp, logFn: appendLog });
+      const match = await portal.intelligence.findPayload(startHash, searchText, matchMode, { maxSeconds, minTimestamp, logFn: appendLog });
 
       if (!match) {
         setResult('scanDagForward: no match found.');
@@ -311,7 +306,7 @@ export async function handleRunClick() {
         return cleaned.toLowerCase().includes(targetValue.toLowerCase());
       };
 
-      const match = await intelligence.findHistorical(startHash, matchFn, { maxSeconds, maxDepth, logFn: appendLog });
+      const match = await portal.intelligence.findHistorical(startHash, matchFn, { maxSeconds, maxDepth, logFn: appendLog });
 
       if (!match) {
         setResult('scanDagBackward: no match found.');
