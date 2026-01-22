@@ -1,4 +1,4 @@
-import { createTransactions, Generator, PrivateKey, sompiToKaspaString } from '../kas-wasm/kaspa.js';
+import { createTransactions, Generator, PrivateKey, sompiToKaspaString } from '../../kas-wasm/kaspa.js';
 
 function isHexEvenLength(s) {
   return typeof s === 'string' && /^[0-9a-fA-F]*$/.test(s) && s.length % 2 === 0;

@@ -2,8 +2,8 @@
 // All handler functions for DAG walk demo UI
 
 import * as elements from './dom_elements.js';
-import { connect } from '../../wrapper/kaspa_client.js';
-import { walkDagToPresent, scanDagForward, scanDagBackward } from '../../wrapper/dag_walk.js';
+import { connect } from '../../wrapper/transport/kaspa_client.js';
+import { walkDagToPresent, scanDagForward, scanDagBackward } from '../../wrapper/intelligence/dag_walk.js';
 
 let kaspaClient = null;
 let statsTimer = null;
@@ -295,7 +295,7 @@ export async function handleRunClick() {
         `BlueScore: ${match.blueScore}\n` +
         `Timestamp: ${match.timestamp}\n` +
         `Payload: ${match.payload}\n` +
-        `Raw Payload: ${match.rawPayload}`
+        `Payload Hex: ${match.pPayloadHex}`
       );
       return;
     }

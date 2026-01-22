@@ -1,5 +1,5 @@
 // scanner.js - Generic Kaspa Block Scanner core logic
-import { stringToHex, hexToString } from './utilities.js';
+import { stringToHex, hexToString, dehydrateTx } from '../utilities/utilities.js';
 import { KaspaIndexer, MatchMode } from './indexer.js';
 
 /**
@@ -108,6 +108,9 @@ export class KaspaBlockScanner {
           this._indexMatchingTransactionIfNeeded(matchObj);
         }
         this._indexAllTransactionIfNeeded(tx, block);
+        if( tx && typeof tx.free === 'function' ) {
+          tx.free(); // free WASM tx object
+        }
       }
     }
   }
@@ -183,19 +186,11 @@ export class KaspaBlockScanner {
     return addressMatch;
   }
 
-  _buildMatchObject(tx, block, payloadMatch, addressMatch, decodedPayload) {
-    return {
-      txid: tx.verboseData.transactionId,
-      timestamp: tx.verboseData.blockTime,
-      blockHash: block.header.hash,
-      blueScore: block.header.blueScore,
-      blockDaaScore: block.header.daaScore,
-      payloadHex: tx.payload,
-      decodedPayload,
-      payloadMatch,
-      addressMatch,
-      rawTx: tx
-    };
+  _buildMatchObject(tx, block, payloadMatch, addressMatch, decodedPayload) {    
+    const dehydratedTx = utilities.dehydrateTx(tx, block, decodedPayload);
+    dehydratedTx.payloadMatch = payloadMatch;
+    dehydratedTx.addressMatch = addressMatch;   
+    return dehydratedTx;
   }
 
   _indexMatchingTransactionIfNeeded(matchObj) {    

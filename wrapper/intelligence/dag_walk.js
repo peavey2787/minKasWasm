@@ -1,5 +1,14 @@
-
-// Walks the DAG forward, collecting blocks until present, a timeout, or caller stop.
+import { dehydrateTx } from '../utilities/utilities.js';
+/**
+ * Walks the DAG forward from a starting block hash to the present, invoking a callback for each block.
+ * @param {Object} options
+ * @param {Object} options.client - Kaspa RPC client
+ * @param {string} options.startHash - Block hash to start from
+ * @param {number} [options.maxSeconds=30] - Time budget for scanning
+ * @param {number} [options.minTimestamp=0] - Minimum block timestamp to consider
+ * @param {function} [options.logFn] - Optional logging function
+ * @param {function} options.onBlock - Function(block) called for each block; return true to stop walking
+ */
 export async function walkDagToPresent({ client, startHash, maxSeconds = 30, minTimestamp = 0, logFn, onBlock } = {}) {
   if (!client) throw new Error('walkDagToPresent: client is required');
   if (typeof startHash !== 'string' || startHash.length === 0) throw new Error('walkDagToPresent: startHash is required');
@@ -39,21 +48,49 @@ export async function walkDagToPresent({ client, startHash, maxSeconds = 30, min
       break;
     }
     logFn(`[INFO] Received ${resp.blocks.length} blocks for hash: ${lowHash}`);
-    for (const block of resp.blocks) {
-      if (Date.now() >= deadline) {
-        logFn(`[END] Time budget exceeded (maxSeconds=${maxSeconds}) during batch processing.`);
-        break;
+    try{
+      for (const block of resp.blocks) {
+        if (Date.now() >= deadline) {
+          logFn(`[END] Time budget exceeded (maxSeconds=${maxSeconds}) during batch processing.`);
+          break;
+        }
+        processed++;
+        const blockHash = block.hash || block.header?.hash || '';
+        logFn(`[INFO] Block ${processed}: ${blockHash}`);
+        
+        const blockTime = Number(block.verboseData?.timestamp || 0);
+        if (blockTime < minTimestamp) continue;
+
+        if (typeof onBlock === 'function') {
+          // 1. Create the safe copy
+          const safeBlock = {
+            hash: blockHash,
+            timestamp: blockTime,
+            // Use utilities to turn every WASM tx into a plain JS object
+            transactions: Array.isArray(block.transactions) 
+              ? block.transactions.map(t => utilities.dehydrateTx(t, block))
+              : []
+          };
+
+          // 2. Pass the SAFE copy to the callback
+          const shouldStop = onBlock(safeBlock); 
+          
+          if (shouldStop === true) {
+            logFn('[END] onBlock requested stop.');
+            return;
+          }
+        }
       }
-      processed++;
-      const blockHash = block.hash || block.header?.hash || '';
-      logFn(`[INFO] Block ${processed}: ${blockHash}`);
-      const blockTime = Number(block.verboseData?.timestamp || 0);
-      if (blockTime < minTimestamp) continue;
-      if (typeof onBlock === 'function') {
-        const shouldStop = onBlock(block);
-        if (shouldStop === true) {
-          logFn('[END] onBlock requested stop.');
-          return;
+    } finally {
+      // --- THIS IS THE FINAL SWEEP ---
+      logFn(`[CLEANUP] Freeing transactions for ${resp.blocks.length} blocks...`);
+      for (const block of resp.blocks) {
+        if (block.transactions) {
+          for (const tx of block.transactions) {
+            if (typeof tx.free === 'function') {
+              tx.free();
+            }
+          }
         }
       }
     }
@@ -188,8 +225,9 @@ function createPayloadSearchWorker() {
                   txId,
                   blockHash,
                   blueScore,
-                  payload: cleaned,
-                  rawPayload: payloadHex,
+                  payload: tx?.payload,
+                  payloadCleaned: cleaned,
+                  payloadHex: payloadHex,
                   timestamp: blockTime
                 }
               });
@@ -253,8 +291,20 @@ function createWorkerRpc(worker) {
   };
 }
 
-// Walks the DAG forward, searching for a match until a timeout.
-export async function scanDagForward({ client, startHash, searchText, matchMode, maxSeconds = 30, minTimestamp = 0, logFn } = {}) {
+/**
+ * Scans the DAG forward from a starting block hash, searching transaction payloads for a match.
+ * @param {Object} options
+ * @param {Object} options.client - Kaspa RPC client
+ * @param {string} options.startHash - Block hash to start from
+ * @param {string} options.searchText - Text to search for in payloads
+ * @param {string} options.matchMode - Matching mode: exact, prefix, contains, cleaned_contains
+ * @param {number} [options.maxSeconds=30] - Time budget for scanning
+ * @param {number} [options.minTimestamp=0] - Minimum block timestamp to consider
+ * @param {function} [options.logFn] - Optional logging function
+ * @param {Object} options.utilities - Utilities module for dehydrating transactions
+ * @returns {Promise<Object|null>} - Match object or null if not found
+ */
+export async function scanDagForward({ client, startHash, searchText, matchMode, maxSeconds = 30, minTimestamp = 0, logFn, utilities } = {}) {
   if (!client) throw new Error('scanDagForward: client is required');
   if (typeof startHash !== 'string' || startHash.length === 0) throw new Error('scanDagForward: startHash is required');
 
@@ -360,26 +410,35 @@ export async function scanDagForward({ client, startHash, searchText, matchMode,
 
       if (!nextLowHash || nextLowHash === lowHash) {
         logFn(`[END] Low hash did not advance (nextLowHash=${nextLowHash || 'null'}). Stopping to avoid infinite loop.`);
+        // Free this specific response before breaking
+        resp.blocks.forEach(b => b.transactions?.forEach(t => t.free?.()));
         break;
       }
 
-      // Start worker processing immediately, then fetch the next batch in parallel.
+      // Start worker processing immediately
       const compactBlocks = [];
       for (const block of resp.blocks) {
-        const timestamp = Number(block?.verboseData?.timestamp ?? block?.header?.timestamp ?? 0);
-        const hash = block?.hash || block?.header?.hash || '';
-        const blueScore = block?.verboseData?.blueScore ?? block?.header?.blueScore;
         const txs = [];
-
         const blockTxs = Array.isArray(block?.transactions) ? block.transactions : [];
+        
         for (const tx of blockTxs) {
-          const payload = tx?.payload;
-          if (typeof payload !== 'string' || payload.length === 0) continue;
-          const txId = tx?.verboseData?.transactionId;
-          txs.push({ txId, payload });
+          // Use the utility to create a safe JS copy
+          const dehydrated = utilities.dehydrateTx(tx, block);
+          
+          if (dehydrated && dehydrated.payloadHex) {
+            txs.push(dehydrated);
+          }
+          
+          // Free the WASM transaction immediately after extraction
+          if (typeof tx.free === 'function') tx.free();
         }
 
-        compactBlocks.push({ hash, timestamp, blueScore, txs });
+        compactBlocks.push({ 
+          hash: block.hash || block.header?.hash || '', 
+          timestamp: Number(block.verboseData?.timestamp || 0), 
+          blueScore: block.verboseData?.blueScore || 0,
+          txs 
+        });
       }
 
       const workerPromise = workerRpc.process(compactBlocks, {
@@ -391,23 +450,15 @@ export async function scanDagForward({ client, startHash, searchText, matchMode,
       const canPrefetch = Date.now() < deadline;
       const fetchPromise = canPrefetch ? fetchBatch(nextLowHash) : null;
 
-      // Discard response reference ASAP (memory efficiency). Blocks remain only as a cloned copy in worker.
+      // Discard response reference ASAP (WASM txs are already freed)
       resp = null;
 
       let workerResult;
       try {
         const remainingMs = deadline - Date.now();
         workerResult = await awaitWithTimeout(workerPromise, remainingMs, () => {
-          try {
-            workerRpc.dispose();
-          } catch {
-            // ignore
-          }
-          try {
-            worker.terminate();
-          } catch {
-            // ignore
-          }
+          try { workerRpc.dispose(); } catch {}
+          try { worker.terminate(); } catch {}
         });
       } catch (err) {
         logFn(`[ERROR] Worker processing failed: ${err?.message || err}`);
@@ -419,8 +470,8 @@ export async function scanDagForward({ client, startHash, searchText, matchMode,
 
       if (workerResult.match) {
         const m = workerResult.match;
-        logFn(`[MATCH] Found match in tx: ${m.txId} in block: ${(m.blockHash || '').slice(0, 16)}...`);
-        return m;
+        logFn(`[MATCH] Found match in tx: ${m.txid} in block: ${(m.blockHash || '').slice(0, 16)}...`);
+        return m; // FINALLY block handles prefetchedResp cleanup
       }
 
       if (!fetchPromise) {
@@ -436,23 +487,23 @@ export async function scanDagForward({ client, startHash, searchText, matchMode,
         break;
       }
 
-      // Move forward and cache the prefetched response to avoid a redundant RPC call.
       lowHash = nextLowHash;
       prefetchedResp = nextResp;
       prefetchedForHash = nextLowHash;
     }
   } finally {
-    // Error boundary: always kill worker to prevent ghost processes.
-    try {
-      workerRpc.dispose();
-    } catch {
-      // ignore
+    // Cleanup 1: Prefetched batches that weren't used
+    if (prefetchedResp && prefetchedResp.blocks) {
+      prefetchedResp.blocks.forEach(b => {
+        b.transactions?.forEach(t => {
+          if (typeof t.free === 'function') t.free();
+        });
+      });
     }
-    try {
-      worker.terminate();
-    } catch {
-      // ignore
-    }
+
+    // Cleanup 2: Error boundary: always kill worker to prevent ghost processes.
+    try { workerRpc.dispose(); } catch {}
+    try { worker.terminate(); } catch {}
   }
 
   const elapsedMs = Date.now() - startedAt;
@@ -472,28 +523,19 @@ export async function scanDagForward({ client, startHash, searchText, matchMode,
  * @param {number} [options.maxDepth=Infinity] - Optional safety limit for number of unique blocks visited
  * @returns {Promise<Object|null>} - Match object or null if not found
  */
-export async function scanDagBackward({ client, startHash, matchFn, maxSeconds = 30, maxDepth = Infinity, visited = new Set(), logFn } = {}) {
+export async function scanDagBackward({ client, startHash, matchFn, maxSeconds = 30, maxDepth = Infinity, visited = new Set(), logFn, utilities } = {}) {
   if (!client) throw new Error('scanDagBackward: client is required');
   if (typeof startHash !== 'string' || startHash.length === 0) throw new Error('scanDagBackward: startHash is required');
   if (typeof matchFn !== 'function') throw new Error('scanDagBackward: matchFn must be a function');
+  
   let queue = [startHash];
   let queueHead = 0;
   let processed = 0;
   visited = visited || new Set();
   logFn = typeof logFn === 'function' ? logFn : () => {};
 
-  const maxSecondsNum = Number(maxSeconds);
-  if (!Number.isFinite(maxSecondsNum) || maxSecondsNum <= 0) {
-    throw new Error('scanDagBackward: maxSeconds must be a positive number');
-  }
-
-  const maxDepthNum = Number(maxDepth);
-  if (maxDepth !== Infinity && (!Number.isFinite(maxDepthNum) || maxDepthNum <= 0)) {
-    throw new Error('scanDagBackward: maxDepth must be a positive number or Infinity');
-  }
-
   const startedAt = Date.now();
-  const deadline = startedAt + (maxSecondsNum * 1000);
+  const deadline = startedAt + (Number(maxSeconds) * 1000);
 
   while (queueHead < queue.length) {
     if (Date.now() >= deadline) {
@@ -501,7 +543,6 @@ export async function scanDagBackward({ client, startHash, matchFn, maxSeconds =
       break;
     }
 
-    // O(1) dequeue (shift() is O(n)). Periodically compact to bound memory.
     const hash = queue[queueHead++];
     if (queueHead >= 5000) {
       queue = queue.slice(queueHead);
@@ -510,48 +551,74 @@ export async function scanDagBackward({ client, startHash, matchFn, maxSeconds =
 
     if (visited.has(hash)) continue;
     visited.add(hash);
-    if (maxDepth !== Infinity && visited.size > maxDepthNum) {
+    
+    if (maxDepth !== Infinity && visited.size > maxDepth) {
       logFn(`[END] Max depth reached (maxDepth=${maxDepth}).`);
       break;
     }
+
     logFn(`[RPC] getBlock({ hash: ${hash} })`);
     let resp;
     try {
       resp = await client.getBlock({ hash, includeTransactions: true });
     } catch (err) {
-      logFn(`[ERROR] RPC failed: ${err && err.message ? err.message : err}`);
+      logFn(`[ERROR] RPC failed: ${err?.message || err}`);
       continue;
     }
+
     if (!resp || !resp.block) {
       logFn(`[END] No response or block for hash: ${hash}`);
-      logFn(`[DEBUG] Response: ${JSON.stringify(resp)}`);
       continue;
     }
+
     const block = resp.block;
     processed++;
     const blockHash = block.hash || block.header?.hash || '';
     logFn(`[INFO] Block ${processed}: ${blockHash}`);
-    // Check block match
-    if (matchFn(block, null)) {
-      logFn(`[MATCH] Found match in block: ${blockHash}`);
-      return { block, tx: null };
-    }
-    // Check txs match
-    if (Array.isArray(block.transactions)) {
-      for (const tx of block.transactions) {
-        if (matchFn(block, tx)) {
-          logFn(`[MATCH] Found match in tx: ${tx.verboseData?.transactionId} in block: ${blockHash}`);
-          return { block, tx };
+
+    try {
+      // 1. Check block match
+      if (matchFn(block, null)) {
+        logFn(`[MATCH] Found match in block: ${blockHash}`);
+        // Return a safe JS object instead of the WASM block
+        return { 
+          blockHash, 
+          timestamp: Number(block.header?.timestamp || 0),
+          tx: null 
+        };
+      }
+
+      // 2. Check txs match
+      if (Array.isArray(block.transactions)) {
+        for (const tx of block.transactions) {
+          if (matchFn(block, tx)) {
+            logFn(`[MATCH] Found match in tx: ${tx.verboseData?.transactionId}`);
+            
+            // CRITICAL: Dehydrate BEFORE the finally block calls tx.free()
+            return {
+              blockHash,
+              tx: utilities.dehydrateTx(tx, block)
+            };
+          }
+        }
+      }
+
+      // 3. Add parents to queue
+      const parents = block.header?.parentHashes || block.parentHashes || [];
+      for (const parent of parents) {
+        if (!visited.has(parent)) queue.push(parent);
+      }    
+    } finally {
+      // SWEEP: This runs even after the 'return' statements above.
+      // Because we returned a dehydrated copy, freeing the WASM here is safe.
+      if (block.transactions) {
+        for (const t of block.transactions) {
+          if (typeof t.free === 'function') t.free();
         }
       }
     }
-    // Add parents to queue
-    const parents = block.header?.parentHashes || block.parentHashes || [];
-    for (const parent of parents) {
-      if (!visited.has(parent)) queue.push(parent);
-    }
   }
-  const elapsedMs = Date.now() - startedAt;
-  logFn(`[COMPLETE] scanDagBackward finished. Processed: ${processed} blocks. Elapsed: ${elapsedMs}ms. No match found.`);
+
+  logFn(`[COMPLETE] scanDagBackward finished. Processed: ${processed} blocks. No match found.`);
   return null;
 }

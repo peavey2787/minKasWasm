@@ -1,8 +1,12 @@
-import { responseValidator } from "../validation/kktpValidator.js";
-import { anchorType } from "./anchorType.js";
-import { canonicalResponseForSig, canonicalize } from "../canonical/kktpCanonicalHelpers.js";
-import { signBytes, verifySignature } from "../crypto/signing.js";
-import type { ResponseAnchorFields } from "../types/anchors.js";
+import { responseValidator } from "../validation/kktpValidator";
+import { anchorType } from "./anchorType";
+import { canonicalize } from "../canonical/kktpCanonical";
+import { canonicalResponseForSig } from "../canonical/kktpCanonicalHelpers";
+import { signBytes, verifySignature } from "../crypto/signing";
+import { toPlainJson } from "../utils/toPlainJson";
+
+// Types
+import type { ResponseAnchorFields } from "../types/anchors";
 
 export class ResponseAnchor {
   type: string;
@@ -34,7 +38,7 @@ export class ResponseAnchor {
   }
 
   toSigningPayload(): string {
-    return canonicalResponseForSig(this);
+    return canonicalResponseForSig(toPlainJson(this));
   }
 
   async sign(privKey: string) {
@@ -52,6 +56,6 @@ export class ResponseAnchor {
   }
 
   toCanonicalJSON(): string {
-    return canonicalize(this);
+    return canonicalize(toPlainJson(this));
   }
 }

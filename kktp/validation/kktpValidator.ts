@@ -1,17 +1,17 @@
 // kktp/validation/kktpValidator.ts
 
-import { kktpValidatorType } from "./validatorType.js";
-import { KKTPValidationError } from "../errors/kktpValidationError.js";
+import { kktpValidatorType } from "./validatorType";
+import { KKTPValidationError } from "../errors/kktpValidationError";
 
-// Schemas (JSON imports must be enabled in tsconfig: "resolveJsonModule": true)
+// Schemas
 import discoverySchema from "../schemas/discovery.schema.json";
 import responseSchema from "../schemas/response.schema.json";
 import sessionEndSchema from "../schemas/sessionEnd.schema.json";
 import mailboxMessageSchema from "../schemas/message.schema.json";
 
 // Types
-import type { ValidatorOptions } from "../types/validator.js";
-import type { JsonSchema } from "../types/jsonSchema.js";
+import type { ValidatorOptions } from "../types/validator";
+import type { JsonSchema } from "../types/jsonSchema";
 
 export class KKTPValidator {
   private schema: JsonSchema;

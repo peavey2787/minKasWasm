@@ -1,6 +1,6 @@
 import * as secp from "https://esm.sh/@noble/secp256k1";
-import { signMessage, verifyMessage, XPrv, Mnemonic, PrivateKeyGenerator, PublicKeyGenerator, Address } from '../kas-wasm/kaspa.js';
-import { loadWalletData } from './storage.js';
+import { signMessage, verifyMessage, XPrv, Mnemonic, PrivateKeyGenerator, PublicKeyGenerator, Address } from '../../kas-wasm/kaspa.js';
+import { loadWalletData } from '../identity/storage.js';
 
 const MAX_PAYLOAD_BYTES = 32 * 1024; // 32KB
 const NETWORK = "testnet";
@@ -124,6 +124,29 @@ export function hexToBytes(hex) {
     arr[i] = parseInt(hex.substr(i * 2, 2), 16);
   }
   return arr;
+}
+
+/** Dehydrate a transaction object into a lightweight summary.
+ * @param {Object} tx - The transaction object.
+ * @param {Object} block - The block containing the transaction.
+ * @return {Object} Dehydrated transaction summary.
+ */
+export function dehydrateTx({ tx, block, decodedPayload }) {
+  if (!tx) { return null }
+  const txData = {
+    txid: tx.verboseData.transactionId,
+    timestamp: tx.verboseData.blockTime,
+    payload: tx.payload
+  };
+  if (decodedPayload) { 
+    txData.decodedPayload = decodedPayload; 
+  }
+  if (block) {
+    txData.blockHash = block.header.hash;
+    txData.blueScore = block.header.blueScore;
+    txData.blockDaaScore = block.header.daaScore;
+  }
+  return txData;
 }
 
 /**

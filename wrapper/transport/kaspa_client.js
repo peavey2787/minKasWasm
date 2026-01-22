@@ -1,5 +1,5 @@
 // kaspa_client.js
-import initKaspa, { RpcClient, Resolver, ConnectStrategy } from '../kas-wasm/kaspa.js'; 
+import initKaspa, { RpcClient, Resolver, ConnectStrategy } from '../../kas-wasm/kaspa.js'; 
 // Either 1. ensure you put the actual Kaspa WASM SDK in a folder named "kas-wasm" outside of the folder this file is in, or 2. point to where you have it 
 
 let client = null;
@@ -19,7 +19,9 @@ export async function connect(rpcUrl, networkId = "testnet-10", { onDisconnect }
   // 1. Shut down existing client
   if (client) {
     try {
-      await client.disconnect();
+      await client.disconnect();      
+      client.free(); // Many Rust-based WASM modules need this to release the "Heap"
+      client = null; // Garbage Collect the JS reference
     } catch (e) {
       console.warn("Cleanup error:", e);
     }

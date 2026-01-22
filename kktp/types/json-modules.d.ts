@@ -1,5 +1,5 @@
 declare module "*.schema.json" {
-  import type { JsonSchema } from "./jsonSchema.js";
+  import type { JsonSchema } from "./jsonSchema";
   const schema: JsonSchema;
   export default schema;
 }

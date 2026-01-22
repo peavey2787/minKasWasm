@@ -205,6 +205,15 @@ export class KaspaIndexer {
    * @returns {Promise<void>}
    */
   async addTransaction(tx, isMatch = true) {
+    // CRITICAL: WASM pointers cannot be indexed. 
+    // They must be dehydrated before reaching the indexer.
+    if (tx && typeof tx.free === 'function') {
+      throw new Error(
+        `KaspaIndexer Error: Received raw WASM transaction (txid: ${tx.verboseData?.transactionId}). ` +
+        `Transactions must be dehydrated using utilities.dehydrateTx() before indexing to ensure memory safety and storage compatibility.`
+      );
+    }
+
     // Respect matchMode
     if (this.matchMode === MatchMode.BLOCKS) return;
     if (this.matchMode === MatchMode.MATCHING && !isMatch) return;

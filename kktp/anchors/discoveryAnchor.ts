@@ -1,9 +1,12 @@
-import { discoveryValidator } from "../validation/kktpValidator.js";
-import { anchorType } from "./anchorType.js";
-import { canonicalDiscoveryForSig, canonicalize } from "../canonical/kktpCanonicalHelpers.js";
-import { signBytes, verifySignature } from "../crypto/signing.js";
+import { discoveryValidator } from "../validation/kktpValidator";
+import { anchorType } from "./anchorType";
+import { canonicalize } from "../canonical/kktpCanonical";
+import { canonicalDiscoveryForSig } from "../canonical/kktpCanonicalHelpers";
+import { signBytes, verifySignature } from "../crypto/signing";
+import { toPlainJson } from "../utils/toPlainJson";
 
-import type { DiscoveryAnchorFields } from "../types/anchors.js";
+// Types
+import type { DiscoveryAnchorFields } from "../types/anchors";
 
 export class DiscoveryAnchor {
   type: string;
@@ -33,7 +36,7 @@ export class DiscoveryAnchor {
   }
 
   toSigningPayload(): string {
-    return canonicalDiscoveryForSig(this);
+    return canonicalDiscoveryForSig(toPlainJson(this));
   }
 
   async sign(privKey: string) {
@@ -49,6 +52,6 @@ export class DiscoveryAnchor {
   }
 
   toCanonicalJSON(): string {
-    return canonicalize(this);
+    return canonicalize(toPlainJson(this));
   }
 }

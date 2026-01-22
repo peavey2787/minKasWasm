@@ -5,9 +5,9 @@ import {
   sompiToKaspaString,
   AccountsDiscoveryKind,
   Generator
-} from '../kas-wasm/kaspa.js';
+} from '../../kas-wasm/kaspa.js';
 import { storeWalletData } from './storage.js';
-import * as utilities from './utilities.js';
+import * as utilities from '../utilities/utilities.js';
 
 
 const DEFAULT_FILENAME = "default_wallet";

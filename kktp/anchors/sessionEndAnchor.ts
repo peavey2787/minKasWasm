@@ -1,10 +1,14 @@
 // kktp/anchors/SessionEndAnchor.ts
 
-import { sessionEndValidator } from "../validation/kktpValidator.js";
-import { anchorType } from "./anchorType.js";
-import { canonicalSessionEndForSig, canonicalize } from "../canonical/kktpCanonicalHelpers.js";
-import { signBytes, verifySignature } from "../crypto/signing.js";
-import type { SessionEndAnchorFields } from "../types/anchors.js";
+import { sessionEndValidator } from "../validation/kktpValidator";
+import { anchorType } from "./anchorType";
+import { canonicalize } from "../canonical/kktpCanonical";
+import { canonicalSessionEndForSig } from "../canonical/kktpCanonicalHelpers";
+import { signBytes, verifySignature } from "../crypto/signing";
+import { toPlainJson } from "../utils/toPlainJson";
+
+// Types
+import type { SessionEndAnchorFields } from "../types/anchors";
 
 export class SessionEndAnchor {
   type: string;
@@ -27,7 +31,7 @@ export class SessionEndAnchor {
   }
 
   toSigningPayload(): string {
-    return canonicalSessionEndForSig(this);
+    return canonicalSessionEndForSig(toPlainJson(this));
   }
 
   async sign(privKey: string) {
@@ -45,6 +49,6 @@ export class SessionEndAnchor {
   }
 
   toCanonicalJSON(): string {
-    return canonicalize(this);
+    return canonicalize(toPlainJson(this));
   }
 }
