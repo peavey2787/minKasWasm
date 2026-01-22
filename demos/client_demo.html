@@ -10,15 +10,16 @@
   <p id="status">Not connected</p>
 
   <script type="module">
-    import { connect } from '../wrapper/kaspa_client.js';
+    import { TransportFacade } from '../wrapper/transport/transportFacade.js';
 
+    const transport = new TransportFacade();
     const btn = document.getElementById('connectBtn');
     const status = document.getElementById('status');
 
     btn.addEventListener('click', async () => {
       status.textContent = "Connecting...";
       try {
-        const client = await connect(null, "mainnet", {
+        await transport.connect(null, "mainnet", {
           onDisconnect: () => {
             status.textContent = "Disconnected";
           }

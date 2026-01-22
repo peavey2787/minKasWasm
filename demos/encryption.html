@@ -23,16 +23,16 @@
   </div>
 
   <script type="module">
-    import initKaspa from "../kas-wasm/kaspa.js";
-    import { encryptMessage, decryptMessage } from "../wrapper/encryption.js";
+    import { CryptoFacade } from "../wrapper/crypto/cryptoFacade.js";
 
-    await initKaspa();
+    const crypto = new CryptoFacade();
+    await crypto.init();
 
     document.getElementById("encryptBtn").addEventListener("click", () => {
       const password = document.getElementById("password").value;
       const text = document.getElementById("plaintext").value;
       try {
-        const encrypted = encryptMessage(text, password);
+        const encrypted = crypto.encrypt(text, password);
         document.getElementById("result").textContent = JSON.stringify(encrypted, null, 2);
       } catch (err) {
         document.getElementById("result").textContent = "Encryption error: " + err.message;
@@ -49,7 +49,7 @@
         } catch {
           payload = text;
         }
-        const decrypted = decryptMessage(payload, password);
+        const decrypted = crypto.decrypt(payload, password);
         document.getElementById("result").textContent = decrypted;
       } catch (err) {
         document.getElementById("result").textContent = "Decryption error: " + err.message;
