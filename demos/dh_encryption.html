@@ -71,24 +71,27 @@
   </div>
 
   <script type="module">
-    import { connect } from "../wrapper/kaspa_client.js";  
-    import { init, createWallet, generateNewAddress, generateNewKeypair } from "../wrapper/wallet_service.js";
-    import { DHSession } from "../wrapper/dh_encryption.js";
-    import * as utilities from "../wrapper/utilities.js";
+    import { TransportFacade } from "../wrapper/transport/transportFacade.js";
+    import { IdentityFacade } from "../wrapper/identity/identityFacade.js";
+    import { DHSession } from "../wrapper/crypto/dh_encryption.js";
+    import * as utilities from "../wrapper/utilities/utilities.js";
 
+    const transport = new TransportFacade();
+    const identity = new IdentityFacade();
     let dhSession = new DHSession();
     
     let myKeys = { privateKey: null, publicKey: null };  
     
     const networkId = "testnet-10";
-    let rpcClient = await connect(null, networkId);
+    await transport.connect(null, networkId);
 
     document.getElementById("createWalletBtn").onclick = async () => {
       document.getElementById("mnemonic").textContent = "Creating wallet, this can take a bit of time please be patient ...";
       const password = document.getElementById("walletPassword").value;
       try {        
-        await init(rpcClient, networkId);
-        const { mnemonic, address } = await createWallet({ password });
+        await identity.init({ client: transport.client, networkId });
+        const filename = `dh_demo_${Date.now()}`;
+        const { mnemonic, address } = await identity.createWallet({ password, filename, storeMnemonic: true });
         document.getElementById("mnemonic").textContent = mnemonic;
         document.getElementById("firstAddress").textContent = address;
 
@@ -101,14 +104,14 @@
     document.getElementById("createNewAddressBtn").onclick = async () => {
       let newAddress;
       try {
-        newAddress = await generateNewAddress();
+        newAddress = await identity.generateNewAddress();
         document.getElementById("newAddressInfo").textContent = newAddress;
       } catch (err) {
         console.error("Generate new address error:", err);
         document.getElementById("newAddressInfo").textContent = "Error: " + err.message;
       }
       
-      const keypair = await generateNewKeypair();
+      const keypair = await identity.generateNewKeypair();
       myKeys.privateKey = keypair.privateKey;      
       myKeys.publicKey = keypair.publicKey;
       
