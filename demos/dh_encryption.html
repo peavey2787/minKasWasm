@@ -71,29 +71,25 @@
   </div>
 
   <script type="module">
-    import { TransportFacade } from "../wrapper/transport/transportFacade.js";
-    import { IdentityFacade } from "../wrapper/identity/identityFacade.js";
-    import { CryptoFacade } from "../wrapper/crypto/cryptoFacade.js";
+    import { KaspaPortal } from "../wrapper/kaspaPortal.js";
     import * as utilities from "../wrapper/utilities/utilities.js";
 
-    const transport = new TransportFacade();
-    const identity = new IdentityFacade();
-    const crypto = new CryptoFacade();
-    await crypto.init();
-    let dhSession = crypto.createDHSession();
+    const portal = new KaspaPortal();
+    const networkId = "testnet-10";
+    
+    // Connect to network and initialize all services (Crypto, Transport, Identity)
+    await portal.connect(null, networkId, { startIntelligence: false });
+
+    let dhSession = portal.crypto.createDHSession();
     
     let myKeys = { privateKey: null, publicKey: null };  
-    
-    const networkId = "testnet-10";
-    await transport.connect(null, networkId);
 
     document.getElementById("createWalletBtn").onclick = async () => {
       document.getElementById("mnemonic").textContent = "Creating wallet, this can take a bit of time please be patient ...";
       const password = document.getElementById("walletPassword").value;
       try {        
-        await identity.init({ client: transport.client, networkId });
         const filename = `dh_demo_${Date.now()}`;
-        const { mnemonic, address } = await identity.createWallet({ password, filename, storeMnemonic: true });
+        const { mnemonic, address } = await portal.identity.createWallet({ password, filename, storeMnemonic: true });
         document.getElementById("mnemonic").textContent = mnemonic;
         document.getElementById("firstAddress").textContent = address;
 
@@ -106,14 +102,14 @@
     document.getElementById("createNewAddressBtn").onclick = async () => {
       let newAddress;
       try {
-        newAddress = await identity.generateNewAddress();
+        newAddress = await portal.identity.generateNewAddress();
         document.getElementById("newAddressInfo").textContent = newAddress;
       } catch (err) {
         console.error("Generate new address error:", err);
         document.getElementById("newAddressInfo").textContent = "Error: " + err.message;
       }
       
-      const keypair = await identity.generateNewKeypair();
+      const keypair = await portal.generateKeypair();
       myKeys.privateKey = keypair.privateKey;      
       myKeys.publicKey = keypair.publicKey;
       

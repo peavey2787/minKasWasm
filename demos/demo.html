@@ -51,11 +51,9 @@
 
   <script type="module">
     import { sompiToKaspaString } from '../kas-wasm/kaspa.js';
-    import { TransportFacade } from '../wrapper/transport/transportFacade.js';
-    import { IdentityFacade } from '../wrapper/identity/identityFacade.js';
+    import { KaspaPortal } from '../wrapper/kaspaPortal.js';
 
-    const transport = new TransportFacade();
-    const identity = new IdentityFacade();
+    const portal = new KaspaPortal();
 
       const showMnemonicBtn = document.getElementById('showMnemonicBtn');
       // Show mnemonic handler
@@ -72,7 +70,7 @@
         }
         unlockWalletResult.textContent = "Fetching mnemonic...";
         try {
-          const mnemonic = await identity.getMnemonic(filename, password);
+          const mnemonic = await portal.identity.getMnemonic(filename, password);
           unlockWalletResult.textContent = `Mnemonic for '${filename}':\n${mnemonic}`;
         } catch (err) {
           unlockWalletResult.textContent = "Failed to fetch mnemonic: " + (err.message || err);
@@ -91,7 +89,7 @@
       }
       unlockWalletResult.textContent = "Deleting wallet...";
       try {
-        await identity.deleteWallet(filename);
+        await portal.identity.deleteWallet(filename);
         unlockWalletResult.textContent = `Wallet '${filename}' deleted.`;
         await refreshWalletList();
       } catch (err) {
@@ -108,7 +106,7 @@
       walletList.innerHTML = '';
       unlockWalletResult.textContent = '';
       try {
-        const wallets = await identity.getAllWallets();
+        const wallets = await portal.identity.getAllWallets();
         if (wallets.length === 0) {
           walletList.innerHTML = '<option value="">No wallets found</option>';
           return;
@@ -140,7 +138,7 @@
       }
       unlockWalletResult.textContent = "Unlocking wallet...";
       try {
-        const result = await identity.createWallet({ password, filename });
+        const result = await portal.identity.createWallet({ password, filename });
         unlockWalletResult.textContent = "Wallet unlocked!\nAddress:\n" + result.address;
         sendAddressInput.value = result.address;
       } catch (err) {
@@ -169,13 +167,13 @@
     connectBtn.addEventListener('click', async () => {
       status.textContent = "Connecting...";
       try {
-        await transport.connect(null, networkId.value, {
+        await portal.connect(null, networkId.value, {
           onDisconnect: () => {
             status.textContent = "Disconnected";
-          }
+          },
+          balanceElementId: "balanceResult",
+          startIntelligence: false
         });
-        // Initialize wallet after connecting
-        await identity.init({ client: transport.client, networkId: networkId.value, balanceElementId: "balanceResult" });
         await refreshWalletList();
         status.textContent = "Connected";
       } catch (err) {
@@ -185,7 +183,7 @@
 
     runBtn.addEventListener('click', async () => {
       const cmdText = rpcInput.value.trim();
-      const result = await transport.runRpcCommand(cmdText);
+      const result = await portal.transport.runRpcCommand(cmdText);
       rpcResult.textContent = result;
     });
 
@@ -194,7 +192,7 @@
       const password = walletPasswordInput.value.trim() || "password";
       const filename = walletFilenameInput.value.trim() || "demo_wallet";
       try {
-        const result = await identity.createWallet({
+        const result = await portal.identity.createWallet({
           password,
           filename,
           storeMnemonic: true
@@ -216,7 +214,7 @@
       }
       walletResult.textContent = "Importing wallet...";
       try {
-        const result = await identity.createWallet({
+        const result = await portal.identity.createWallet({
           password,
           mnemonic,
           filename
@@ -231,7 +229,7 @@
     getBalanceBtn.addEventListener('click', async () => {
       balanceResult.textContent = "Fetching balance...";
       try {
-        const result = await identity.getSpendableBalance();
+        const result = await portal.getBalance();
         balanceResult.textContent = "Balance:\n" + sompiToKaspaString(result) + " KAS";
       } catch (err) {
         balanceResult.textContent = "Failed to get balance: " + (err.message || err);
@@ -243,7 +241,7 @@
       sendResult.textContent = "Sending transaction...";
       const payload = payloadInput.value.trim();
       try {
-        const sendResultData = await identity.send({
+        const sendResultData = await portal.send({
           password: "password",
           amount: 1,
           toAddress: address,
