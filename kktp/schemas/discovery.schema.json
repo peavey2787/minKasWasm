@@ -1,0 +1,79 @@
+// vscode-json-schema: ignore
+
+{
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["discovery"],
+      "required": true
+    },
+
+    "version": {
+      "type": "number",
+      "required": true
+    },
+
+    "sid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{32,}$",
+      "required": true
+    },
+
+    "pub_sig": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]+$",
+      "required": true
+    },
+
+    "pub_dh": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]+$",
+      "required": true
+    },
+
+    "vrf_value": {
+      "type": "string"
+    },
+
+    "vrf_proof": {
+      "type": "string"
+    },
+
+    "meta": {
+      "type": "object",
+      "required": true,
+      "properties": {
+        "game": {
+          "type": "string",
+          "required": true
+        },
+        "version": {
+          "type": "string",
+          "required": true
+        },
+        "expected_uptime_seconds": {
+          "type": "number",
+          "required": true
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "sig": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]+$"
+    }
+  },
+
+  "required": [
+    "type",
+    "version",
+    "sid",
+    "pub_sig",
+    "pub_dh",
+    "meta"
+  ],
+
+  "additionalProperties": false
+}
