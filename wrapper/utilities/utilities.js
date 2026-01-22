@@ -64,11 +64,12 @@ export function validatePayload(payload) {
 export function payloadToHex(payload) {
   if (!payload) return undefined;
 
+  const str = String(payload);
   // If already hex and even length, keep it
-  if (/^[0-9a-fA-F]*$/.test(payload) && payload.length % 2 === 0) return payload;
+  if (/^[0-9a-fA-F]*$/.test(str) && str.length % 2 === 0) return str;
 
   // Otherwise treat as UTF-8 text
-  return utilities.stringToHex(payload);
+  return stringToHex(str);
 }
 
 /**

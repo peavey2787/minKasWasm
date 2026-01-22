@@ -1,24 +1,5 @@
 import { createTransactions, Generator, PrivateKey, sompiToKaspaString } from '../../kas-wasm/kaspa.js';
-
-function isHexEvenLength(s) {
-  return typeof s === 'string' && /^[0-9a-fA-F]*$/.test(s) && s.length % 2 === 0;
-}
-
-function stringToHexUtf8(str) {
-  return Array.from(new TextEncoder().encode(str))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-/**
- * Convert optional payload string to hex (or accept already-hex).
- * Returns undefined when no payload.
- */
-export function payloadToHex(payload) {
-  if (!payload) return undefined;
-  if (isHexEvenLength(payload)) return payload;
-  return stringToHexUtf8(String(payload));
-}
+import { payloadToHex } from '../utilities/utilities.js';
 
 /**
  * Estimate mass/fees for a prospective transaction using the WASM Generator.
