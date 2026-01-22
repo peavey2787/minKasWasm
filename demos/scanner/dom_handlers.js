@@ -2,16 +2,17 @@
 // All handler functions for scanner UI
 
 import * as elements from './dom_elements.js';
-import { KaspaBlockScanner, SearchMode } from "../../wrapper/scanner.js";
-import { connect } from "../../wrapper/kaspa_client.js";
-import { init, createWallet, send } from "../../wrapper/wallet_service.js";
-import { IndexerStore, IndexerEventType, EvictionReason } from "../../wrapper/indexer.js";
+import { SearchMode } from "../../wrapper/intelligence/scanner.js";
+import { IntelligenceFacade } from "../../wrapper/intelligence/intelligenceFacade.js";
+import { connect } from "../../wrapper/transport/kaspa_client.js";
+import { init, createWallet, send } from "../../wrapper/identity/wallet_service.js";
+import { IndexerStore } from "../../wrapper/intelligence/indexer.js";
 import * as renderUI from './render_ui.js';
 
 // State (exported for controller)
 export let walletInitialized = false;
 export let kaspaClient = null;
-export let scanner = null;
+export let intelligence = null;
 export let scanning = false;
 export let currentIndexerOptions = {};
 
@@ -22,10 +23,10 @@ let cachedRenderTimer = null;
 const CACHED_RENDER_THROTTLE_MS = 350;
 
 function renderInMemoryLiveSnapshot() {
-  if (!scanner || !scanner.indexer) return;
-  renderUI.renderInMemoryAllTransactionsSection(scanner.indexer.getAllTransactions());
-  renderUI.renderInMemoryMatchingTransactionsSection(scanner.indexer.getAllMatchingTransactions());
-  renderUI.renderInMemoryBlocksSection(scanner.indexer.getAllBlocks());
+  if (!intelligence || !intelligence.indexer) return;
+  renderUI.renderInMemoryAllTransactionsSection(intelligence.indexer.getAllTransactions());
+  renderUI.renderInMemoryMatchingTransactionsSection(intelligence.indexer.getAllMatchingTransactions());
+  renderUI.renderInMemoryBlocksSection(intelligence.indexer.getAllBlocks());
 }
 
 function isInMemoryPanelOpen() {
@@ -52,12 +53,12 @@ function scheduleInMemoryLiveSnapshot() {
 function scheduleCachedSnapshotRender() {
   // Don’t do IndexedDB reads + DOM work when the user can’t see it.
   if (!isCachedPanelOpen()) return;
-  if (!scanner || !scanner.indexer) return;
+  if (!intelligence || !intelligence.indexer) return;
 
   if (cachedRenderTimer) return;
   cachedRenderTimer = setTimeout(async () => {
     cachedRenderTimer = null;
-    await renderUI.renderAllIndexerSections(scanner.indexer);
+    await renderUI.renderAllIndexerSections(intelligence.indexer);
   }, CACHED_RENDER_THROTTLE_MS);
 }
 
@@ -93,39 +94,6 @@ export async function handleConnectClick() {
     }
     let matchMode = matchModeSelect.value;
     
-    const onIndexerUpdate = (event) => {
-      switch (event.type) {
-        case IndexerEventType.TRANSACTION_IN_MEMORY:          
-          scheduleInMemoryLiveSnapshot();
-          break;
-        case IndexerEventType.MATCHING_TRANSACTION_IN_MEMORY:
-          scheduleInMemoryLiveSnapshot();
-          break;
-        case IndexerEventType.BLOCK_IN_MEMORY:
-          scheduleInMemoryLiveSnapshot();
-          break;
-        case IndexerEventType.TRANSACTION_CACHED:
-          scheduleCachedSnapshotRender();
-          break;
-        case IndexerEventType.MATCHING_TRANSACTION_CACHED:
-          scheduleCachedSnapshotRender();
-          break;
-        case IndexerEventType.BLOCK_CACHED:
-          scheduleCachedSnapshotRender();
-          break;        
-        case IndexerEventType.EVICT: {
-          const { reason } = event.data;
-          if (reason === EvictionReason.TTL || reason === EvictionReason.SIZE) {
-            scheduleCachedSnapshotRender();
-          } else {
-            scheduleInMemoryLiveSnapshot();
-          }
-          break;
-        }
-        default:
-          console.log("Unknown indexer event type:", event.type);
-      }
-    };
     if (matchMode !== "custom") {
       currentIndexerOptions = {
         ttlMinutes,
@@ -134,8 +102,7 @@ export async function handleConnectClick() {
         priorityTTL,
         matchMode,        
         inMemoryMaxTxs: inMemoryMax,
-        inMemoryMaxBlocks: inMemoryMax,
-        onIndexerUpdate
+        inMemoryMaxBlocks: inMemoryMax
       };
     } else {
       currentIndexerOptions = {
@@ -148,13 +115,23 @@ export async function handleConnectClick() {
         indexAllMatchingTransactions,
         indexAllBlocks,
         inMemoryMaxTxs: inMemoryMax,
-        inMemoryMaxBlocks: inMemoryMax,
-        onIndexerUpdate
+        inMemoryMaxBlocks: inMemoryMax
       };
     }
-    scanner = new KaspaBlockScanner(kaspaClient, { indexerOptions: currentIndexerOptions });
-    await scanner.indexer.initDB();
-    renderUI.renderAllIndexerSections(scanner.indexer);
+    intelligence = new IntelligenceFacade(kaspaClient, {}, currentIndexerOptions);
+    
+    intelligence
+      .onNewTransaction(() => scheduleInMemoryLiveSnapshot())
+      .onNewTransactionMatch(() => scheduleInMemoryLiveSnapshot())
+      .onNewBlock(() => scheduleInMemoryLiveSnapshot())
+      .onCachedTransaction(() => scheduleCachedSnapshotRender())
+      .onCachedTransactionMatch(() => scheduleCachedSnapshotRender())
+      .onCachedBlock(() => scheduleCachedSnapshotRender())
+      .onEvict(() => scheduleInMemoryLiveSnapshot())
+      .onCacheEvict(() => scheduleCachedSnapshotRender());
+
+    await intelligence.indexer.initDB();
+    renderUI.renderAllIndexerSections(intelligence.indexer);
     scheduleInMemoryLiveSnapshot();
   } catch (err) {
     console.error("Connection error:", err);
@@ -165,7 +142,7 @@ export async function handleConnectClick() {
 export async function handleStartStopClick() {
   const startStopBtn = elements.getStartStopBtn();
   const statusDiv = elements.getStatusDiv();
-  if (!scanner || !kaspaClient) return alert("Connect to a node first!");
+  if (!intelligence || !kaspaClient) return alert("Connect to a node first!");
   if (!scanning) {
     // Clear previous blocks
     const iframeDoc = elements.getBlocksIframe().contentDocument || elements.getBlocksIframe().contentWindow.document;
@@ -173,11 +150,11 @@ export async function handleStartStopClick() {
     elements.getMatchesContainer().innerHTML = "";
     // Set search options
     const searchText = elements.getSearchInput().value.trim();
-    scanner.prefix = searchText ? searchText : null;
-    scanner.addresses = [];
-    scanner.searchMode = SearchMode.INCLUDES;
+    intelligence.scanner.prefix = searchText ? searchText : null;
+    intelligence.scanner.addresses = [];
+    intelligence.scanner.searchMode = SearchMode.INCLUDES;
 
-    await scanner.start((block, matches) => {
+    await intelligence.scanner.start((block, matches) => {
       // UI: show block in iframe
       renderUI.addBlockToUI(block, null, null);
 
@@ -191,7 +168,7 @@ export async function handleStartStopClick() {
     startStopBtn.textContent = "Stop";
     statusDiv.textContent = "Scanning...";
   } else {
-    scanner.stop();
+    intelligence.scanner.stop();
     scanning = false;
     startStopBtn.textContent = "Start";
     statusDiv.textContent = "Stopped.";
@@ -200,16 +177,16 @@ export async function handleStartStopClick() {
 }
 
 export async function handleStartIndexerClick() {
-  if (!scanner || !scanner.indexer) return;
+  if (!intelligence || !intelligence.indexer) return;
   try {
-    if (typeof scanner.indexer.freshStart === "function") {
-      await scanner.indexer.freshStart();
+    if (typeof intelligence.indexer.freshStart === "function") {
+      await intelligence.indexer.freshStart();
     } else {
-      await scanner.indexer.initDB();
-      scanner.indexer.start();
+      await intelligence.indexer.initDB();
+      intelligence.indexer.start();
     }
-    renderUI.restartCountdown(scanner.indexer.ttlMs);
-    renderUI.restartFlushCountdown(scanner.indexer.flushInterval);
+    renderUI.restartCountdown(intelligence.indexer.ttlMs);
+    renderUI.restartFlushCountdown(intelligence.indexer.flushInterval);
   } catch (err) {
     console.error("Failed to start indexer:", err);
   }
@@ -220,7 +197,7 @@ export function handleStopIndexerClick() {
   renderUI.stopFlushCountdown();
   const countdownDiv = elements.getIndexerCountdownDiv();
   countdownDiv.textContent = "";
-  scanner.indexer.stop();
+  intelligence.indexer.stop();
 }
 
 export function handleMatchModeChange() {
@@ -234,20 +211,20 @@ export function handleMatchModeChange() {
 }
 
 export async function handleClearMatchingTxsClick() {
-  if (!scanner || !scanner.indexer) return;
-  await scanner.indexer.clearStore(IndexerStore.MATCHING_TRANSACTIONS);
+  if (!intelligence || !intelligence.indexer) return;
+  await intelligence.indexer.clearStore(IndexerStore.MATCHING_TRANSACTIONS);
   renderUI.clearAllCachedSections();
 }
 
 export async function handleClearAllTxsClick() {
-  if (!scanner || !scanner.indexer) return;
-  await scanner.indexer.clearStore(IndexerStore.TRANSACTIONS);
+  if (!intelligence || !intelligence.indexer) return;
+  await intelligence.indexer.clearStore(IndexerStore.TRANSACTIONS);
   renderUI.clearAllCachedSections();
 }
 
 export async function handleClearBlocksClick() {
-  if (!scanner || !scanner.indexer) return;
-  await scanner.indexer.clearStore(IndexerStore.BLOCKS);
+  if (!intelligence || !intelligence.indexer) return;
+  await intelligence.indexer.clearStore(IndexerStore.BLOCKS);
   renderUI.clearAllCachedSections();
 }
 
@@ -255,7 +232,7 @@ export function handleCreateWalletClick() {
   const walletLoading = elements.getWalletLoading ? elements.getWalletLoading() : document.getElementById("walletLoading");
   walletLoading.style.display = "inline-block";
   setTimeout(async () => {
-    if (!scanner || !kaspaClient) return alert("Connect to a node first!");
+    if (!intelligence || !kaspaClient) return alert("Connect to a node first!");
     const networkId = elements.getNetworkInput().value.trim();
     await init({rpcClient: kaspaClient, networkId, balanceElementId: "balanceResult" });
     const { address } = await createWallet({ password: "1234" });

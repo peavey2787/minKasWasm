@@ -1,4 +1,4 @@
-import { walkDagToPresent, scanDagForward, scanDagBackward } from './dag_walker.js';
+import { walkDagToPresent, scanDagForward, scanDagBackward } from './dag_walk.js';
 import { KaspaBlockScanner } from './scanner.js';
 import { IndexerEventType, EvictionReason } from './indexer.js';
 

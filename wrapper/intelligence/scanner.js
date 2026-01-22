@@ -187,7 +187,7 @@ export class KaspaBlockScanner {
   }
 
   _buildMatchObject(tx, block, payloadMatch, addressMatch, decodedPayload) {    
-    const dehydratedTx = utilities.dehydrateTx(tx, block, decodedPayload);
+    const dehydratedTx = dehydrateTx({tx, block, decodedPayload});
     dehydratedTx.payloadMatch = payloadMatch;
     dehydratedTx.addressMatch = addressMatch;   
     return dehydratedTx;
