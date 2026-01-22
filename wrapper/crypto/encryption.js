@@ -52,6 +52,11 @@ export function decryptMessage(payload, password) {
   try {
     return decryptXChaCha20Poly1305(cipherText, password);
   } catch (err) {
-    throw new Error(`Decryption failed: ${err.message}`);
+    let msg = (err && err.message) ? err.message : String(err);
+    // Check for the specific "Unable to decrypt" failure
+    if (msg.includes("Unable to decrypt")) {
+      msg += " (likely due to the wrong password or corrupted data)";
+    }
+    throw new Error(`Decryption failed: ${msg}`);
   }
 }
