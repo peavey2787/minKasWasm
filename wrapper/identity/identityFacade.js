@@ -65,10 +65,11 @@ export class IdentityFacade {
 
   /**
    * Generate a new keypair (e.g. for encryption or advanced signing).
+   * @param {number} [index=0] - Child index for derivation.
    * @returns {Promise<{privateKey: string, publicKey: string}>}
    */
-  async generateNewKeypair() {
-    return walletService.generateNewKeypair();
+  async generateNewKeypair(index) {
+    return walletService.generateNewKeypair(index);
   }
 
   /**

@@ -8,6 +8,13 @@ import { DHSession } from './dh_encryption.js';
  */
 export class CryptoFacade {
   /**
+   * @param {Object} [identityFacade] - Optional reference to IdentityFacade for key derivation shortcuts.
+   */
+  constructor(identityFacade) {
+    this.identity = identityFacade;
+  }
+
+  /**
    * Initialize the WASM environment.
    * This must be called before using any cryptographic functions if WASM hasn't been initialized elsewhere.
    * @returns {Promise<void>}
@@ -38,9 +45,24 @@ export class CryptoFacade {
 
   /**
    * Create a new Diffie-Hellman session for secure key exchange.
+   * @param {string} [privateKey] - Optional private key to immediately initialize the session.
+   * @param {string} [publicKey] - Optional public key (if not provided, derived from privateKey).
    * @returns {DHSession} A new instance of DHSession.
    */
-  createDHSession() {
-    return new DHSession();
+  createDHSession(privateKey, publicKey) {
+    const session = new DHSession();
+    if (privateKey) {
+      session.initiateHandshake(privateKey, publicKey);
+    }
+    return session;
+  }
+
+  /**
+   * Derive a keypair using the active wallet identity.
+   * @param {number} index - Child index.
+   */
+  async deriveKeypair(index) {
+    if (!this.identity) throw new Error("CryptoFacade: IdentityFacade not available for key derivation.");
+    return this.identity.generateNewKeypair(index);
   }
 }

@@ -26,16 +26,24 @@ export class DHSession {
    * Initiate handshake: send your public key to peer
    */
   initiateHandshake(privateKeyHex, publicKeyHex) {
-    if (!privateKeyHex || !publicKeyHex) {
-      throw new Error("init() requires both private and public key bytes");
+    if (!privateKeyHex) {
+      throw new Error("initiateHandshake requires privateKeyHex");
     }
     this.myPrivateKeyHex = privateKeyHex;
-    this.myPublicKeyHex = publicKeyHex;
+    
+    // Ensure public key consistency using utilities
+    if (publicKeyHex) {
+      this.myPublicKeyHex = publicKeyHex;
+    } else {
+      this.myPublicKeyHex = utilities.getPublicKeyHex(privateKeyHex);
+    }
+
     this.myPrivateKeyBytes = utilities.hexToBytes(privateKeyHex);
-    this.myPublicKeyBytes = utilities.hexToBytes(publicKeyHex);
+    this.myPublicKeyBytes = utilities.hexToBytes(this.myPublicKeyHex);
+    
     return {
       type: "DH_INIT",
-      publicKey: publicKeyHex,
+      publicKey: this.myPublicKeyHex,
       timestamp: Date.now()
     };
   }
