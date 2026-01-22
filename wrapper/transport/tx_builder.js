@@ -127,16 +127,19 @@ export async function buildPendingTransaction({
  * Sign + submit a pending transaction.
  * Returns a normalized result with txid if available.
  */
-export async function submitPendingTransaction({ pendingTx, privateKeys } = {}) {
+export async function submitPendingTransaction({ pendingTx, privateKeys, client } = {}) {
   if (!pendingTx) throw new Error('submitPendingTransaction: pendingTx required.');
+  if (!client) throw new Error('submitPendingTransaction: client required.');
 
-  await signPendingTransaction(pendingTx, privateKeys);
+  if (privateKeys && privateKeys.length > 0) {
+    await signPendingTransaction(pendingTx, privateKeys);
+  }
 
   if (typeof pendingTx.submit !== 'function') {
     throw new Error('PendingTransaction.submit is not available in this WASM build.');
   }
 
-  const submitRes = await pendingTx.submit();
+  const submitRes = await pendingTx.submit(client);
   const txid = pendingTx.id ?? submitRes?.transactionId ?? submitRes?.txid ?? null;
 
   return { txid, submitRes, pendingTx };
@@ -153,6 +156,7 @@ export async function buildSignSubmitTransaction({
   networkId,
   payload,
   privateKeys,
+  client,
 } = {}) {
   const pendingTx = await buildPendingTransaction({
     entries,
@@ -163,5 +167,5 @@ export async function buildSignSubmitTransaction({
     payload,
   });
 
-  return await submitPendingTransaction({ pendingTx, privateKeys });
+  return await submitPendingTransaction({ pendingTx, privateKeys, client });
 }
