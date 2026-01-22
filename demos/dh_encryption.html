@@ -73,12 +73,14 @@
   <script type="module">
     import { TransportFacade } from "../wrapper/transport/transportFacade.js";
     import { IdentityFacade } from "../wrapper/identity/identityFacade.js";
-    import { DHSession } from "../wrapper/crypto/dh_encryption.js";
+    import { CryptoFacade } from "../wrapper/crypto/cryptoFacade.js";
     import * as utilities from "../wrapper/utilities/utilities.js";
 
     const transport = new TransportFacade();
     const identity = new IdentityFacade();
-    let dhSession = new DHSession();
+    const crypto = new CryptoFacade();
+    await crypto.init();
+    let dhSession = crypto.createDHSession();
     
     let myKeys = { privateKey: null, publicKey: null };  
     
