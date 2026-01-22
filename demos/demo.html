@@ -50,10 +50,13 @@
   <pre id="sendResult"></pre>
 
   <script type="module">
-    import { sompiToKaspaString, } from '../kas-wasm/kaspa.js';
-    import { connect } from '../wrapper/kaspa_client.js';
-    import { runRpcCommand } from '../wrapper/rpc_runner.js';
-    import { init, createWallet, getSpendableBalance, send, getAllWallets, getMnemonic } from '../wrapper/wallet_service.js';
+    import { sompiToKaspaString } from '../kas-wasm/kaspa.js';
+    import { TransportFacade } from '../wrapper/transport/transportFacade.js';
+    import { IdentityFacade } from '../wrapper/identity/identityFacade.js';
+
+    const transport = new TransportFacade();
+    const identity = new IdentityFacade();
+
       const showMnemonicBtn = document.getElementById('showMnemonicBtn');
       // Show mnemonic handler
       showMnemonicBtn.addEventListener('click', async () => {
@@ -69,13 +72,12 @@
         }
         unlockWalletResult.textContent = "Fetching mnemonic...";
         try {
-          const mnemonic = await getMnemonic(filename, password);
+          const mnemonic = await identity.getMnemonic(filename, password);
           unlockWalletResult.textContent = `Mnemonic for '${filename}':\n${mnemonic}`;
         } catch (err) {
           unlockWalletResult.textContent = "Failed to fetch mnemonic: " + (err.message || err);
         }
       });
-    import { deleteWalletData } from '../wrapper/storage.js';
     const deleteWalletBtn = document.getElementById('deleteWalletBtn');
     // Delete wallet handler
     deleteWalletBtn.addEventListener('click', async () => {
@@ -89,7 +91,7 @@
       }
       unlockWalletResult.textContent = "Deleting wallet...";
       try {
-        await deleteWalletData(filename);
+        await identity.deleteWallet(filename);
         unlockWalletResult.textContent = `Wallet '${filename}' deleted.`;
         await refreshWalletList();
       } catch (err) {
@@ -106,7 +108,7 @@
       walletList.innerHTML = '';
       unlockWalletResult.textContent = '';
       try {
-        const wallets = await getAllWallets();
+        const wallets = await identity.getAllWallets();
         if (wallets.length === 0) {
           walletList.innerHTML = '<option value="">No wallets found</option>';
           return;
@@ -138,15 +140,13 @@
       }
       unlockWalletResult.textContent = "Unlocking wallet...";
       try {
-        const result = await createWallet({ password, filename });
+        const result = await identity.createWallet({ password, filename });
         unlockWalletResult.textContent = "Wallet unlocked!\nAddress:\n" + result.address;
         sendAddressInput.value = result.address;
       } catch (err) {
         unlockWalletResult.textContent = "Failed to unlock wallet: " + (err.message || err);
       }
     });
-
-    let client = null;
 
     const networkId = document.getElementById('networkId');
     const status = document.getElementById('status');
@@ -169,13 +169,13 @@
     connectBtn.addEventListener('click', async () => {
       status.textContent = "Connecting...";
       try {
-        client = await connect(null, networkId.value, {
+        await transport.connect(null, networkId.value, {
           onDisconnect: () => {
             status.textContent = "Disconnected";
           }
         });
         // Initialize wallet after connecting
-        init({rpcClient: client, networkId: networkId.value, balanceElementId: "balanceResult"});
+        await identity.init({ client: transport.client, networkId: networkId.value, balanceElementId: "balanceResult" });
         await refreshWalletList();
         status.textContent = "Connected";
       } catch (err) {
@@ -185,7 +185,7 @@
 
     runBtn.addEventListener('click', async () => {
       const cmdText = rpcInput.value.trim();
-      const result = await runRpcCommand(client, cmdText);
+      const result = await transport.runRpcCommand(cmdText);
       rpcResult.textContent = result;
     });
 
@@ -194,7 +194,7 @@
       const password = walletPasswordInput.value.trim() || "password";
       const filename = walletFilenameInput.value.trim() || "demo_wallet";
       try {
-        const result = await createWallet({
+        const result = await identity.createWallet({
           password,
           filename,
           storeMnemonic: true
@@ -216,7 +216,7 @@
       }
       walletResult.textContent = "Importing wallet...";
       try {
-        const result = await createWallet({
+        const result = await identity.createWallet({
           password,
           mnemonic,
           filename
@@ -231,7 +231,7 @@
     getBalanceBtn.addEventListener('click', async () => {
       balanceResult.textContent = "Fetching balance...";
       try {
-        const result = await getSpendableBalance();
+        const result = await identity.getSpendableBalance();
         balanceResult.textContent = "Balance:\n" + sompiToKaspaString(result) + " KAS";
       } catch (err) {
         balanceResult.textContent = "Failed to get balance: " + (err.message || err);
@@ -243,7 +243,7 @@
       sendResult.textContent = "Sending transaction...";
       const payload = payloadInput.value.trim();
       try {
-        const sendResultData = await send({
+        const sendResultData = await identity.send({
           password: "password",
           amount: 1,
           toAddress: address,
