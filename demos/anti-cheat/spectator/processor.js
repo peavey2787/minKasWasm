@@ -135,18 +135,19 @@ async function applyMovesWithLatency(obj, { animate = false, stepMs = 0 } = {}) 
 }
 
 async function processAnchor(obj, meta, opts) {
-  // 1. Replay the moves and update internal state coordinates
+  const moveCount = obj.moves ? obj.moves.length : 0;
+  const incomingSeq0 = obj.seq0 || 0;
+
+  // 1. Immediately claim these sequences so the buffer doesn't trip
+  state.spectatorLastSeq = incomingSeq0 + moveCount - 1;
+
+  // 2. Now run the animation (this can take time, but the seq is already updated)
   await applyMovesWithLatency(obj, {
     animate: !!opts.animateMoves,
-    stepMs: typeof opts.moveStepMs === 'number' ? opts.moveStepMs : 0,
+    stepMs: opts.moveStepMs || 0,
   });
 
-  const moveCount = obj.moves ? obj.moves.length : 0;
-
-  // 2. Sequence Continuity: Strictly set the next expected sequence
-  state.spectatorLastSeq = (obj.seq0 || 0) + moveCount - 1;
-
-  log('spectatorLogPanel', `✓ seq=${obj.seq0} moves=${moveCount} (Pos: ${state.spectatorPos.x},${state.spectatorPos.y})`);
+  log('spectatorLogPanel', `✓ Processed Seq ${incomingSeq0}-${state.spectatorLastSeq}`);
 }
 
 async function checkBuffer() {
@@ -280,8 +281,8 @@ export function startLiveProcessing() {
     live.processing = true;
     try {
       while (state.spectatorActive && !replayState.inProgress) {
-        // Peek first, shift only after processing
-        const item = live.queue[0];
+        // 1. ATOMIC SHIFT: Take it off the queue immediately
+        const item = live.queue.shift(); 
         if (!item) break;
 
         const { queued, pending } = computeBehindState();
@@ -294,16 +295,16 @@ export function startLiveProcessing() {
         const moveCount = item.anchorObj.moves ? item.anchorObj.moves.length : 0;
         const stepMs = moveCount > 0 ? targetDuration / moveCount : 0;
 
-        if (backlog >= 5) UI.setBehindBanner(true, `Spectator behind… backlog=${backlog} (2.5x speed)`);
+        if (backlog >= 5) UI.setBehindBanner(true, `Backlog: ${backlog}`);
         else UI.setBehindBanner(false);
 
+        // 2. Process without fear of double-dipping
         await tryAcceptAnchor(item.anchorObj, item.meta, {
           animateMoves: true,
           moveStepMs: stepMs,
         });
 
-        live.queue.shift(); // Success or buffered, remove from queue
-
+        // 3. Handle any out-of-band Merkle/Pending anchors
         while (true) {
           const next = takeNextReadyPending();
           if (!next) break;
@@ -319,7 +320,6 @@ export function startLiveProcessing() {
     } finally {
       live.processing = false;
       live.processPromise = null;
-      UI.setBehindBanner(false);
     }
   })();
   return live.processPromise;

@@ -4,6 +4,7 @@ import { MatchMode, IndexerEventType } from '../../wrapper/kaspaPortal.js';
 import { $, getNetworkSelect, getUsePublicResolver, getNodeUrl, getConnectBtn, getWalletAddress, getCopyWalletBtn, getWalletBalance, getWalletStatus } from './dom_elements.js';
 import { state } from './state.js';
 import { copyToClipboard, setStatus, showInsufficientFundsModal } from './utils.js';
+import { autoFetchVRF } from './vrf_sources.js';
 
 function maybeShowNoFundsModalOnce() {
   if (state.noFundsModalShown) return;
@@ -158,6 +159,12 @@ export async function handleConnect() {
     state.connected = true;
     setStatus('connectionStatus', 'Connected', 'connected');
 
+    // Auto-fetch VRF after connection
+    try {
+      await autoFetchVRF();
+    } catch (e) {
+      console.error("VRF Auto-fetch failed:", e);
+    }
   } catch (err) {
     console.error('Connection failed:', err);
     setStatus('connectionStatus', 'Failed: ' + err.message, 'disconnected');

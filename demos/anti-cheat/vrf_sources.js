@@ -85,6 +85,31 @@ let kaspaCollecting = false;
 let kaspaCollectedBlocks = [];
 let kaspaTargetCount = 0;
 
+export async function autoFetchVRF() {
+  log('foldedOutputPanel', '🤖 Auto-fetching VRF entropy...', true);
+  try {
+    // Try Full (QRNG + BTC + KAS)
+    try {
+      state.foldedOutput = await state.portal.generateFullRandomness();
+      log('foldedOutputPanel', '✅ VRF Secured: QRNG + Bitcoin + Kaspa');
+      return;
+    } catch (e) {
+      console.warn('Full VRF failed, trying partial...', e);
+      log('foldedOutputPanel', '⚠️ Full VRF failed: ' + e.message);
+    }
+
+    // Fallback to Partial (BTC + KAS)
+    state.foldedOutput = await state.portal.generatePartialRandomness();
+    log('foldedOutputPanel', '⚠️ VRF Fallback: Bitcoin + Kaspa (No QRNG)');
+    
+  } catch (err) {
+    state.foldedOutput = null;
+    log('foldedOutputPanel', '❌ VRF FAILED: ' + err.message);
+    alert("Critical Error: Unable to generate verifiable randomness. Gameplay disabled.");
+    throw err;
+  }
+}
+
 export async function fetchKaspaBlocks() {
   const count = parseInt($('kaspaBlockCount').value) || 6;
   
