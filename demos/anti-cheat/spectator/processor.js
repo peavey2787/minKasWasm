@@ -102,7 +102,10 @@ async function applyMovesWithLatency(obj, { animate = false, stepMs = 0 } = {}) 
   for (let i = 0; i < moves.length; i++) {
     const ch = moves[i];
     const dir = ch === 'U' ? 'UP' : ch === 'D' ? 'DOWN' : ch === 'L' ? 'LEFT' : ch === 'R' ? 'RIGHT' : null;
-    if (dir) UI.applyMove(dir);
+    if (dir) {
+      UI.applyMove(dir);
+      log('spectatorLogPanel', `[MOVE] #${(obj.seq0 || 0) + i} [${dir}]`, false);
+    }
 
     const now = Date.now();
     const eventTs = t0 + (dts[i] ?? 0);
@@ -131,7 +134,8 @@ async function processAnchor(obj, meta, opts) {
   });
 
   const moveCount = obj.moves ? obj.moves.length : 0;
-  state.spectatorLastSeq = obj.seq0 + moveCount - 1;
+  // Update last sequence to the end of this batch (seq0 + count - 1)
+  state.spectatorLastSeq = (obj.seq0 || 0) + moveCount - 1;
 
   log('spectatorLogPanel', `✓ seq=${obj.seq0} moves=${moveCount}`);
 }
@@ -221,13 +225,14 @@ export async function tryAcceptAnchor(obj, meta, opts = {}) {
   state.spectatorSeenKeys.add(dedupeKey);
 
   const expectedSeq = state.spectatorLastSeq + 1;
+  const incomingSeq = obj.seq0 || 0;
 
-  if (obj.seq0 === expectedSeq) {
+  if (incomingSeq === expectedSeq) {
     await processAnchor(obj, meta, opts);
     await checkBuffer();
-  } else if (obj.seq0 > expectedSeq) {
-    log('spectatorLogPanel', `⏳ Buffering future seq=${obj.seq0} (expecting ${expectedSeq})`);
-    state.spectatorBuffer.set(obj.seq0, { obj, meta, opts });
+  } else if (incomingSeq > expectedSeq) {
+    log('spectatorLogPanel', `⏳ Buffering future seq=${incomingSeq} (expecting ${expectedSeq})`);
+    state.spectatorBuffer.set(incomingSeq, { obj, meta, opts });
   }
 }
 
