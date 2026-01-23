@@ -130,3 +130,32 @@ export async function findLatestSessionId(prefix) {
   }
   return null;
 }
+
+export function extractSessionFromTx(tx, prefix) {
+  const payloadStr = typeof tx?.decodedPayload === 'string' ? tx.decodedPayload : null;
+  if (!payloadStr) return null;
+
+  const obj = parseAnchorPayload(payloadStr, prefix);
+  if (!obj) return null;
+
+  const check = (a) => {
+    if (a.type === 'discovery' && a.sid) {
+      return {
+        sid: a.sid,
+        meta: a.meta || {},
+        timestamp: (a.meta && a.meta.timestamp) || tx.timestamp || Date.now()
+      };
+    }
+    return null;
+  };
+
+  if (Array.isArray(obj.anchors)) {
+    for (const a of obj.anchors) {
+      const res = check(a);
+      if (res) return res;
+    }
+  } else {
+    return check(obj);
+  }
+  return null;
+}

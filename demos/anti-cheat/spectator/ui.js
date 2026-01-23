@@ -92,3 +92,73 @@ export function resetForSession(sessionId, startPos) {
 
   log('spectatorLogPanel', `Spectator reset. Session: ${state.spectatorSessionId ? state.spectatorSessionId.slice(0, 8) : '--'}`, true);
 }
+
+export function injectGameBrowser(onRefresh, onSelect) {
+  const container = document.querySelector('.game-panel:last-child'); // Assuming Spectator is the second panel
+  if (!container) return;
+
+  let browser = document.getElementById('spectatorGameBrowser');
+  if (!browser) {
+    browser = document.createElement('div');
+    browser.id = 'spectatorGameBrowser';
+    browser.className = 'game-browser';
+    browser.style.marginTop = '1rem';
+    browser.style.borderTop = '1px solid var(--border)';
+    browser.style.paddingTop = '1rem';
+    
+    browser.innerHTML = `
+      <div class="browser-header">
+        <h4>Available Games</h4>
+        <button id="refreshGamesBtn" class="small secondary">Scan</button>
+      </div>
+      <div id="gameList" class="game-list">
+        <div class="game-list-empty">Click Scan to find games</div>
+      </div>
+    `;
+    
+    // Insert before the log area
+    const logArea = container.querySelector('.log-area');
+    if (logArea) {
+      container.insertBefore(browser, logArea);
+    } else {
+      container.appendChild(browser);
+    }
+  }
+
+  const refreshBtn = document.getElementById('refreshGamesBtn');
+  if (refreshBtn) refreshBtn.onclick = onRefresh;
+  
+  // Store select callback on the list element for easy access
+  const list = document.getElementById('gameList');
+  if (list) list._onSelect = onSelect;
+}
+
+export function updateGameList(sessions) {
+  const list = document.getElementById('gameList');
+  if (!list) return;
+
+  if (sessions.length === 0) {
+    list.innerHTML = '<div class="game-list-empty">No games found.</div>';
+    return;
+  }
+
+  list.innerHTML = '';
+  sessions.forEach(s => {
+    const row = document.createElement('div');
+    row.className = 'game-list-item';
+    
+    const timeStr = s.timestamp ? new Date(s.timestamp).toLocaleTimeString() : 'Unknown';
+    const sidShort = s.sid.slice(0, 8);
+    
+    row.innerHTML = `
+      <span><strong>${sidShort}</strong> <span style="color:var(--text-muted)">(${timeStr})</span></span>
+      <span style="color:var(--accent);">▶ Watch</span>
+    `;
+    
+    row.onclick = () => {
+      if (list._onSelect) list._onSelect(s.sid);
+    };
+    
+    list.appendChild(row);
+  });
+}

@@ -164,3 +164,12 @@ export function initCollapsibles() {
     });
   });
 }
+
+/**
+ * Convert hex string to binary string
+ */
+export function hexToBinary(hex) {
+  return hex.split('').map(char => {
+    return parseInt(char, 16).toString(2).padStart(4, '0');
+  }).join('');
+}

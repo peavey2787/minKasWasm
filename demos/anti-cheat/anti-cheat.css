@@ -674,3 +674,53 @@ button.small {
 .grid-cell.spectator {
   background: #7c3aed;
 }
+
+/* Game Browser */
+.game-browser {
+  margin-top: 1rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+
+.browser-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.browser-header h4 {
+  margin: 0;
+}
+
+.game-list {
+  max-height: 150px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.game-list-empty {
+  padding: 0.5rem;
+  color: var(--text-muted);
+  font-size: 0.9em;
+  text-align: center;
+}
+
+.game-list-item {
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 0.9em;
+  display: flex;
+  justify-content: space-between;
+  transition: background 0.15s;
+}
+
+.game-list-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.game-list-item:last-child {
+  border-bottom: none;
+}

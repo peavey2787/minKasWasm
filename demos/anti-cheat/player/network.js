@@ -89,7 +89,12 @@ export async function performKKTPHandshake() {
     state.sessionId, 
     state.kktp.identity, 
     state.kktp.session,
-    { game: "anti-cheat-demo", startX: state.playerStartPos.x, startY: state.playerStartPos.y },
+    { 
+      game: "anti-cheat-demo", 
+      startX: state.playerStartPos.x, 
+      startY: state.playerStartPos.y,
+      timestamp: Date.now() 
+    },
     vrfValue
   );
   

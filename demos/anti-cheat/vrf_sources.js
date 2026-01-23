@@ -2,7 +2,7 @@
 
 import { $ } from './dom_elements.js';
 import { state } from './state.js';
-import { log, downloadJSON } from './utils.js';
+import { log, downloadJSON, hexToBinary } from './utils.js';
 
 function clampByte(n) {
   const x = Number(n);
@@ -88,14 +88,6 @@ let kaspaTargetCount = 0;
 export async function fetchKaspaBlocks() {
   const count = parseInt($('kaspaBlockCount').value) || 6;
   
-  const scanner = state.portal.intelligence.scanner;
-  if (!scanner) {
-    log('kaspaBlocksPanel', 'ERROR: Scanner not connected! Click "Connect" first.', true);
-    $('fetchKaspaBtn').disabled = false;
-    $('stopKaspaBtn').disabled = true;
-    return;
-  }
-
   if (kaspaCollecting) {
     log('kaspaBlocksPanel', 'Already collecting... click Stop first.');
     return;
@@ -109,64 +101,36 @@ export async function fetchKaspaBlocks() {
   const bps = 10; // ~10 blocks per second on Kaspa
   const estimatedSeconds = Math.ceil(count / bps);
   
-  // Clear and show initial status
   const panel = $('kaspaBlocksPanel');
   panel.innerHTML = '';
   panel.style.maxHeight = '400px';
   panel.style.overflow = 'auto';
   
-  appendBlockLine(panel, `🚀 Collecting ${count} LIVE blocks (~${bps} BPS)...`);
-  appendBlockLine(panel, `⏱️ Estimated: ${formatTime(estimatedSeconds)}`);
+  appendBlockLine(panel, `🚀 Fetching ${count} blocks via Portal...`);
   appendBlockLine(panel, `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   
   $('kaspaBlockCountLabel').textContent = `(0/${count})`;
 
-  // Hook into scanner's live block stream via our callback
-  scanner._vrfCallback = (block, matches) => {
-
-    if (!kaspaCollecting) return;
-
-    const hash = block?.header?.hash || block?.hash;
-    const blueScore = block?.header?.blueScore || block?.blueScore;
-    const timestamp = block?.header?.timestamp || block?.timestamp;
-
-    // Avoid duplicates
-    if (kaspaCollectedBlocks.some(b => b.hash === hash)) return;
-
-    const blockData = {
-      hash,
-      blueScore: typeof blueScore === 'bigint' ? Number(blueScore) : blueScore,
-      time: typeof timestamp === 'bigint' ? Number(timestamp) : timestamp,
-      source: 'kaspa',
-    };
+  try {
+    // Use portal to fetch blocks
+    const blocks = await state.portal.fetchBlocks('kaspa', count);
     
-    kaspaCollectedBlocks.push(blockData);
-
-    // Update progress
-    const collected = kaspaCollectedBlocks.length;
-    $('kaspaBlockCountLabel').textContent = `(${collected}/${kaspaTargetCount})`;
-    
-    // Show EVERY block in real-time
-    const shortHash = hash ? hash.slice(0, 12) + '...' + hash.slice(-8) : 'unknown';
-    appendBlockLine(panel, `#${collected} | BS:${blockData.blueScore} | ${shortHash}`);
-    
-    // Auto-scroll to bottom
-    panel.scrollTop = panel.scrollHeight;
-
-    // Done?
-    if (collected >= kaspaTargetCount) {
-      finishKaspaCollection();
+    for (const b of blocks) {
+      const hash = b.hash;
+      const shortHash = hash ? hash.slice(0, 12) + '...' + hash.slice(-8) : 'unknown';
+      kaspaCollectedBlocks.push({
+        hash,
+        blueScore: b.blueScore || b.header?.blueScore,
+        time: b.timestamp || b.header?.timestamp,
+        source: 'kaspa'
+      });
+      appendBlockLine(panel, `BS:${b.blueScore || '?'} | ${shortHash}`);
     }
-  };
-  
-  // Also log that we're waiting
-  setTimeout(() => {
-    if (kaspaCollecting && kaspaCollectedBlocks.length === 0) {
-      appendBlockLine(panel, `⏳ Waiting for blocks from scanner...`);
-      appendBlockLine(panel, `   (Scanner connected: ${!!scanner})`);
-      appendBlockLine(panel, `   (Scanner started: ${scanner?.scanning || 'unknown'})`);
-    }
-  }, 2000);
+    finishKaspaCollection();
+  } catch (err) {
+    appendBlockLine(panel, `Error: ${err.message}`);
+    stopKaspaCollection();
+  }
 }
 
 function appendBlockLine(panel, text) {
@@ -188,11 +152,6 @@ function finishKaspaCollection() {
   kaspaCollecting = false;
   state.kaspaBlocks = kaspaCollectedBlocks.slice(0, kaspaTargetCount);
   
-  // Clear the callback
-  if (state.portal.intelligence.scanner) {
-    state.portal.intelligence.scanner._vrfCallback = null;
-  }
-  
   const panel = $('kaspaBlocksPanel');
   appendBlockLine(panel, `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   appendBlockLine(panel, `✅ DONE! Collected ${state.kaspaBlocks.length} blocks`);
@@ -209,11 +168,6 @@ export function stopKaspaCollection() {
   if (kaspaCollecting) {
     kaspaCollecting = false;
     state.kaspaBlocks = kaspaCollectedBlocks;
-    
-    // Clear the callback
-    if (state.portal.intelligence.scanner) {
-      state.portal.intelligence.scanner._vrfCallback = null;
-    }
     
     const panel = $('kaspaBlocksPanel');
     appendBlockLine(panel, `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
@@ -315,7 +269,7 @@ export async function foldSources() {
   try {
     let result;
     if (sources.length === 1) {
-      result = state.portal.vrf.hexToBinary(sources[0].data.slice(0, 64).padEnd(64, '0'));
+      result = hexToBinary(sources[0].data.slice(0, 64).padEnd(64, '0'));
     } else if (sources.length === 2) {
       result = await state.portal.fold(sources[0].data, sources[1].data, { iterations });
     } else {

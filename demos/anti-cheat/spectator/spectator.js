@@ -3,20 +3,54 @@
 import { $ } from '../dom_elements.js';
 import { state, addIndexerUpdateHandler, removeIndexerUpdateHandler, resetSpectatorState } from '../state.js';
 import { setStatus, log, createGrid } from '../utils.js';
-import { handleMatchObject, initialBackfillFromIndexer, findLatestSessionId } from './indexer_integration.js';
+import { handleMatchObject, initialBackfillFromIndexer, findLatestSessionId, extractSessionFromTx } from './indexer_integration.js';
 import { replayFromStart, cancelReplay } from './replay.js';
 import { resetLiveQueue } from './processor.js';
-import { resetForSession, ensureBehindBanner, setSpectatorBadges, applyMove } from './ui.js';
+import { resetForSession, ensureBehindBanner, setSpectatorBadges, applyMove, injectGameBrowser, updateGameList } from './ui.js';
 
 const INDEXER_EVENT = Object.freeze({
   MATCHING_TRANSACTION_IN_MEMORY: 'matching-transaction-in-memory',
   MATCHING_TRANSACTION_CACHED: 'matching-transaction-cached',
 });
 
-let indexerHandler = null;
 let spectatorTimer = null;
+let isScanning = false;
+let foundSessions = new Map();
 
-export async function startSpectator() {
+// Persistent handler for both Spectator Mode and Game Browser
+const indexerHandler = async (evt) => {
+  if (!evt || !evt.type) return;
+  const items = Array.isArray(evt.data) ? evt.data : (evt.data ? [evt.data] : []);
+  const prefix = $('payloadPrefix')?.value || 'KKTP';
+
+  // 1. Spectator Active Logic
+  if (state.spectatorActive) {
+    if (evt.type === INDEXER_EVENT.MATCHING_TRANSACTION_IN_MEMORY || 
+        evt.type === INDEXER_EVENT.MATCHING_TRANSACTION_CACHED) {
+      for (const item of items) {
+        await handleMatchObject(item, prefix);
+      }
+    }
+  }
+
+  // 2. Game Browser Scanning Logic (Live Only)
+  if (isScanning && evt.type === INDEXER_EVENT.MATCHING_TRANSACTION_IN_MEMORY) {
+    let updated = false;
+    for (const tx of items) {
+      const session = extractSessionFromTx(tx, prefix);
+      if (session && !foundSessions.has(session.sid)) {
+        foundSessions.set(session.sid, session);
+        updated = true;
+      }
+    }
+    if (updated) {
+      const sorted = Array.from(foundSessions.values()).sort((a, b) => b.timestamp - a.timestamp);
+      updateGameList(sorted);
+    }
+  }
+};
+
+export async function startSpectator(targetSessionId = null) {
   if (!state.connected) {
     alert('Connect to a node first!');
     return;
@@ -31,7 +65,7 @@ export async function startSpectator() {
   cancelReplay();
   resetSpectatorState();
 
-  let startSession = state.sessionId || null;
+  let startSession = targetSessionId || state.sessionId || null;
   const startPos = state.playerStartPos || { x: 4, y: 4 };
   const prefix = $('payloadPrefix')?.value || 'KKTP';
 
@@ -47,21 +81,6 @@ export async function startSpectator() {
 
   log('spectatorLogPanel', `Watching for anchors... prefix="${prefix}"`, false);
 
-  indexerHandler = async (evt) => {
-    if (!state.spectatorActive) return;
-    if (!evt || !evt.type) return;
-
-    const items = Array.isArray(evt.data) ? evt.data : (evt.data ? [evt.data] : []);
-
-    if (evt.type === INDEXER_EVENT.MATCHING_TRANSACTION_IN_MEMORY || 
-        evt.type === INDEXER_EVENT.MATCHING_TRANSACTION_CACHED) {
-      for (const item of items) {
-        await handleMatchObject(item, prefix);
-      }
-    }
-  };
-  addIndexerUpdateHandler(indexerHandler);
-
   (async () => {
     await initialBackfillFromIndexer(prefix);
   })();
@@ -76,11 +95,6 @@ export function stopSpectator() {
   state.spectatorActive = false;
 
   cancelReplay();
-
-  if (indexerHandler) {
-    removeIndexerUpdateHandler(indexerHandler);
-    indexerHandler = null;
-  }
 
   if (spectatorTimer) {
     clearInterval(spectatorTimer);
@@ -101,6 +115,28 @@ export function syncWithPlayer(move) {
   log('spectatorLogPanel', `[LIVE] ${move.direction} → (${move.x}, ${move.y})`);
 }
 
+function toggleGameScanning() {
+  const btn = document.getElementById('refreshGamesBtn');
+  
+  if (isScanning) {
+    // Stop scanning
+    isScanning = false;
+    if (btn) {
+      btn.textContent = 'Start Scan';
+      btn.classList.remove('danger');
+    }
+  } else {
+    // Start scanning
+    isScanning = true;
+    foundSessions.clear();
+    updateGameList([]); // Clear UI
+    if (btn) {
+      btn.textContent = 'Stop Scan';
+      btn.classList.add('danger');
+    }
+  }
+}
+
 export function initSpectator() {
   if (!$('startSpectatorBtn')) return;
 
@@ -108,6 +144,14 @@ export function initSpectator() {
   $('startSpectatorBtn').addEventListener('click', startSpectator);
   $('replaySpectatorBtn').addEventListener('click', replayFromStart);
   $('stopSpectatorBtn').addEventListener('click', stopSpectator);
+
+  // Register the persistent handler
+  addIndexerUpdateHandler(indexerHandler);
+
+  // Inject the game browser UI
+  injectGameBrowser(toggleGameScanning, (sid) => {
+    startSpectator(sid);
+  });
 
   try {
     ensureBehindBanner();

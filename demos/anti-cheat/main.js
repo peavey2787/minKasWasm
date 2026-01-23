@@ -4,10 +4,9 @@
 import { initConnection } from './connection.js';
 import { initVrfSources } from './vrf_sources.js';
 import { initNistTests } from './nist_tests.js';
-import { initPlayer } from './player.js';
+import { initPlayer } from './player/player.js';
 import { initSpectator } from './spectator/spectator.js';
 import { initTabs, initCollapsibles } from './utils.js';
-import { $ } from './dom_elements.js';
 
 async function init() {
   console.log('[AntiCheat] Initializing demo...');
