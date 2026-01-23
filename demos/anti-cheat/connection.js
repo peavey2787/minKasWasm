@@ -75,7 +75,7 @@ export async function handleConnect() {
     state.scanner = state.portal.intelligence.scanner;
 
     // 3. Configure Scanner
-    state.scanner.prefix = 'anticheat:move';
+    state.scanner.prefix = 'KKTP';
     // Apply indexer options manually since we created portal before knowing them
     Object.assign(state.scanner.indexer, indexerOptions);
     
@@ -165,16 +165,23 @@ export async function handleConnect() {
 }
 
 export function initConnection() {
-  getUsePublicResolver().addEventListener('change', (e) => {
-    getNodeUrl().disabled = e.target.checked;
-  });
+  const connectBtn = getConnectBtn();
+  if (!connectBtn) return; // Guard: No connection UI present
+
+  const resolverChk = getUsePublicResolver();
+  if (resolverChk) {
+    resolverChk.addEventListener('change', (e) => {
+      const urlInput = getNodeUrl();
+      if (urlInput) urlInput.disabled = e.target.checked;
+    });
+  }
 
   // Keep scanner prefix in sync with the UI prefix (for matching tx indexing).
   const prefixEl = $('payloadPrefix');
   if (prefixEl) {
     prefixEl.addEventListener('input', () => {
       if (state.scanner && typeof prefixEl.value === 'string') {
-        state.scanner.prefix = prefixEl.value.trim() || null;
+        state.scanner.prefix = prefixEl.value.trim() || 'KKTP';
       }
     });
   }
@@ -193,5 +200,5 @@ export function initConnection() {
   // Initialize wallet UI defaults
   setWalletUi({ address: '', balanceKAS: null, ready: false });
 
-  getConnectBtn().addEventListener('click', handleConnect);
+  connectBtn.addEventListener('click', handleConnect);
 }

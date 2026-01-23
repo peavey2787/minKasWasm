@@ -5,7 +5,7 @@ import { initConnection } from './connection.js';
 import { initVrfSources } from './vrf_sources.js';
 import { initNistTests } from './nist_tests.js';
 import { initPlayer } from './player.js';
-import { initSpectator } from './spectator.js';
+import { initSpectator } from './spectator/spectator.js';
 import { initTabs, initCollapsibles } from './utils.js';
 import { $ } from './dom_elements.js';
 
@@ -19,11 +19,11 @@ async function init() {
   initCollapsibles();
 
   // Initialize each subsystem
-  initConnection();
-  initVrfSources();
-  initNistTests();
-  initPlayer();
-  initSpectator();
+  if (typeof initConnection === 'function') initConnection();
+  if (typeof initVrfSources === 'function') initVrfSources();
+  if (typeof initNistTests === 'function') initNistTests();
+  if (typeof initPlayer === 'function') initPlayer();
+  if (typeof initSpectator === 'function') initSpectator();
 
   console.log('[AntiCheat] Demo ready.');
 }

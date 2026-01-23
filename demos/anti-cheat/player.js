@@ -4,6 +4,7 @@ import { $, $$ } from './dom_elements.js';
 import { state, resetPlayerState } from './state.js';
 import { setStatus, log, createGrid } from './utils.js';
 import { MerkleTree, hashLeafSync, sha256Hex, merkleRootSha256Hex } from './merkle.js';
+import * as KKTP from './kktp_lib.js';
 
 const MAX_PAYLOAD_BYTES = 32 * 1024;
 
@@ -15,33 +16,9 @@ function utf8ByteLen(s) {
   }
 }
 
-function enqueueAnchor(obj, root) {
-  if (!obj || !root) return;
-  state.anchorBacklog.push({ obj, root });
-
-  const max = state.anchorBacklogMax ?? 25;
-  if (state.anchorBacklog.length > max) {
-    state.anchorBacklog = state.anchorBacklog.slice(state.anchorBacklog.length - max);
-    log('anchorTxPanel', `⚠ backlog capped at ${max} anchors (oldest dropped).`);
-  }
-}
-
-function buildPayload(prefix, payloadObj) {
-  const payload = `${prefix}:${JSON.stringify(payloadObj)}`;
-  if (utf8ByteLen(payload) > MAX_PAYLOAD_BYTES) return null;
-  return payload;
-}
-
-function buildBundledPayload(prefix, sessionId, anchors) {
-  // Single schema: either a single anchor object, or a bundle with {sid, anchors:[...]}
-  if (!Array.isArray(anchors) || anchors.length === 0) return null;
-  if (anchors.length === 1) return buildPayload(prefix, anchors[0].obj);
-  return buildPayload(prefix, { sid: sessionId, anchors: anchors.map((a) => a.obj) });
-}
-
 // Generate a random session ID
 function newSessionId() {
-  const b = new Uint8Array(8);
+  const b = new Uint8Array(16); // 128-bit entropy for KKTP sid
   crypto.getRandomValues(b);
   return Array.from(b).map(x => x.toString(16).padStart(2, '0')).join('');
 }
@@ -104,6 +81,11 @@ function recordMove(direction) {
 
   log('moveLogPanel', `#${seq} [${direction}] → (${move.x}, ${move.y}) dt=${dt}ms`);
   log('merkleTreePanel', `Local Root: ${state.merkleTree.getRoot() || 'computing...'}`);
+
+  // P2P Relay: Send move immediately for visual sync (simulated via event)
+  window.dispatchEvent(new CustomEvent('antiCheat:move', {
+    detail: move
+  }));
 }
 
 function handlePlayerKeydown(e) {
@@ -148,111 +130,122 @@ function handlePlayerKeydown(e) {
   }
 }
 
-async function buildAnchorPayload() {
+async function buildKKTPMessage() {
   if (!state.sessionId) return null;
   if (!state.roundMovesPacked || state.roundMovesPacked.length === 0) return null;
 
-  const prefix = $('payloadPrefix')?.value || 'anticheat:move';
-  const prev = state.anchorPrevRoot ?? 'GENESIS';
-  const t0 = state.roundT0 ?? Date.now();
-  const moves = state.roundMovesPacked;
-  const dts = state.roundMoveDts.slice();
-  const seq0 = state.roundSeq0 ?? 0;
-
-  // Merkle-chain leaves commit to prev_root + (move + timing + index)
-  const leafHexes = [];
-  leafHexes.push(await sha256Hex(`prev:${prev}`));
-  for (let i = 0; i < moves.length; i++) {
-    leafHexes.push(await sha256Hex(`m:${moves[i]}:dt:${dts[i]}:i:${i}`));
-  }
-  const root = await merkleRootSha256Hex(leafHexes);
-  if (!root) return null;
-
-  const payloadObj = {
+  // Construct game data payload
+  const gameData = {
     sid: state.sessionId,
-    round: state.anchorRound,
-    prev_root: prev,
-    root,
-    startX: state.playerStartPos.x,
-    startY: state.playerStartPos.y,
-    t0,
-    seq0,
-    moves,
-    dts,
+    t0: state.roundT0 ?? Date.now(),
+    moves: state.roundMovesPacked,
+    dts: state.roundMoveDts.slice(),
+    seq0: state.roundSeq0 ?? 0
   };
 
-  return { prefix, payload: `${prefix}:${JSON.stringify(payloadObj)}`, obj: payloadObj, root };
+  // Encrypt using KKTP
+  // Atomic Sequence: Do not increment state.kktp.seq yet. Use next sequence for encryption.
+  const msg = KKTP.encryptMessage(
+    state.kktp.kSession,
+    state.kktp.mailboxId,
+    "AtoB", // Player is Initiator (A)
+    state.kktp.seq + 1,
+    gameData
+  );
+
+  return msg;
 }
 
-async function anchorToKaspa() {
+async function publishGameLoop() {
   if (!state.walletReady) return;
   if (state.anchorInFlight) return;
 
-  // If we have a new batch, convert it into an anchor and enqueue it immediately.
-  // This guarantees the next successful tx can replay missed anchors.
-  const built = await buildAnchorPayload();
-  if (built) {
-    const { obj, root } = built;
+  const msg = await buildKKTPMessage();
+  if (!msg) return;
 
-    enqueueAnchor(obj, root);
-
-    // Roll the Merkle-chain forward locally (even if we can't send yet)
-    state.anchorPrevRoot = root;
-    state.anchorRound += 1;
-
-    // Clear batch so we don't enqueue duplicates
-    state.roundMovesPacked = '';
-    state.roundMoveDts = [];
-    state.roundT0 = null;
-    state.roundSeq0 = null;
-
-    log('anchorTxPanel', `↺ queued anchor round=${obj.round} moves=${obj.moves.length} root=${root.slice(0, 16)}... backlog=${state.anchorBacklog.length}`);
-  }
-
-  // Nothing queued and nothing built
-  if (!state.anchorBacklog || state.anchorBacklog.length === 0) return;
-
-  const prefix = $('payloadPrefix')?.value || 'anticheat:move';
-  const sessionId = state.sessionId;
-
-  // Try to include as many queued anchors as will fit.
-  let countToSend = state.anchorBacklog.length;
-  let payload = null;
-  while (countToSend > 0) {
-    payload = buildBundledPayload(prefix, sessionId, state.anchorBacklog.slice(0, countToSend));
-    if (payload) break;
-    countToSend -= 1;
-  }
-
-  if (!payload) {
-    log('anchorTxPanel', `✗ Anchor payload too large even for 1 anchor. Try smaller batches / fewer moves per interval.`);
-    return;
-  }
+  const prefix = $('payloadPrefix')?.value || 'KKTP';
+  const payload = KKTP.buildKKTPPayload(prefix + ':', msg);
 
   try {
     state.anchorInFlight = true;
-    const sending = state.anchorBacklog.slice(0, countToSend);
-    const last = sending[sending.length - 1];
-    log('anchorTxPanel', `Anchoring bundle: ${sending.length} anchor(s) sid=${sessionId ? sessionId.slice(0, 8) : '--'}...`);
+    log('anchorTxPanel', `Sending KKTP Msg #${msg.seq} (${msg.ciphertext.length / 2} bytes)...`);
 
     await state.portal.send({
       amount: '0.2',
       toAddress: state.walletAddress,
       payload,
     });
+    log('anchorTxPanel', `✓ Sent Msg #${msg.seq}`);
 
-    // Success: drop sent anchors from backlog.
-    state.anchorBacklog = state.anchorBacklog.slice(countToSend);
-
-    log('anchorTxPanel', `✓ Anchored bundle up to root: ${String(last?.root || '').slice(0, 16)}... remaining backlog=${state.anchorBacklog.length}`);
+    // Success: Atomic Increment & Clear buffer
+    state.kktp.seq++; 
+    state.roundMovesPacked = '';
+    state.roundMoveDts = [];
+    state.roundT0 = null;
+    state.roundSeq0 = null;
   } catch (err) {
-    log('anchorTxPanel', `✗ Anchor failed: ${err.message}`);
+    log('anchorTxPanel', `✗ Send failed: ${err.message}`);
+    // Failure: Keep buffer for retry. 
+    // Do NOT increment sequence. Next attempt will reuse the same sequence number.
   } finally {
     state.anchorInFlight = false;
   }
 }
 
-export function startPlayer() {
+async function performKKTPHandshake() {
+  log('anchorTxPanel', 'Starting KKTP Handshake...');
+  
+  // 1. Generate Keys
+  state.kktp.identity = await KKTP.generateIdentityKey();
+  state.kktp.session = await KKTP.generateSessionKey();
+  
+  // 1b. Get VRF Value (Public Seed)
+  let vrfValue = state.foldedOutput;
+  if (!vrfValue) {
+      // Generate a random one for demo purposes if user didn't fold
+      const rnd = new Uint8Array(32);
+      crypto.getRandomValues(rnd);
+      vrfValue = KKTP.bytesToHex(rnd);
+      log('anchorTxPanel', 'Generated ephemeral VRF value (no folded output found).');
+  } else {
+      log('anchorTxPanel', 'Using folded VRF output for session key derivation.');
+  }
+
+  // 2. Create Discovery Anchor
+  const discovery = await KKTP.createDiscoveryAnchor(
+    state.sessionId, 
+    state.kktp.identity, 
+    state.kktp.session,
+    { game: "anti-cheat-demo", startX: state.playerStartPos.x, startY: state.playerStartPos.y },
+    vrfValue
+  );
+  
+  // 3. Simulate Peer (Responder) for demo purposes
+  // In a real app, we would wait for a peer. Here we generate one to allow encryption.
+  const peerIdentity = await KKTP.generateIdentityKey();
+  const peerSession = await KKTP.generateSessionKey();
+  const response = await KKTP.createResponseAnchor(discovery, peerIdentity, peerSession);
+  
+  // 4. Publish Anchors (Bundled for speed in demo, usually separate)
+  const prefix = $('payloadPrefix')?.value || 'KKTP';
+  const payload = `${prefix}:ANCHOR:${KKTP.canonicalStringify({ anchors: [discovery, response] })}`;
+  
+  await state.portal.send({
+    amount: '0.2',
+    toAddress: state.walletAddress,
+    payload
+  });
+  
+  // 5. Derive Session Keys
+  // Use public derivation so spectators can also derive keys
+  const secrets = KKTP.derivePublicSessionSecrets(vrfValue, state.sessionId, state.kktp.identity.pub, peerIdentity.pub);
+  state.kktp.kSession = secrets.kSession;
+  state.kktp.mailboxId = secrets.mailboxId;
+  
+  log('anchorTxPanel', `KKTP Session Established (Public). Mailbox: ${state.kktp.mailboxId.slice(0,8)}...`);
+}
+
+export async function startPlayer() {
   if (!state.connected) {
     alert('Connect to a node first!');
     return;
@@ -264,17 +257,18 @@ export function startPlayer() {
   state.sessionId = newSessionId();
   state.playerStartPos = { x: 4, y: 4 };
   state.playerPos = { ...state.playerStartPos };
+  state.kktp.seq = 0;
 
   setPlayerSessionBadge();
 
   state.playerActive = true;
-  state.anchorInterval = parseInt($('anchorInterval').value) || 250;
+  state.anchorInterval = parseInt($('anchorInterval').value) || 1250;
 
   createGrid('playerGrid', 'grid-cell');
   updatePlayerGrid();
   log('moveLogPanel', `Game started! Session: ${state.sessionId.slice(0, 8)}`, true);
   log('merkleTreePanel', 'Merkle tree initialized.', true);
-  log('anchorTxPanel', `Anchoring every ${state.anchorInterval}ms`, true);
+  log('anchorTxPanel', `Syncing every ${state.anchorInterval}ms`, true);
 
   document.addEventListener('keydown', handlePlayerKeydown);
 
@@ -285,9 +279,10 @@ export function startPlayer() {
 
   // Start anchor timer
   if (state.walletReady) {
-    state.anchorTimer = setInterval(anchorToKaspa, state.anchorInterval);
+    await performKKTPHandshake();
+    state.anchorTimer = setInterval(publishGameLoop, state.anchorInterval);
   } else {
-    log('anchorTxPanel', 'Anchoring disabled (wallet not ready). Connect again or check console.', true);
+    log('anchorTxPanel', 'Wallet not ready. Connect again.', true);
   }
 
   setStatus('playerStatus', 'Playing', 'connected');
@@ -295,7 +290,7 @@ export function startPlayer() {
   $('stopPlayerBtn').disabled = false;
 }
 
-export function stopPlayer() {
+export async function stopPlayer() {
   state.playerActive = false;
   document.removeEventListener('keydown', handlePlayerKeydown);
 
@@ -304,12 +299,25 @@ export function stopPlayer() {
     state.anchorTimer = null;
   }
 
+  if (state.walletReady && state.kktp.identity) {
+    const endAnchor = await KKTP.createSessionEndAnchor(state.sessionId, state.kktp.identity);
+    const prefix = $('payloadPrefix')?.value || 'KKTP';
+    await state.portal.send({
+      amount: '0.2',
+      toAddress: state.walletAddress,
+      payload: KKTP.buildKKTPPayload(prefix + ':', endAnchor)
+    });
+    log('anchorTxPanel', 'Session Closed.');
+  }
+
   setStatus('playerStatus', 'Stopped', 'disconnected');
   $('startPlayerBtn').disabled = false;
   $('stopPlayerBtn').disabled = true;
 }
 
 export function initPlayer() {
+  if (!$('startPlayerBtn')) return; // Guard
+
   createGrid('playerGrid', 'grid-cell');
   $('startPlayerBtn').addEventListener('click', startPlayer);
   $('stopPlayerBtn').addEventListener('click', stopPlayer);

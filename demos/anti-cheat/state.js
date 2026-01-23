@@ -36,6 +36,17 @@ export const state = {
   merkleTree: null,
   anchorInterval: 250,
   anchorTimer: null,
+  
+  // KKTP State
+  kktp: {
+    identity: null, // { priv, pub }
+    session: null,  // { priv, pub }
+    peerIdentity: null,
+    peerSession: null,
+    kSession: null, // Uint8Array
+    mailboxId: null, // hex
+    seq: 0
+  },
 
   // Session (new each "Start Game")
   sessionId: null,
@@ -71,6 +82,7 @@ export const state = {
   spectatorExpectedRound: 0,
   spectatorLastSeq: -1,
   spectatorPendingByPrevRoot: new Map(),
+  spectatorBuffer: new Map(), // Buffer for out-of-order KKTP messages: Map<seq, {obj, meta, opts}>
   spectatorSeenKeys: new Set(),
 
   // Latency stats (ms)
@@ -123,12 +135,24 @@ export function resetSpectatorState() {
   state.spectatorLastRoot = null;
   state.spectatorLastRound = null;
 
+  // Reset KKTP state for spectator
+  state.kktp = {
+    identity: null,
+    session: null,
+    peerIdentity: null,
+    peerSession: null,
+    kSession: null,
+    mailboxId: null,
+    seq: 0
+  };
+
   // Chain ordering state
   state.spectatorSessionId = null;
   state.spectatorExpectedPrevRoot = 'GENESIS';
   state.spectatorExpectedRound = 0;
   state.spectatorLastSeq = -1;
   state.spectatorPendingByPrevRoot = new Map();
+  state.spectatorBuffer = new Map();
   state.spectatorSeenKeys = new Set();
 
   // Latency stats

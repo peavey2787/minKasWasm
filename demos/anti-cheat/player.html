@@ -1,17 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Anti-Cheat VRF Demo - QRNG + BTC + KAS</title>
-  <link rel="stylesheet" href="../../styles.css">
-  <link rel="stylesheet" href="anti-cheat.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KKTP Anti-Cheat Demo - PLAYER</title>
+  <link rel="stylesheet" href="../../styles.css" />
+  <link rel="stylesheet" href="anti-cheat.css" />
 </head>
 <body>
   <div class="container">
-    <h1>🎲 Anti-Cheat VRF Demo</h1>
+    <h1>KKTP Anti-Cheat Demo <span class="role-badge">PLAYER</span></h1>
     <p style="text-align:center;color:var(--text-muted);margin-bottom:1.5rem;">
-      Revolutionary QRNG + Bitcoin + Kaspa Verifiable Random Function with Merkle Tree Anchoring
+      Secure, Serverless Gameplay over Kaspa BlockDAG
     </p>
 
     <!-- Connection Section -->
@@ -24,7 +24,7 @@
         <div class="control-group">
           <label for="networkSelect">Network</label>
           <select id="networkSelect">
-            <option value="mainnet">mainnet</option>
+            <option value="mainnet">Mainnet</option>
             <option value="testnet-10" selected>testnet-10</option>
             <option value="testnet-11">testnet-11</option>
             <option value="testnet-12">testnet-12</option>
@@ -32,13 +32,13 @@
         </div>
         <div class="control-group">
           <label class="checkbox-label">
-            <input type="checkbox" id="usePublicResolver" checked>
+            <input type="checkbox" id="usePublicResolver" checked />
             Use Public Resolver
           </label>
         </div>
         <div class="control-group">
           <label for="nodeUrl">Node URL (if not using resolver)</label>
-          <input type="text" id="nodeUrl" placeholder="ip:port" disabled>
+          <input type="text" id="nodeUrl" placeholder="ws://127.0.0.1:17110" disabled />
         </div>
         <button id="connectBtn">Connect</button>
       </div>
@@ -66,7 +66,7 @@
       </div>
     </div>
 
-    <!-- Tab Navigation (VRF and NIST only - Player/Spectator are always visible) -->
+    <!-- Tab Navigation -->
     <div class="tab-bar">
       <button class="tab-btn active" data-tab="vrf">VRF Sources</button>
       <button class="tab-btn" data-tab="nist">NIST Tests</button>
@@ -150,17 +150,11 @@
         
         <div class="controls-row">
           <label class="checkbox-label">
-            <input type="checkbox" id="foldKaspa" checked>
-            Include Kaspa
-          </label>
+            <label><input type="checkbox" id="foldKaspa" checked> Kaspa</label>
           <label class="checkbox-label">
-            <input type="checkbox" id="foldBtc" checked>
-            Include Bitcoin
-          </label>
+            <input type="checkbox" id="foldBtc" checked> Bitcoin</label>
           <label class="checkbox-label">
-            <input type="checkbox" id="foldQrng" checked>
-            Include QRNG
-          </label>
+            <input type="checkbox" id="foldQrng" checked> QRNG</label>
         </div>
         
         <div class="controls-row mt-1">
@@ -193,8 +187,8 @@
           <div class="control-group">
             <label for="nistSource">Test Source</label>
             <select id="nistSource">
-              <option value="kaspa">Kaspa Blocks (concatenated hashes)</option>
-              <option value="btc">Bitcoin Blocks (concatenated hashes)</option>
+              <option value="kaspa">Kaspa Blocks</option>
+              <option value="btc">Bitcoin Blocks</option>
               <option value="qrng">QRNG Data</option>
               <option value="folded">Folded Output</option>
             </select>
@@ -230,16 +224,13 @@
       </div>
     </div>
 
-    <!-- Player & Spectator Side-by-Side Section (Always Visible) -->
+    <!-- Player Game Section -->
     <div class="game-section">
       <div class="section-header">
-        <h2>🎮 Player & Spectator</h2>
+        <h2>🎮 Player</h2>
       </div>
-      <p style="color:var(--text-muted);font-size:0.9em;text-align:center;margin-bottom:1rem;">
-        Player moves the block (left); Spectator sees live replay from blockchain (right).
-      </p>
-
-      <!-- Shared Controls -->
+      
+      <!-- Shared Controls (Interval/Prefix) -->
       <div class="controls-row" style="margin-bottom:1rem;">
         <div class="control-group">
           <label for="anchorInterval">Anchor Interval (ms)</label>
@@ -247,13 +238,13 @@
         </div>
         <div class="control-group">
           <label for="payloadPrefix">Payload Prefix</label>
-          <input type="text" id="payloadPrefix" value="anticheat:move" style="width:150px;">
+          <input type="text" id="payloadPrefix" value="KKTP" placeholder="KKTP" style="width:150px;">
         </div>
       </div>
 
       <div class="game-row">
         <!-- Player Panel -->
-        <div class="game-panel">
+        <div class="game-panel" style="flex:1; max-width:100%;">
           <div class="panel-header">
             <h3>🕹️ Player</h3>
             <div style="display:flex; gap:.5rem; align-items:center;">
@@ -285,40 +276,12 @@
             <div id="anchorTxPanel" class="output-panel small">No anchors yet.</div>
           </div>
         </div>
-
-        <!-- Spectator Panel -->
-        <div class="game-panel">
-          <div class="panel-header">
-            <h3>👁️ Spectator</h3>
-            <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
-              <span id="spectatorSessionBadge" class="status-badge pending">session: --</span>
-              <span id="spectatorLatencyBadge" class="status-badge pending">latency: --</span>
-              <span id="spectatorStatus" class="status-badge pending">Not Watching</span>
-            </div>
-          </div>
-          <p class="panel-desc">Live replay from blockchain anchors.</p>
-          
-          <div class="controls-row compact">
-            <button id="startSpectatorBtn">Watch Live</button>
-            <button id="replaySpectatorBtn" class="secondary">Replay From Start</button>
-            <button id="stopSpectatorBtn" class="danger" disabled>Stop</button>
-          </div>
-
-          <div class="game-grid spectator" id="spectatorGrid">
-            <!-- 10x10 grid cells will be generated by JS -->
-          </div>
-
-          <div class="log-area">
-            <strong>Blockchain Log:</strong>
-            <div id="spectatorLogPanel" class="output-panel small">No moves received yet.</div>
-          </div>
-        </div>
       </div>
     </div>
 
   </div>
 
-  <!-- Modal overlay (used for insufficient funds / important alerts) -->
+  <!-- Modal overlay -->
   <div id="modalOverlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal-card">
       <div class="modal-header">

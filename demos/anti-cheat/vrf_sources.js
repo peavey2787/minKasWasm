@@ -338,6 +338,8 @@ export async function foldSources() {
 }
 
 export function initVrfSources() {
+  if (!$('fetchKaspaBtn')) return; // Guard
+
   $('fetchKaspaBtn').addEventListener('click', () => {
     $('fetchKaspaBtn').disabled = true;
     $('stopKaspaBtn').disabled = false;

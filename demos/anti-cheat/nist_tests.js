@@ -172,6 +172,8 @@ export function stopNistTests() {
 }
 
 export function initNistTests() {
+  if (!$('runNistBtn')) return; // Guard
+
   $('runNistBtn').addEventListener('click', runNistTests);
   
   const stopBtn = $('stopNistBtn');
