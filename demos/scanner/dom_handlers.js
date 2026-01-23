@@ -2,17 +2,12 @@
 // All handler functions for scanner UI
 
 import * as elements from './dom_elements.js';
-import { SearchMode } from "../../wrapper/intelligence/scanner.js";
-import { IntelligenceFacade } from "../../wrapper/intelligence/intelligenceFacade.js";
-import { connect } from "../../wrapper/transport/kaspa_client.js";
-import { init, createWallet, send } from "../../wrapper/identity/wallet_service.js";
-import { IndexerStore } from "../../wrapper/intelligence/indexer.js";
+import { KaspaPortal, SearchMode, IndexerStore } from "../../wrapper/kaspaPortal.js";
 import * as renderUI from './render_ui.js';
 
 // State (exported for controller)
 export let walletInitialized = false;
-export let kaspaClient = null;
-export let intelligence = null;
+export let portal = null;
 export let scanning = false;
 export let currentIndexerOptions = {};
 
@@ -23,10 +18,10 @@ let cachedRenderTimer = null;
 const CACHED_RENDER_THROTTLE_MS = 350;
 
 function renderInMemoryLiveSnapshot() {
-  if (!intelligence || !intelligence.indexer) return;
-  renderUI.renderInMemoryAllTransactionsSection(intelligence.indexer.getAllTransactions());
-  renderUI.renderInMemoryMatchingTransactionsSection(intelligence.indexer.getAllMatchingTransactions());
-  renderUI.renderInMemoryBlocksSection(intelligence.indexer.getAllBlocks());
+  if (!portal || !portal.intelligence || !portal.intelligence.indexer) return;
+  renderUI.renderInMemoryAllTransactionsSection(portal.intelligence.indexer.getAllTransactions());
+  renderUI.renderInMemoryMatchingTransactionsSection(portal.intelligence.indexer.getAllMatchingTransactions());
+  renderUI.renderInMemoryBlocksSection(portal.intelligence.indexer.getAllBlocks());
 }
 
 function isInMemoryPanelOpen() {
@@ -53,12 +48,12 @@ function scheduleInMemoryLiveSnapshot() {
 function scheduleCachedSnapshotRender() {
   // Don’t do IndexedDB reads + DOM work when the user can’t see it.
   if (!isCachedPanelOpen()) return;
-  if (!intelligence || !intelligence.indexer) return;
+  if (!portal || !portal.intelligence || !portal.intelligence.indexer) return;
 
   if (cachedRenderTimer) return;
   cachedRenderTimer = setTimeout(async () => {
     cachedRenderTimer = null;
-    await renderUI.renderAllIndexerSections(intelligence.indexer);
+    await renderUI.renderAllIndexerSections(portal.intelligence.indexer);
   }, CACHED_RENDER_THROTTLE_MS);
 }
 
@@ -68,10 +63,6 @@ export async function handleConnectClick() {
   const networkId = elements.getNetworkInput().value.trim();
   const usePublicResolver = elements.getPublicResolverCheckbox().checked;
   try {
-    kaspaClient = usePublicResolver
-      ? await connect(null, networkId)
-      : await connect(url, networkId);
-    statusDiv.textContent = "Connected";
 
     // Get indexer options from UI
     const ttlInput = elements.getTtlInput();
@@ -118,9 +109,14 @@ export async function handleConnectClick() {
         inMemoryMaxBlocks: inMemoryMax
       };
     }
-    intelligence = new IntelligenceFacade(kaspaClient, {}, currentIndexerOptions);
     
-    intelligence
+    portal = new KaspaPortal({
+      intelligence: {
+        indexer: currentIndexerOptions
+      }
+    });
+    
+    portal
       .onNewTransaction(() => scheduleInMemoryLiveSnapshot())
       .onNewTransactionMatch(() => scheduleInMemoryLiveSnapshot())
       .onNewBlock(() => scheduleInMemoryLiveSnapshot())
@@ -130,8 +126,11 @@ export async function handleConnectClick() {
       .onEvict(() => scheduleInMemoryLiveSnapshot())
       .onCacheEvict(() => scheduleCachedSnapshotRender());
 
-    await intelligence.indexer.initDB();
-    renderUI.renderAllIndexerSections(intelligence.indexer);
+    await portal.connect(usePublicResolver ? null : url, networkId, { startIntelligence: false, balanceElementId: "balanceResult" });
+    statusDiv.textContent = "Connected";
+
+    await portal.intelligence.indexer.initDB();
+    renderUI.renderAllIndexerSections(portal.intelligence.indexer);
     scheduleInMemoryLiveSnapshot();
   } catch (err) {
     console.error("Connection error:", err);
@@ -142,7 +141,7 @@ export async function handleConnectClick() {
 export async function handleStartStopClick() {
   const startStopBtn = elements.getStartStopBtn();
   const statusDiv = elements.getStatusDiv();
-  if (!intelligence || !kaspaClient) return alert("Connect to a node first!");
+  if (!portal || !portal.client) return alert("Connect to a node first!");
   if (!scanning) {
     // Clear previous blocks
     const iframeDoc = elements.getBlocksIframe().contentDocument || elements.getBlocksIframe().contentWindow.document;
@@ -150,11 +149,11 @@ export async function handleStartStopClick() {
     elements.getMatchesContainer().innerHTML = "";
     // Set search options
     const searchText = elements.getSearchInput().value.trim();
-    intelligence.scanner.prefix = searchText ? searchText : null;
-    intelligence.scanner.addresses = [];
-    intelligence.scanner.searchMode = SearchMode.INCLUDES;
+    portal.intelligence.scanner.prefix = searchText ? searchText : null;
+    portal.intelligence.scanner.addresses = [];
+    portal.intelligence.scanner.searchMode = SearchMode.INCLUDES;
 
-    await intelligence.scanner.start((block, matches) => {
+    await portal.intelligence.scanner.start((block, matches) => {
       // UI: show block in iframe
       renderUI.addBlockToUI(block, null, null);
 
@@ -168,7 +167,7 @@ export async function handleStartStopClick() {
     startStopBtn.textContent = "Stop";
     statusDiv.textContent = "Scanning...";
   } else {
-    intelligence.scanner.stop();
+    portal.intelligence.scanner.stop();
     scanning = false;
     startStopBtn.textContent = "Start";
     statusDiv.textContent = "Stopped.";
@@ -177,16 +176,16 @@ export async function handleStartStopClick() {
 }
 
 export async function handleStartIndexerClick() {
-  if (!intelligence || !intelligence.indexer) return;
+  if (!portal || !portal.intelligence || !portal.intelligence.indexer) return;
   try {
-    if (typeof intelligence.indexer.freshStart === "function") {
-      await intelligence.indexer.freshStart();
+    if (typeof portal.intelligence.indexer.freshStart === "function") {
+      await portal.intelligence.indexer.freshStart();
     } else {
-      await intelligence.indexer.initDB();
-      intelligence.indexer.start();
+      await portal.intelligence.indexer.initDB();
+      portal.intelligence.indexer.start();
     }
-    renderUI.restartCountdown(intelligence.indexer.ttlMs);
-    renderUI.restartFlushCountdown(intelligence.indexer.flushInterval);
+    renderUI.restartCountdown(portal.intelligence.indexer.ttlMs);
+    renderUI.restartFlushCountdown(portal.intelligence.indexer.flushInterval);
   } catch (err) {
     console.error("Failed to start indexer:", err);
   }
@@ -197,7 +196,7 @@ export function handleStopIndexerClick() {
   renderUI.stopFlushCountdown();
   const countdownDiv = elements.getIndexerCountdownDiv();
   countdownDiv.textContent = "";
-  intelligence.indexer.stop();
+  portal.intelligence.indexer.stop();
 }
 
 export function handleMatchModeChange() {
@@ -211,20 +210,20 @@ export function handleMatchModeChange() {
 }
 
 export async function handleClearMatchingTxsClick() {
-  if (!intelligence || !intelligence.indexer) return;
-  await intelligence.indexer.clearStore(IndexerStore.MATCHING_TRANSACTIONS);
+  if (!portal || !portal.intelligence || !portal.intelligence.indexer) return;
+  await portal.intelligence.indexer.clearStore(IndexerStore.MATCHING_TRANSACTIONS);
   renderUI.clearAllCachedSections();
 }
 
 export async function handleClearAllTxsClick() {
-  if (!intelligence || !intelligence.indexer) return;
-  await intelligence.indexer.clearStore(IndexerStore.TRANSACTIONS);
+  if (!portal || !portal.intelligence || !portal.intelligence.indexer) return;
+  await portal.intelligence.indexer.clearStore(IndexerStore.TRANSACTIONS);
   renderUI.clearAllCachedSections();
 }
 
 export async function handleClearBlocksClick() {
-  if (!intelligence || !intelligence.indexer) return;
-  await intelligence.indexer.clearStore(IndexerStore.BLOCKS);
+  if (!portal || !portal.intelligence || !portal.intelligence.indexer) return;
+  await portal.intelligence.indexer.clearStore(IndexerStore.BLOCKS);
   renderUI.clearAllCachedSections();
 }
 
@@ -232,10 +231,8 @@ export function handleCreateWalletClick() {
   const walletLoading = elements.getWalletLoading ? elements.getWalletLoading() : document.getElementById("walletLoading");
   walletLoading.style.display = "inline-block";
   setTimeout(async () => {
-    if (!intelligence || !kaspaClient) return alert("Connect to a node first!");
-    const networkId = elements.getNetworkInput().value.trim();
-    await init({rpcClient: kaspaClient, networkId, balanceElementId: "balanceResult" });
-    const { address } = await createWallet({ password: "1234" });
+    if (!portal || !portal.client) return alert("Connect to a node first!");
+    const { address } = await portal.identity.createWallet({ password: "1234" });
     walletInitialized = true;
     elements.getReceiveAddressLabel().textContent = address;
     elements.getToAddressInput().value = address;
@@ -249,7 +246,7 @@ export async function handleSendClick() {
   const amount = elements.getAmountInput().value.trim();
   let payload = elements.getPayloadInput().value.trim();
   try {
-    await send({ amount, toAddress, payload });
+    await portal.send({ amount, toAddress, payload });
     elements.getSendResultLabel().textContent = "Transaction sent!";
   } catch (err) {
     elements.getSendResultLabel().textContent = "Send error: " + err.message;

@@ -153,6 +153,46 @@ export class KaspaPortal {
   }
 
   /**
+   * Subscribe to cached transactions (delegates to Intelligence).
+   */
+  onCachedTransaction(cb) {
+    this.intelligence.onCachedTransaction(cb);
+    return this;
+  }
+
+  /**
+   * Subscribe to cached matching transactions (delegates to Intelligence).
+   */
+  onCachedTransactionMatch(cb) {
+    this.intelligence.onCachedTransactionMatch(cb);
+    return this;
+  }
+
+  /**
+   * Subscribe to cached blocks (delegates to Intelligence).
+   */
+  onCachedBlock(cb) {
+    this.intelligence.onCachedBlock(cb);
+    return this;
+  }
+
+  /**
+   * Subscribe to eviction events (delegates to Intelligence).
+   */
+  onEvict(cb) {
+    this.intelligence.onEvict(cb);
+    return this;
+  }
+
+  /**
+   * Subscribe to cache eviction events (delegates to Intelligence).
+   */
+  onCacheEvict(cb) {
+    this.intelligence.onCacheEvict(cb);
+    return this;
+  }
+
+  /**
    * Encrypt a message (delegates to Crypto).
    */
   encrypt(text, password) {
