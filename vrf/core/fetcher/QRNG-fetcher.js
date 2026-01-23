@@ -53,3 +53,22 @@ export class QRandomIO extends QRNGProvider {
     return data.randomness; // depends on API schema
   }
 }
+
+// New provider: NIST Beacon
+export class NISTBeacon extends QRNGProvider {
+  constructor() {
+    super('NIST Beacon', 'https://beacon.nist.gov/beacon/2.0/pulse/last');
+  }
+
+  async fetchRandomness(length = 64) {
+    const data = await this.request(this.baseUrl);
+    const hex = data?.pulse?.outputValue;
+    if (!hex) throw new Error('NIST Beacon response missing outputValue');
+    
+    const bytes = [];
+    for (let i = 0; i < hex.length; i += 2) {
+      bytes.push(parseInt(hex.substr(i, 2), 16));
+    }
+    return bytes.slice(0, length);
+  }
+}

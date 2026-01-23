@@ -3,16 +3,17 @@
 import { getQrngCache, setQrngCache } from './cache-persist.js';
 import { CONFIG } from '../config.js';
 
-import { ANUQRNG, QRandomIO } from './QRNG-fetcher.js';
+import { ANUQRNG, QRandomIO, NISTBeacon } from './QRNG-fetcher.js';
 import { logInfo, logError } from '../logger.js';
 
 const providers = {
     anu: new ANUQRNG(),
-    qrandom: new QRandomIO()
+    qrandom: new QRandomIO(),
+    nist: new NISTBeacon()
 };
 
 function validateProvider(providerName) {
-    if (!['anu', 'qrandom'].includes(providerName)) {
+    if (!['anu', 'qrandom', 'nist'].includes(providerName)) {
         throw new Error(`Invalid QRNG provider: ${providerName}`);
     }
 }
@@ -24,7 +25,7 @@ function validateProvider(providerName) {
  * @param {number} length - Number of bytes/bits
  * @returns {Promise<any>} - Randomness data
  */
-export async function getQRNG(providerName = 'anu', length = 16) {
+export async function getQRNG(providerName = 'nist', length = 16) {
     const now = Date.now();
     const cache = getQrngCache();
     // Only allow a new API call if enough time has passed since last cache
@@ -46,7 +47,7 @@ export async function getQRNG(providerName = 'anu', length = 16) {
         let lastErr;
         for (let attempt = 1; attempt <= 3; attempt++) {
             try {
-                const provider = providers[providerName] || providers.anu;
+                const provider = providers[providerName] || providers.nist;
                 const rawResult = await provider.fetchRandomness(length);
                 const result = sanitizeQrngResult(rawResult);
                 if (Array.isArray(result.data) && result.data.length > 0) {

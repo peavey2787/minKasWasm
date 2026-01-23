@@ -260,14 +260,14 @@ export async function fetchQrng() {
   log('qrngPanel', manual ? 'Using manual QRNG input...' : 'Fetching QRNG data...', true);
 
   try {
-    const data = manual ? parseManualQrng(manual) : await getQRNG('anu', bytes);
+    const data = manual ? parseManualQrng(manual) : await getQRNG('nist', bytes);
     if (!Array.isArray(data)) throw new Error('QRNG data must be an array of bytes');
     state.qrngData = data;
     $('qrngDataLabel').textContent = `(${data.length} bytes)`;
 
     log('qrngPanel', JSON.stringify({
       bytes: data.length,
-      provider: manual ? 'manual' : 'anu',
+      provider: manual ? 'manual' : 'nist',
       data,
     }, null, 2), true);
     $('exportQrngBtn').disabled = false;
@@ -383,7 +383,7 @@ export function initVrfSources() {
     const manual = $('qrngInput')?.value?.trim?.() || '';
     downloadJSON({
       source: 'qrng',
-      provider: manual ? 'manual' : 'anu',
+      provider: manual ? 'manual' : 'nist',
       data: state.qrngData,
     }, 'qrng-data.json');
   });
