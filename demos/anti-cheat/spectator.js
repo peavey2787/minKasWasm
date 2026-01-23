@@ -449,11 +449,12 @@ function handleMatchObject(matchObj, prefix) {
 // --- Backfill from indexer ---
 
 async function initialBackfillFromIndexer(prefix) {
-  if (!state.scanner?.indexer) return;
+  const indexer = state.portal.intelligence.indexer;
+  if (!indexer) return;
 
   // Cached (IndexedDB)
   try {
-    const cached = await state.scanner.indexer.getAllCachedMatchingTransactions?.();
+    const cached = await indexer.getAllCachedMatchingTransactions?.();
     const arr = Array.isArray(cached) ? cached : [];
     for (const tx of arr) {
       await handleMatchObject(tx, prefix);
@@ -464,7 +465,7 @@ async function initialBackfillFromIndexer(prefix) {
 
   // In-memory (recent, not yet flushed)
   try {
-    const inMem = state.scanner.indexer.getAllMatchingTransactions?.() || [];
+    const inMem = indexer.getAllMatchingTransactions?.() || [];
     for (const tx of inMem) {
       await handleMatchObject(tx, prefix);
     }
@@ -474,7 +475,8 @@ async function initialBackfillFromIndexer(prefix) {
 }
 
 async function collectSessionAnchors(prefix, sessionId) {
-  if (!state.scanner?.indexer) return [];
+  const indexer = state.portal.intelligence.indexer;
+  if (!indexer) return [];
 
   const out = [];
   const seenRoots = new Set();
@@ -501,7 +503,7 @@ async function collectSessionAnchors(prefix, sessionId) {
   };
 
   try {
-    const cached = await state.scanner.indexer.getAllCachedMatchingTransactions?.();
+    const cached = await indexer.getAllCachedMatchingTransactions?.();
     const arr = Array.isArray(cached) ? cached : [];
     for (const tx of arr) {
       await pushTx(tx);
@@ -509,7 +511,7 @@ async function collectSessionAnchors(prefix, sessionId) {
   } catch {}
 
   try {
-    const inMem = state.scanner.indexer.getAllMatchingTransactions?.() || [];
+    const inMem = indexer.getAllMatchingTransactions?.() || [];
     for (const tx of inMem) {
       await pushTx(tx);
     }
@@ -580,7 +582,7 @@ export async function replayFromStart() {
     alert('Connect to a node first!');
     return;
   }
-  if (!state.scanner) {
+  if (!state.portal.intelligence.scanner) {
     alert('Scanner not ready yet. Connect first.');
     return;
   }
@@ -640,7 +642,7 @@ export function startSpectator() {
     return;
   }
 
-  if (!state.scanner) {
+  if (!state.portal.intelligence.scanner) {
     alert('Scanner not ready yet. Connect first.');
     return;
   }
@@ -658,7 +660,7 @@ export function startSpectator() {
   state.spectatorActive = true;
 
   const prefix = $('payloadPrefix')?.value || 'anticheat:move';
-  state.scanner.prefix = prefix;
+  state.portal.intelligence.scanner.prefix = prefix;
 
   log('spectatorLogPanel', `Watching for anchors... prefix="${prefix}"`, false);
 

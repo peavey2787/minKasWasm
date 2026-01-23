@@ -1,9 +1,5 @@
 // vrf_sources.js - VRF data fetching and folding
 
-import { getBitcoinBlocks } from '../../wrapper/vrf/core/fetcher/bitcoin.js';
-import { getQRNG } from '../../wrapper/vrf/core/fetcher/qrng.js';
-import { hexToBinary } from '../../wrapper/vrf/core/crypto.js';
-import core from '../../wrapper/vrf/core/index.js';
 import { $ } from './dom_elements.js';
 import { state } from './state.js';
 import { log, downloadJSON } from './utils.js';
@@ -92,7 +88,8 @@ let kaspaTargetCount = 0;
 export async function fetchKaspaBlocks() {
   const count = parseInt($('kaspaBlockCount').value) || 6;
   
-  if (!state.scanner) {
+  const scanner = state.portal.intelligence.scanner;
+  if (!scanner) {
     log('kaspaBlocksPanel', 'ERROR: Scanner not connected! Click "Connect" first.', true);
     $('fetchKaspaBtn').disabled = false;
     $('stopKaspaBtn').disabled = true;
@@ -125,7 +122,7 @@ export async function fetchKaspaBlocks() {
   $('kaspaBlockCountLabel').textContent = `(0/${count})`;
 
   // Hook into scanner's live block stream via our callback
-  state.scanner._vrfCallback = (block, matches) => {
+  scanner._vrfCallback = (block, matches) => {
 
     if (!kaspaCollecting) return;
 
@@ -166,8 +163,8 @@ export async function fetchKaspaBlocks() {
   setTimeout(() => {
     if (kaspaCollecting && kaspaCollectedBlocks.length === 0) {
       appendBlockLine(panel, `⏳ Waiting for blocks from scanner...`);
-      appendBlockLine(panel, `   (Scanner connected: ${!!state.scanner})`);
-      appendBlockLine(panel, `   (Scanner started: ${state.scanner?.isStarted || 'unknown'})`);
+      appendBlockLine(panel, `   (Scanner connected: ${!!scanner})`);
+      appendBlockLine(panel, `   (Scanner started: ${scanner?.scanning || 'unknown'})`);
     }
   }, 2000);
 }
@@ -192,8 +189,8 @@ function finishKaspaCollection() {
   state.kaspaBlocks = kaspaCollectedBlocks.slice(0, kaspaTargetCount);
   
   // Clear the callback
-  if (state.scanner) {
-    state.scanner._vrfCallback = null;
+  if (state.portal.intelligence.scanner) {
+    state.portal.intelligence.scanner._vrfCallback = null;
   }
   
   const panel = $('kaspaBlocksPanel');
@@ -214,8 +211,8 @@ export function stopKaspaCollection() {
     state.kaspaBlocks = kaspaCollectedBlocks;
     
     // Clear the callback
-    if (state.scanner) {
-      state.scanner._vrfCallback = null;
+    if (state.portal.intelligence.scanner) {
+      state.portal.intelligence.scanner._vrfCallback = null;
     }
     
     const panel = $('kaspaBlocksPanel');
@@ -234,7 +231,7 @@ export async function fetchBtcBlocks() {
   log('btcBlocksPanel', 'Fetching Bitcoin blocks...', true);
 
   try {
-    const blocks = await getBitcoinBlocks(count);
+    const blocks = await state.portal.getBitcoinBlocks(count);
     state.btcBlocks = blocks;
     $('btcBlockCountLabel').textContent = `(${blocks.length})`;
 
@@ -260,7 +257,7 @@ export async function fetchQrng() {
   log('qrngPanel', manual ? 'Using manual QRNG input...' : 'Fetching QRNG data...', true);
 
   try {
-    const data = manual ? parseManualQrng(manual) : await getQRNG('nist', bytes);
+    const data = manual ? parseManualQrng(manual) : await state.portal.getQRNG('nist', bytes);
     if (!Array.isArray(data)) throw new Error('QRNG data must be an array of bytes');
     state.qrngData = data;
     $('qrngDataLabel').textContent = `(${data.length} bytes)`;
@@ -318,12 +315,12 @@ export async function foldSources() {
   try {
     let result;
     if (sources.length === 1) {
-      result = hexToBinary(sources[0].data.slice(0, 64).padEnd(64, '0'));
+      result = state.portal.vrf.hexToBinary(sources[0].data.slice(0, 64).padEnd(64, '0'));
     } else if (sources.length === 2) {
-      result = await core.fold(sources[0].data, sources[1].data, { iterations });
+      result = await state.portal.fold(sources[0].data, sources[1].data, { iterations });
     } else {
-      const fold1 = await core.fold(sources[0].data, sources[1].data, { iterations });
-      result = await core.fold(fold1, sources[2].data, { iterations });
+      const fold1 = await state.portal.fold(sources[0].data, sources[1].data, { iterations });
+      result = await state.portal.fold(fold1, sources[2].data, { iterations });
     }
 
     state.foldedOutput = result;

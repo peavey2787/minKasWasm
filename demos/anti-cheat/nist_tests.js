@@ -1,6 +1,5 @@
 // nist_tests.js - NIST randomness testing using Web Worker
 
-import { hexToBinary } from '../../wrapper/vrf/core/crypto.js';
 import { $ } from './dom_elements.js';
 import { state } from './state.js';
 import { downloadJSON } from './utils.js';
@@ -17,14 +16,14 @@ export async function runNistTests() {
         alert('Collect Kaspa blocks first!');
         return;
       }
-      bits = state.kaspaBlocks.map(b => hexToBinary(b.hash)).join('');
+      bits = state.kaspaBlocks.map(b => state.portal.vrf.hexToBinary(b.hash)).join('');
       break;
     case 'btc':
       if (state.btcBlocks.length === 0) {
         alert('Fetch Bitcoin blocks first!');
         return;
       }
-      bits = state.btcBlocks.map(b => hexToBinary(b.hash)).join('');
+      bits = state.btcBlocks.map(b => state.portal.vrf.hexToBinary(b.hash)).join('');
       break;
     case 'qrng':
       if (state.qrngData.length === 0) {
