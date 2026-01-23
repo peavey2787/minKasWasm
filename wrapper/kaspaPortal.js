@@ -230,4 +230,80 @@ export class KaspaPortal {
     // createDHSession calls initiateHandshake internally when keys are provided
     return this.crypto.createDHSession(privateKey, publicKey);
   }
+
+  // --- VRF Proxy Methods ---
+
+  /**
+   * Fetch randomness blocks from various sources (delegates to VRF).
+   * @param {string} source - 'bitcoin', 'kaspa', 'qrng', 'hybrid'
+   * @param {number} n - Number of blocks/items
+   * @returns {Promise<Object>}
+   */
+  async fetchBlocks(source, n) {
+    return this.vrf.fetchBlocks(source, n);
+  }
+
+  /**
+   * Fetch Bitcoin blocks (delegates to VRF).
+   * @param {number} n - Number of blocks
+   * @returns {Promise<Array>}
+   */
+  async getBitcoinBlocks(n) {
+    return this.vrf.getBitcoinBlocks(n);
+  }
+
+  /**
+   * Fetch QRNG data (delegates to VRF).
+   * @param {string} provider - 'nist', 'anu', 'qrandom'
+   * @param {number} length - Number of bytes
+   * @returns {Promise<Array>}
+   */
+  async getQRNG(provider, length) {
+    return this.vrf.getQRNG(provider, length);
+  }
+
+  /**
+   * Fold two sources of randomness (delegates to VRF).
+   * @param {string} data1 - Hex string
+   * @param {string} data2 - Hex string
+   * @param {Object} options - { iterations }
+   * @returns {Promise<string>} Folded result
+   */
+  async fold(data1, data2, options) {
+    return this.vrf.fold(data1, data2, options);
+  }
+
+  /**
+   * Run the full NIST SP 800-22 test suite on a bitstring (delegates to VRF).
+   * @param {string} bits - Binary string
+   * @returns {Promise<Object[]>} Test results
+   */
+  async fullNIST(bits) {
+    return this.vrf.fullNIST(bits);
+  }
+
+  /**
+   * Run a basic subset of NIST tests (delegates to VRF).
+   * @param {string} bits - Binary string
+   * @returns {Promise<Object[]>} Test results
+   */
+  async basicNIST(bits) {
+    return this.vrf.basicNIST(bits);
+  }
+
+  /**
+   * Generate full randomness using QRNG + Kaspa + BTC (delegates to VRF).
+   * @returns {Promise<string>} Folded result
+   */
+  async generateFullRandomness() {
+    return this.vrf.generateFullRandomness();
+  }
+
+  /**
+   * Generate partial randomness using Kaspa + BTC (delegates to VRF).
+   * @returns {Promise<string>} Folded result
+   */
+  async generatePartialRandomness() {
+    return this.vrf.generatePartialRandomness();
+  }
 }
