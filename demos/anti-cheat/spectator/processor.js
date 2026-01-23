@@ -11,6 +11,7 @@ const live = {
   processing: false,
   processPromise: null,
   latestSeqSeen: -1,
+  pendingEncrypted: [], // Buffer for packets arriving before keys
 };
 
 function sleep(ms) {
@@ -69,6 +70,7 @@ export function resetLiveQueue() {
   live.processing = false;
   live.processPromise = null;
   live.latestSeqSeen = -1;
+  live.pendingEncrypted = [];
   try {
     UI.setBehindBanner(false);
   } catch {
@@ -162,7 +164,12 @@ export async function tryAcceptAnchor(obj, meta, opts = {}) {
         return;
       }
     } else {
-      return;
+      // No keys yet! Buffer this for later retry once keys are derived.
+      // Only buffer if it matches our session (if known) or if we haven't locked a session yet.
+      if (!state.spectatorSessionId || obj.sid === state.spectatorSessionId) {
+        live.pendingEncrypted.push({ obj, meta, opts });
+      }
+      return; 
     }
   }
 
@@ -185,6 +192,17 @@ export async function tryAcceptAnchor(obj, meta, opts = {}) {
       state.kktp.kSession = secrets.kSession;
       state.kktp.mailboxId = secrets.mailboxId;
       log('spectatorLogPanel', `Derived session keys from VRF. Mailbox: ${secrets.mailboxId.slice(0,8)}...`);
+
+      // Keys derived: Retry any pending encrypted messages
+      if (live.pendingEncrypted.length > 0) {
+        const pending = [...live.pendingEncrypted];
+        live.pendingEncrypted = [];
+        // Sort by packet sequence to process in order
+        pending.sort((a, b) => (a.obj.seq || 0) - (b.obj.seq || 0));
+        for (const item of pending) {
+          await tryAcceptAnchor(item.obj, item.meta, item.opts);
+        }
+      }
     }
     return;
   }
