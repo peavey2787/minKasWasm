@@ -2,7 +2,7 @@ import { state } from '../state.js';
 import { recordMove } from './logic.js';
 import { updatePlayerGrid } from './ui.js';
 
-export function handlePlayerKeydown(e) {
+export async function handlePlayerKeydown(e) {
   if (!state.playerActive) return;
 
   let dir = null;
@@ -39,7 +39,7 @@ export function handlePlayerKeydown(e) {
 
   if (dir) {
     e.preventDefault();
-    recordMove(dir);
+    await recordMove(dir);
     updatePlayerGrid();
   }
 }

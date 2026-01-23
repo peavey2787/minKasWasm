@@ -7,59 +7,76 @@ async function buildKKTPMessage() {
   if (!state.sessionId) return null;
   if (!state.roundMovesPacked || state.roundMovesPacked.length === 0) return null;
 
-  // Construct game data payload
+  // Lock the starting Move ID for this batch if not already locked
+  if (state.roundSeq0 === null || state.roundSeq0 === undefined) {
+    state.roundSeq0 = state.totalMovesSent || 0;
+  }
+
+  // Capture the count of moves we are CURRENTLY putting into the envelope
+  const moveCountInBatch = state.roundMovesPacked.length;
+
   const gameData = {
     sid: state.sessionId,
     t0: state.roundT0 ?? Date.now(),
     moves: state.roundMovesPacked,
     dts: state.roundMoveDts.slice(),
-    seq0: state.roundSeq0 ?? 0
+    seq0: state.roundSeq0
   };
 
   // Encrypt using KKTP
-  // Atomic Sequence: Do not increment state.kktp.seq yet. Use next sequence for encryption.
   const msg = KKTP.encryptMessage(
     state.kktp.kSession,
     state.kktp.mailboxId,
-    "AtoB", // Player is Initiator (A)
-    state.kktp.seq + 1,
+    "AtoB", 
+    state.kktp.seq + 1, 
     gameData
   );
 
-  return msg;
+  // Return both the message AND the count so we can slice correctly later
+  return { msg, moveCountInBatch };
 }
 
 export async function publishGameLoop() {
   if (!state.walletReady) return;
   if (state.anchorInFlight) return;
 
-  const msg = await buildKKTPMessage();
-  if (!msg) return;
+  // Snapshot the current batch
+  const result = await buildKKTPMessage();
+  if (!result) return;
+
+  const { msg, moveCountInBatch } = result;
 
   const prefix = $('payloadPrefix')?.value || 'KKTP';
   const payload = KKTP.buildKKTPPayload(prefix + ':', msg);
 
   try {
     state.anchorInFlight = true;
-    log('anchorTxPanel', `Sending KKTP Msg #${msg.seq} (${msg.ciphertext.length / 2} bytes)...`);
+    log('anchorTxPanel', `Sending KKTP Msg #${msg.seq} (${moveCountInBatch} moves)...`);
 
     await state.portal.send({
       amount: '0.2',
       toAddress: state.walletAddress,
       payload,
     });
+    
     log('anchorTxPanel', `✓ Sent Msg #${msg.seq}`);
 
-    // Success: Atomic Increment & Clear buffer
+    // SUCCESS: Commit counts and clear ONLY what was sent
     state.kktp.seq++; 
-    state.roundMovesPacked = '';
-    state.roundMoveDts = [];
-    state.roundT0 = null;
-    state.roundSeq0 = null;
+    state.totalMovesSent = state.roundSeq0 + moveCountInBatch;
+    
+    // Slice off only the moves that were confirmed in this block
+    // Any moves made while the 'await' was pending remain for the next loop
+    state.roundMovesPacked = state.roundMovesPacked.slice(moveCountInBatch);
+    state.roundMoveDts = state.roundMoveDts.slice(moveCountInBatch);
+    
+    // Reset anchor-specific trackers
+    state.roundT0 = Date.now();
+    state.roundSeq0 = state.totalMovesSent;
+
   } catch (err) {
     log('anchorTxPanel', `✗ Send failed: ${err.message}`);
-    // Failure: Keep buffer for retry. 
-    // Do NOT increment sequence. Next attempt will reuse the same sequence number.
+    // On failure, sequence numbers and buffers remain unchanged for retry
   } finally {
     state.anchorInFlight = false;
   }
@@ -68,14 +85,11 @@ export async function publishGameLoop() {
 export async function performKKTPHandshake() {
   log('anchorTxPanel', 'Starting KKTP Handshake...');
   
-  // 1. Generate Keys
   state.kktp.identity = await KKTP.generateIdentityKey();
   state.kktp.session = await KKTP.generateSessionKey();
   
-  // 1b. Get VRF Value (Public Seed)
   let vrfValue = state.foldedOutput;
   if (!vrfValue) {
-      // Generate a random one for demo purposes if user didn't fold
       const rnd = new Uint8Array(32);
       crypto.getRandomValues(rnd);
       vrfValue = KKTP.bytesToHex(rnd);
@@ -84,7 +98,6 @@ export async function performKKTPHandshake() {
       log('anchorTxPanel', 'Using folded VRF output for session key derivation.');
   }
 
-  // 2. Create Discovery Anchor
   const discovery = await KKTP.createDiscoveryAnchor(
     state.sessionId, 
     state.kktp.identity, 
@@ -98,12 +111,10 @@ export async function performKKTPHandshake() {
     vrfValue
   );
   
-  // 3. Simulate Peer (Responder) for demo purposes
   const peerIdentity = await KKTP.generateIdentityKey();
   const peerSession = await KKTP.generateSessionKey();
   const response = await KKTP.createResponseAnchor(discovery, peerIdentity, peerSession);
   
-  // 4. Publish Anchors (Bundled for speed in demo, usually separate)
   const prefix = $('payloadPrefix')?.value || 'KKTP';
   const payload = `${prefix}:ANCHOR:${KKTP.canonicalStringify({ anchors: [discovery, response] })}`;
   
@@ -113,7 +124,6 @@ export async function performKKTPHandshake() {
     payload
   });
   
-  // 5. Derive Session Keys
   const secrets = KKTP.derivePublicSessionSecrets(vrfValue, state.sessionId, state.kktp.identity.pub, peerIdentity.pub);
   state.kktp.kSession = secrets.kSession;
   state.kktp.mailboxId = secrets.mailboxId;
