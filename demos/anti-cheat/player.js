@@ -1,6 +1,5 @@
 // player.js - Player game section with move tracking and Merkle anchoring
 
-import { send } from '../../wrapper/wallet_service.js';
 import { $, $$ } from './dom_elements.js';
 import { state, resetPlayerState } from './state.js';
 import { setStatus, log, createGrid } from './utils.js';
@@ -236,7 +235,7 @@ async function anchorToKaspa() {
     const last = sending[sending.length - 1];
     log('anchorTxPanel', `Anchoring bundle: ${sending.length} anchor(s) sid=${sessionId ? sessionId.slice(0, 8) : '--'}...`);
 
-    await send({
+    await state.portal.send({
       amount: '0.2',
       toAddress: state.walletAddress,
       payload,

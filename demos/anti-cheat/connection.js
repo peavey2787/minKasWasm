@@ -1,9 +1,6 @@
 // connection.js - Connection handling for anti-cheat demo
 
-import { connect } from '../../wrapper/kaspa_client.js';
-import { KaspaBlockScanner } from '../../wrapper/scanner.js';
-import { MatchMode } from '../../wrapper/indexer.js';
-import { init as walletInit, createWallet } from '../../wrapper/wallet_service.js';
+import { MatchMode, IndexerEventType } from '../../wrapper/kaspaPortal.js';
 import { $, getNetworkSelect, getUsePublicResolver, getNodeUrl, getConnectBtn, getWalletAddress, getCopyWalletBtn, getWalletBalance, getWalletStatus } from './dom_elements.js';
 import { state } from './state.js';
 import { copyToClipboard, setStatus, showInsufficientFundsModal } from './utils.js';
@@ -56,49 +53,49 @@ export async function handleConnect() {
   setStatus('connectionStatus', 'Connecting...', 'pending');
 
   try {
-    state.client = useResolver
-      ? await connect(null, networkId)
-      : await connect(nodeUrl, networkId);
+    // 1. Configure Intelligence (Scanner/Indexer) options
+    const indexerOptions = {
+      matchMode: MatchMode.CUSTOM,
+      indexAllTransactions: false,
+      indexAllMatchingTransactions: true,
+      indexAllBlocks: true,
+      inMemoryMaxTxs: 1000,
+      inMemoryMaxBlocks: 1000,
+      ttlMinutes: 60
+    };
 
-    // Initialize scanner for block indexing
-    state.scanner = new KaspaBlockScanner(state.client, {
-      // Default prefix for move anchoring; spectator can override at runtime.
-      prefix: 'anticheat:move',
-      indexerOptions: {
-        // Index blocks + matching txs (not all txs) so spectator can replay anchors.
-        matchMode: MatchMode.CUSTOM,
-        indexAllTransactions: false,
-        indexAllMatchingTransactions: true,
-        indexAllBlocks: true,
-
-        inMemoryMaxTxs: 1000,
-        inMemoryMaxBlocks: 1000,
-        ttlMinutes: 60,
-
-        onIndexerUpdate: (evt) => {
-          // Fan out to demo listeners (spectator/VRF/etc). No buffering here.
-          try {
-            if (state.indexerUpdateHandlers && state.indexerUpdateHandlers.size) {
-              for (const handler of state.indexerUpdateHandlers) {
-                try {
-                  handler(evt);
-                } catch (e) {
-                  // keep scanning even if a handler fails
-                }
-              }
-            }
-          } catch (e) {
-            // ignore
-          }
-        },
-      }
+    // 2. Connect via Portal
+    // We pass startIntelligence: false so we can manually configure the scanner prefix/callback before starting
+    await state.portal.connect(useResolver ? null : nodeUrl, networkId, {
+      startIntelligence: false
     });
-    await state.scanner.indexer.initDB();
 
-    // Start indexing BEFORE subscribing, so we don't miss the first events.
-    state.scanner.indexer.start();
+    // Map portal components to state for compatibility with other modules
+    state.client = state.portal.client;
+    state.scanner = state.portal.intelligence.scanner;
 
-    // Start scanning for blocks - callback will be set by vrf_sources
+    // 3. Configure Scanner
+    state.scanner.prefix = 'anticheat:move';
+    // Apply indexer options manually since we created portal before knowing them
+    Object.assign(state.scanner.indexer, indexerOptions);
+    
+    // Wire up event fan-out
+    const fanOut = (type, data) => {
+      if (state.indexerUpdateHandlers && state.indexerUpdateHandlers.size) {
+        const evt = { type, data };
+        for (const handler of state.indexerUpdateHandlers) {
+          try { handler(evt); } catch { /* ignore */ }
+        }
+      }
+    };
+
+    state.portal.onNewTransactionMatch(data => fanOut(IndexerEventType.MATCHING_TRANSACTION_IN_MEMORY, data));
+    state.portal.onCachedTransactionMatch(data => fanOut(IndexerEventType.MATCHING_TRANSACTION_CACHED, data));
+
+    // 4. Start Intelligence
+    await state.portal.intelligence.start();
+    
+    // Re-attach the raw block callback for VRF sources (which bypasses the indexer)
     state.scanner.start((block, matches) => {
       // Forward to onBlock if set (for VRF collection)
       if (typeof state.scanner._vrfCallback === 'function') {
@@ -110,27 +107,33 @@ export async function handleConnect() {
 
     // Wallet init (needed for anchoring move payloads)
     try {
-      walletInit({
-        rpcClient: state.client,
-        networkId,
-        logger: (...args) => console.log('[Wallet]', ...args),
-        onBalanceChange: (matureBalance) => {
-          state.walletBalanceMatureKAS = matureBalance;
-          const n = Number(matureBalance);
+      // Define balance updater to sync UI with wallet state
+      const updateBalance = async () => {
+        try {
+          const balanceSompi = await state.portal.getBalance();
+          const balanceKas = (Number(balanceSompi) / 100000000).toFixed(8).replace(/\.?0+$/, "");
+          
+          state.walletBalanceMatureKAS = balanceKas;
+          const n = Number(balanceKas);
           state.walletBalanceMatureNumber = Number.isFinite(n) ? n : null;
-          setWalletUi({ address: state.walletAddress, balanceKAS: matureBalance, ready: state.walletReady });
+          
+          setWalletUi({ address: state.walletAddress, balanceKAS: balanceKas, ready: state.walletReady });
 
-          // Connect-time-only: if mature balance is 0, show modal once.
-          // Never show during gameplay (player.js no longer triggers it).
           if (state.walletBalanceMatureNumber != null && state.walletBalanceMatureNumber > 0) {
-            // If we see any positive balance during the connect window, disable the modal forever.
             state.noFundsModalEligibleUntilMs = 0;
           }
           maybeShowNoFundsModalOnce();
+        } catch (e) {
+          console.error("Balance update failed", e);
         }
-      });
+      };
 
-      const { address } = await createWallet({
+      // Attach listener to the WASM wallet instance exposed by portal
+      if (state.portal.wallet) {
+        state.portal.wallet.addEventListener("balance", () => updateBalance());
+      }
+
+      const { address } = await state.portal.identity.createWallet({
         password: 'anticheat-demo',
         filename: 'anticheat_demo_wallet',
         userHint: 'Anti-cheat demo wallet',
@@ -140,10 +143,11 @@ export async function handleConnect() {
 
       state.walletAddress = address;
       state.walletReady = true;
-      setWalletUi({ address: state.walletAddress, balanceKAS: state.walletBalanceMatureKAS, ready: true });
+      
+      // Initial balance fetch
+      await updateBalance();
+      
       console.log('[Connection] Wallet ready:', address);
-
-      // If balance callback already fired before wallet was marked ready, this catches it.
       maybeShowNoFundsModalOnce();
     } catch (e) {
       state.walletReady = false;

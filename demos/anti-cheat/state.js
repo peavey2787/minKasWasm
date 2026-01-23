@@ -1,10 +1,12 @@
 // state.js - Centralized state for anti-cheat demo
 
+import { KaspaPortal } from '../../wrapper/kaspaPortal.js';
 import { MerkleTree } from './merkle.js';
 
 export const state = {
   // Connection
   connected: false,
+  portal: new KaspaPortal(),
   client: null,
   scanner: null,
   walletAddress: null,

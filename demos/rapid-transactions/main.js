@@ -1,6 +1,4 @@
-import { connect as connectRpc } from '../../wrapper/kaspa_client.js';
-import * as walletService from '../../wrapper/wallet_service.js';
-import { KaspaBlockScanner, SearchMode } from '../../wrapper/scanner.js';
+import { KaspaPortal, SearchMode } from '../../wrapper/kaspaPortal.js';
 import { $, setStatus, setText, logLine, sleep } from './dom.js';
 
 const CONFIG = Object.freeze({
@@ -15,8 +13,7 @@ const CONFIG = Object.freeze({
 });
 
 const state = {
-  client: null,
-  scanner: null,
+  portal: new KaspaPortal(),
   address: null,
   running: false,
   sent: 0,
@@ -78,7 +75,7 @@ function setLoopUi() {
 
 async function refreshBalance() {
   try {
-    const sompi = await walletService.getSpendableBalance();
+    const sompi = await state.portal.getBalance();
     // wallet_service also emits balance events, but polling keeps this demo simple.
     const kas = Number(sompi / 100000000n) + Number(sompi % 100000000n) / 1e8;
     const str = kas.toFixed(8).replace(/0+$/, '').replace(/\.$/, '');
@@ -113,24 +110,19 @@ function onScannerBlock(_block, matches) {
 }
 
 async function startScanner() {
-  if (!state.client) throw new Error('Scanner start: client not ready.');
+  if (!state.portal.client) throw new Error('Scanner start: client not ready.');
   if (!state.address) throw new Error('Scanner start: address not ready.');
 
-  if (state.scanner) {
-    try { state.scanner.stop(); } catch { /* ignore */ }
-    state.scanner = null;
+  const scanner = state.portal.intelligence.scanner;
+  if (scanner.scanning) {
+    try { scanner.stop(); } catch { /* ignore */ }
   }
 
-  // Address matching inside blocks can vary across RPC verbosity/SDK versions.
-  // Payload matching is stable, so we key the receive-path off a known prefix.
-  state.scanner = new KaspaBlockScanner(state.client, {
-    prefix: CONFIG.payloadPrefix,
-    mode: SearchMode.STARTS_WITH,
-    // still pass our address list for extra signal when available
-    addresses: [state.address],
-  });
+  scanner.prefix = CONFIG.payloadPrefix;
+  scanner.searchMode = SearchMode.STARTS_WITH;
+  scanner.addresses = [state.address];
 
-  await state.scanner.start(onScannerBlock);
+  await scanner.start(onScannerBlock);
   logLine('Block scanner started.');
 }
 
@@ -143,7 +135,7 @@ async function sendOnce() {
 
   let sendRes;
   try {
-    sendRes = await walletService.send({
+    sendRes = await state.portal.send({
       amount: CONFIG.sendAmountKas,
       toAddress: state.address,
       payload,
@@ -218,25 +210,14 @@ async function boot() {
   setStatus('Connecting…', 'pending');
   logLine(`Connecting to ${CONFIG.networkId}…`);
 
-  state.client = await connectRpc(CONFIG.nodeUrl, CONFIG.networkId);
-
-  walletService.init({
-    rpcClient: state.client,
-    networkId: CONFIG.networkId,
-    logger: (msg, ...rest) => {
-      const line = [msg, ...rest].map((v) => String(v)).join(' ');
-      logLine(`[wallet] ${line}`);
-    },
-    onBalanceChange: (matureKas) => {
-      // wallet_service passes a preformatted KAS string
-      setText('bal', `${String(matureKas)} KAS`);
-    },
+  await state.portal.connect(CONFIG.nodeUrl, CONFIG.networkId, {
+    startIntelligence: false // We configure and start the scanner manually
   });
 
   setStatus('Opening wallet…', 'pending');
   logLine(`Opening/creating wallet '${CONFIG.walletFilename}'…`);
 
-  const res = await walletService.createWallet({
+  const res = await state.portal.identity.createWallet({
     password: CONFIG.walletPassword,
     filename: CONFIG.walletFilename,
     discoverAddresses: false,
