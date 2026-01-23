@@ -66,18 +66,8 @@ function simpleHash(str) {
  * @param {string} right - Right child hash
  * @returns {string} - Combined hash
  */
-function combineHashes(left, right) {
-  // For simplicity, we'll use a synchronous approach
-  // In production, you'd use async SHA-256
-  const combined = left + right;
-  // Use a simple XOR-based combination for sync operation
-  let result = '';
-  for (let i = 0; i < Math.max(left.length, right.length); i++) {
-    const l = parseInt(left[i % left.length] || '0', 16);
-    const r = parseInt(right[i % right.length] || '0', 16);
-    result += ((l ^ r) ^ ((l + r) % 16)).toString(16);
-  }
-  return result.slice(0, 64).padEnd(64, '0');
+async function combineHashes(left, right) {
+  return await sha256Hex(left + right);
 }
 
 /**
@@ -104,7 +94,7 @@ export class MerkleTree {
   /**
    * Build the tree from current leaves
    */
-  build() {
+  async build() {
     if (this.leaves.length === 0) {
       this.root = null;
       this.levels = [];
@@ -121,7 +111,7 @@ export class MerkleTree {
       for (let i = 0; i < currentLevel.length; i += 2) {
         const left = currentLevel[i];
         const right = currentLevel[i + 1] || left; // Duplicate last if odd
-        nextLevel.push(combineHashes(left, right));
+        nextLevel.push(await combineHashes(left, right));
       }
 
       this.levels.push(nextLevel);
@@ -136,9 +126,9 @@ export class MerkleTree {
    * Get the Merkle root
    * @returns {string|null} - Root hash or null if empty
    */
-  getRoot() {
+  async getRoot() {
     if (this.dirty || this.root === null) {
-      this.build();
+      await this.build();
     }
     return this.root;
   }
@@ -148,9 +138,9 @@ export class MerkleTree {
    * @param {number} index - Leaf index
    * @returns {Object[]} - Array of proof nodes
    */
-  getProof(index) {
+  async getProof(index) {
     if (this.dirty) {
-      this.build();
+      await this.build();
     }
 
     if (index < 0 || index >= this.leaves.length) {
@@ -185,14 +175,14 @@ export class MerkleTree {
    * @param {string} root - Expected root hash
    * @returns {boolean} - True if proof is valid
    */
-  static verify(leafHash, proof, root) {
+  static async verify(leafHash, proof, root) {
     let hash = leafHash;
 
     for (const node of proof) {
       if (node.position === 'left') {
-        hash = combineHashes(node.hash, hash);
+        hash = await combineHashes(node.hash, hash);
       } else {
-        hash = combineHashes(hash, node.hash);
+        hash = await combineHashes(hash, node.hash);
       }
     }
 
@@ -203,11 +193,11 @@ export class MerkleTree {
    * Get tree statistics
    * @returns {Object}
    */
-  getStats() {
+  async getStats() {
     return {
       leafCount: this.leaves.length,
       levelCount: this.levels.length,
-      root: this.getRoot(),
+      root: await this.getRoot(),
     };
   }
 
@@ -215,10 +205,10 @@ export class MerkleTree {
    * Export tree state for serialization
    * @returns {Object}
    */
-  export() {
+  async export() {
     return {
       leaves: [...this.leaves],
-      root: this.getRoot(),
+      root: await this.getRoot(),
       timestamp: Date.now(),
     };
   }
@@ -227,10 +217,10 @@ export class MerkleTree {
    * Import tree state
    * @param {Object} data - Exported tree data
    */
-  import(data) {
+  async import(data) {
     this.leaves = data.leaves || [];
     this.dirty = true;
-    this.build();
+    await this.build();
   }
 
   /**
@@ -249,12 +239,12 @@ export class MerkleTree {
  * @param {string[]} items - Array of strings to hash as leaves
  * @returns {MerkleTree}
  */
-export function createMerkleTree(items) {
+export async function createMerkleTree(items) {
   const tree = new MerkleTree();
   for (const item of items) {
     const hash = simpleHash(item);
     tree.addLeaf(hash);
   }
-  tree.build();
+  await tree.build();
   return tree;
 }

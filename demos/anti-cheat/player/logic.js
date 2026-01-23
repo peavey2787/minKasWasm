@@ -16,7 +16,7 @@ function packMoveChar(direction) {
     : '';
 }
 
-export function recordMove(direction) {
+export async function recordMove(direction) {
   const now = Date.now();
   const ch = packMoveChar(direction);
   if (!ch) return;
@@ -47,9 +47,8 @@ export function recordMove(direction) {
   }
   state.merkleTree.addLeaf(moveHash);
 
-  log('moveLogPanel', `#${seq} [${direction}] → (${move.x}, ${move.y}) dt=${dt}ms`);
-  log('merkleTreePanel', `Local Root: ${state.merkleTree.getRoot() || 'computing...'}`);
+  const merkleRoot = await state.merkleTree.getRoot();
 
-  // P2P Relay: Send move immediately for visual sync (simulated via event)
-  window.dispatchEvent(new CustomEvent('antiCheat:move', { detail: move }));
+  log('moveLogPanel', `#${seq} [${direction}] → (${move.x}, ${move.y}) dt=${dt}ms`);
+  log('merkleTreePanel', `Local Root: ${ merkleRoot || 'computing...'}`);
 }
