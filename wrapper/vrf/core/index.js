@@ -1,7 +1,8 @@
 import { KASPA_BLOCK_COUNT, BTC_BLOCK_COUNT } from './constants.js';
 import { getKaspaBlocks, getBitcoinBlocks } from './fetcher/index.js';
 import { getQRNG } from './fetcher/qrng.js';
-import { hexToBinary, sha256Hash } from './crypto.js';
+import { collectKaspaBlocksFromScanner } from './fetcher/scanner-adapter.js';
+import { hexToBinary } from './crypto.js';
 import { fold } from './folding.js';
 import { runNistSuite } from './nist.js';
 
@@ -14,9 +15,14 @@ class Core {
 		return await getQRNG(prov, length);
 	}
 
-	// Fetches Kaspa blocks (finalized only)
-	async GetKaspaBlocks(count = KASPA_BLOCK_COUNT) {
+	// Fetches Kaspa blocks (finalized only) via API
+	async GetKaspaBlocksFromAPI(count = KASPA_BLOCK_COUNT) {
 		return await getKaspaBlocks(count);
+	}
+
+	// Fetches Kaspa blocks via Scanner (live)
+	async GetKaspaBlocks(scanner, count = KASPA_BLOCK_COUNT) {
+		return await collectKaspaBlocksFromScanner(scanner, count);
 	}
 
 	// Fetches Bitcoin blocks (finalized only)
@@ -54,7 +60,7 @@ class Core {
 		// 1. Get QRNG
 		const qrng = await this.GetQRNG(32); // 32 bytes = 256 bits
 		// 2. Get finalized Kaspa and BTC blocks
-		const kaspaBlocks = await this.GetKaspaBlocks(1);
+		const kaspaBlocks = await this.GetKaspaBlocksFromAPI(1);
 		const btcBlocks = await this.GetBitcoinBlocks(1);
 		if (!kaspaBlocks.length || !btcBlocks.length) throw new Error('No finalized blocks available');
 		// 3. Fold all sources
@@ -71,7 +77,7 @@ class Core {
 
 	// Generate randomness: Kaspa + BTC, folded
 	async GeneratePartialRandomness() {
-		const kaspaBlocks = await this.GetKaspaBlocks(1);
+		const kaspaBlocks = await this.GetKaspaBlocksFromAPI(1);
 		const btcBlocks = await this.GetBitcoinBlocks(1);
 		if (!kaspaBlocks.length || !btcBlocks.length) throw new Error('No finalized blocks available');
 		const kaspaBits = hexToBinary(kaspaBlocks[0].hash);

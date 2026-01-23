@@ -1,7 +1,5 @@
 // server/core/QRNG-fetcher.js
 
-
-// Base class
 export class QRNGProvider {
   constructor(name, baseUrl) {
     this.name = name;
@@ -54,7 +52,7 @@ export class QRandomIO extends QRNGProvider {
   }
 }
 
-// New provider: NIST Beacon
+// Provider: NIST Beacon
 export class NISTBeacon extends QRNGProvider {
   constructor() {
     super('NIST Beacon', 'https://beacon.nist.gov/beacon/2.0/pulse/last');

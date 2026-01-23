@@ -1,57 +1,9 @@
 // scanner-adapter.js
 // Adapter to get Kaspa blocks from the wrapper's block scanner instead of API
 
-import { Block } from '../models/Block.js';
+import { scannerBlockToVrfBlock, compareBigIntSafe } from './utilities.js';
 import { FINALITY, KASPA_BLOCK_COUNT } from '../constants.js';
 import { logInfo, logError } from '../logs/logger.js';
-
-/**
- * Safely convert BigInt to Number for comparison/display
- */
-function toNumber(val) {
-  if (typeof val === 'bigint') return Number(val);
-  if (typeof val === 'string') return parseInt(val, 10) || 0;
-  return val ?? 0;
-}
-
-/**
- * Compare two values that may be BigInt or Number
- */
-function compareBigIntSafe(a, b) {
-  const bigA = typeof a === 'bigint' ? a : BigInt(a || 0);
-  const bigB = typeof b === 'bigint' ? b : BigInt(b || 0);
-  if (bigA > bigB) return 1;
-  if (bigA < bigB) return -1;
-  return 0;
-}
-
-/**
- * Convert a block from the wrapper scanner format to VRF Block model
- * @param {Object} block - Block from wrapper scanner
- * @param {bigint|number} tipBlueScore - Current tip blue score for confirmation calculation
- * @returns {Block}
- */
-export function scannerBlockToVrfBlock(block, tipBlueScore = null) {
-  const hash = block?.header?.hash || block?.hash;
-  const blueScoreRaw = block?.header?.blueScore || block?.blueScore;
-  const timestampRaw = block?.header?.timestamp || block?.timestamp || block?.time;
-  
-  // Convert BigInt values safely
-  const blueScore = toNumber(blueScoreRaw);
-  const timestamp = toNumber(timestampRaw);
-  const tipScore = toNumber(tipBlueScore);
-  
-  const confirms = tipScore && blueScore ? (tipScore - blueScore + 1) : (block?.confirms ?? 0);
-  
-  return new Block({
-    hash,
-    height: blueScore,
-    blueScore,
-    time: timestamp,
-    source: 'kaspa',
-    confirms
-  });
-}
 
 /**
  * Collect Kaspa blocks from a running KaspaBlockScanner instance
@@ -68,8 +20,28 @@ export async function collectKaspaBlocksFromScanner(scanner, count = KASPA_BLOCK
   const blocks = [];
 
   // First, try to get blocks from the indexer's in-memory or cached blocks
-  const indexedBlocks = scanner.indexer.getAllBlocks?.() || [];
+  let indexedBlocks = scanner.indexer.getAllBlocks?.() || [];
   
+  // If in-memory isn't enough, try the persistent cache as a safety net
+  if (indexedBlocks.length < count && typeof scanner.indexer.getAllCachedBlocks === 'function') {
+    try {
+      const cachedBlocks = await scanner.indexer.getAllCachedBlocks();
+      if (Array.isArray(cachedBlocks)) {
+        // Merge and deduplicate
+        const seenHashes = new Set(indexedBlocks.map(b => b?.header?.hash || b?.hash));
+        for (const b of cachedBlocks) {
+          const h = b?.header?.hash || b?.hash;
+          if (h && !seenHashes.has(h)) {
+            indexedBlocks.push(b);
+            seenHashes.add(h);
+          }
+        }
+      }
+    } catch (e) {
+      logError('Failed to fetch cached blocks in scanner adapter', e);
+    }
+  }
+
   if (indexedBlocks.length > 0) {
     // Sort by blue score descending (most recent first) - handle BigInt
     const sorted = [...indexedBlocks].sort((a, b) => {
@@ -80,7 +52,8 @@ export async function collectKaspaBlocksFromScanner(scanner, count = KASPA_BLOCK
 
     const tipBlueScore = sorted[0]?.header?.blueScore || sorted[0]?.blueScore || 0;
 
-    for (let i = 0; i < Math.min(count, sorted.length); i++) {
+    for (let i = 0; i < sorted.length; i++) {
+      if (blocks.length >= count) break;
       const vrfBlock = scannerBlockToVrfBlock(sorted[i], tipBlueScore);
       // Check finality (use dag depth from constants)
       if (vrfBlock.confirms >= FINALITY.kaspa.dagDepth || vrfBlock.blueScore) {

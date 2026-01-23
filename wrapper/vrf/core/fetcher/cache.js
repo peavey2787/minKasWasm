@@ -5,17 +5,17 @@ let btcBlockCache = { blocks: [], timestamp: 0 };
 let qrngCache = { data: null, timestamp: 0 };
 
 export function getBtcBlockCache() {
-    return btcBlockCache;
+  return btcBlockCache;
 }
 
 export function setBtcBlockCache(blocks) {
-    btcBlockCache = { blocks, timestamp: Date.now() };
+  btcBlockCache = { blocks, timestamp: Date.now() };
 }
 
 export function getQrngCache() {
-    return qrngCache;
+  return qrngCache;
 }
 
 export function setQrngCache(data) {
-    qrngCache = { data, timestamp: Date.now() };
+  qrngCache = { data, timestamp: Date.now() };
 }
