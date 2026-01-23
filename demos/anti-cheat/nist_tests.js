@@ -1,6 +1,6 @@
 // nist_tests.js - NIST randomness testing using Web Worker
 
-import { hexToBinary } from '../../vrf/core/crypto.js';
+import { hexToBinary } from '../../wrapper/vrf/core/crypto.js';
 import { $ } from './dom_elements.js';
 import { state } from './state.js';
 import { downloadJSON } from './utils.js';

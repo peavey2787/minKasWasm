@@ -2,6 +2,7 @@ import { TransportFacade } from './transport/transportFacade.js';
 import { IdentityFacade } from './identity/identityFacade.js';
 import { IntelligenceFacade } from './intelligence/intelligenceFacade.js';
 import { CryptoFacade } from './crypto/cryptoFacade.js';
+import { VrfFacade } from './vrf/vrfFacade.js';
 import { SearchMode } from './intelligence/scanner.js';
 import { IndexerEventType, MatchMode, EvictionReason, IndexerStore } from './intelligence/indexer.js';
 
@@ -22,6 +23,7 @@ export class KaspaPortal {
     this.transport = new TransportFacade();
     this.identity = new IdentityFacade();
     this.crypto = new CryptoFacade(this.identity);
+    this.vrf = new VrfFacade();
 
     // Initialize Intelligence with a null client initially.
     // This allows users to attach event listeners (e.g. portal.intelligence.onNewBlock)

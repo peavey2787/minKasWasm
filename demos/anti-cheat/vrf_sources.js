@@ -1,9 +1,9 @@
 // vrf_sources.js - VRF data fetching and folding
 
-import { getBitcoinBlocks } from '../../vrf/core/fetcher/bitcoin.js';
-import { getQRNG } from '../../vrf/core/fetcher/qrng.js';
-import { hexToBinary } from '../../vrf/core/crypto.js';
-import core from '../../vrf/core/index.js';
+import { getBitcoinBlocks } from '../../wrapper/vrf/core/fetcher/bitcoin.js';
+import { getQRNG } from '../../wrapper/vrf/core/fetcher/qrng.js';
+import { hexToBinary } from '../../wrapper/vrf/core/crypto.js';
+import core from '../../wrapper/vrf/core/index.js';
 import { $ } from './dom_elements.js';
 import { state } from './state.js';
 import { log, downloadJSON } from './utils.js';

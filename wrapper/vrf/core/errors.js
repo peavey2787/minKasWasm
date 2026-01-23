@@ -1,3 +1,7 @@
+
+// errors.js
+// Centralized error classes for folding/extraction
+
 export class GammaValidationError extends Error {
     constructor(message, meta) {
         super(message);
@@ -5,8 +9,6 @@ export class GammaValidationError extends Error {
         this.meta = meta;
     }
 }
-// errors.js
-// Centralized error classes for folding/extraction
 
 export class FoldingValidationError extends Error {
     constructor(message, meta) {

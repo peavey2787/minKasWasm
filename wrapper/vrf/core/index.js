@@ -2,8 +2,7 @@ import { KASPA_BLOCK_COUNT, BTC_BLOCK_COUNT } from './constants.js';
 import { getKaspaBlocks, getBitcoinBlocks } from './fetcher/index.js';
 import { getQRNG } from './fetcher/qrng.js';
 import { hexToBinary, sha256Hash } from './crypto.js';
-import { extractBits } from './extractor.js';
-import { recursiveFolding } from './folding.js';
+import { fold } from './folding.js';
 import { runNistSuite } from './nist.js';
 
 class Core {
@@ -27,43 +26,7 @@ class Core {
 
 	// Folds two randomness sources using recursive folding
 	async fold(randA, randB, options = {}) {
-		// randA, randB: hex or binary strings
-		// Default: 2 rounds, 256 positions, sha256 folding
-		const ensureCanonicalHash = async (input) => {
-			// If already a 64-char hex string, return as-is
-			if (typeof input === 'string' && /^[0-9a-fA-F]{64}$/.test(input)) {
-				return input;
-			}
-			// If input is a bitstring (only 0/1), convert to hex, pad, and hash
-			if (typeof input === 'string' && /^[01]+$/.test(input)) {
-				// Pad to 256 bits
-				const padded = input.padEnd(256, '0').slice(0, 256);
-				// Convert to hex
-				let hex = '';
-				for (let i = 0; i < 256; i += 4) {
-					hex += parseInt(padded.slice(i, i + 4), 2).toString(16);
-				}
-				// Hash to canonical 64-char hex
-				return await sha256Hash(hex);
-			}
-			// If input is a hex string but not 64 chars, hash it
-			if (typeof input === 'string' && /^[0-9a-fA-F]+$/.test(input)) {
-				return await sha256Hash(input);
-			}
-			throw new Error('Invalid input for canonical hash');
-		};
-
-		const hashA = await ensureCanonicalHash(randA);
-		const hashB = await ensureCanonicalHash(randB);
-		const blocks = [
-			{ hash: hashA, isFinal: true },
-			{ hash: hashB, isFinal: true }
-		];
-		// Initial extraction: use all positions
-		const positions = Array.from({ length: 256 }, (_, i) => i);
-		const { bitstring: initialBits } = await extractBits(blocks, positions);
-		const foldingResult = await recursiveFolding(blocks, initialBits, 'sha256', options.iterations || 2, options.numPositions || 256);
-		return foldingResult.finalOutput;
+		return await fold(randA, randB, options);
 	}
 
 	// Full NIST test suite
