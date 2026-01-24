@@ -119,8 +119,8 @@ export class IdentityFacade {
     return walletService.getMnemonic();
   }
 
-  get xPrv() {
-    return walletService.getXPrv();
+  async getXprv() {
+    return walletService.getXprv();
   }
 
   /**
@@ -128,13 +128,6 @@ export class IdentityFacade {
    */
   get allWallets() {
     return walletService.getAllWallets();
-  }
-
-  /**
-   * Access the active wallet instance if exposed by the service.
-   */
-  get activeWallet() {
-    return walletService.getActiveWallet();
   }
 
   /**

@@ -5,8 +5,10 @@ import {
   sompiToKaspaString,
   AccountsDiscoveryKind,
   Generator,
+  XPrv,
+  Mnemonic,
 } from "../kas-wasm/kaspa.js";
-import { storeWalletData } from "./storage.js";
+import { storeWalletData, loadWalletData } from "./storage.js";
 import * as utilities from "../utilities/utilities.js";
 
 const DEFAULT_FILENAME = "default_wallet";
@@ -79,7 +81,8 @@ export async function getMnemonic({ theFilename = "", password = "" } = {}) {
   if (password.length === 0) {
     password = walletSecret;
   }
-  return await utilities.getMnemonicFromStorage(theFilename, password);
+  const walletData = await loadWalletData(theFilename, password);
+  return walletData.mnemonic;
 }
 
 /**
@@ -90,7 +93,9 @@ export async function getXprv() {
   if (!walletInitialized || !wallet) {
     throw new Error("Wallet not initialized. Call init() first.");
   }
-  return await utilities.getXPrvFromStorage(filename, walletSecret);
+  const walletData = await loadWalletData(filename, walletSecret);
+  const xPrv = XPrv.fromXPrv(walletData.xprv);
+  return xPrv.toString();
 }
 
 /**
@@ -309,7 +314,7 @@ async function _createNewWallet({
   log("Creating new wallet...");
 
   // 1. Create or import mnemonic
-  const mnemonicPhrase = mnemonic || utilities.generateMnemonic(24);
+  const mnemonicPhrase = mnemonic || _generateMnemonic(24);
 
   // 2. Create wallet file
   try {
@@ -356,7 +361,7 @@ async function _createNewWallet({
   accountId = account.accountDescriptor.accountId;
 
   // 6. Get extended private key for address derivation and diffie-hellman encryption
-  const xprv = await utilities.getXPrv(mnemonicPhrase);
+  const xprv = await _getXPrv(mnemonicPhrase);
   const xPrvString = xprv.toString();
 
   // 7. Store XPrv and optionally mnemonic securely in IndexedDB
@@ -656,4 +661,28 @@ export async function deleteWalletData(filename) {
     req.onerror = () => reject(req.error);
     req.onblocked = () => reject(new Error("Delete blocked"));
   });
+}
+
+/**
+ * Generate a random BIP39 mnemonic phrase.
+ * @param {number} [wordCount=24] - Number of words in the mnemonic.
+ * @returns {string} The generated mnemonic phrase.
+ */
+function _generateMnemonic(wordCount = 24) {
+  const mnemonic = Mnemonic.random(wordCount);
+  return mnemonic.phrase;
+}
+
+/**
+ * Derive an XPrv from a mnemonic phrase and optional passphrase.
+ * @param {string} mnemonicPhrase - BIP39 mnemonic phrase.
+ * @param {string|null} [passphrase=null] - Optional passphrase.
+ * @returns {XPrv} The derived XPrv object.
+ */
+function _getXPrv(mnemonicPhrase, passphrase = null) {
+  const seed = passphrase
+    ? new Mnemonic(mnemonicPhrase).toSeed(passphrase)
+    : new Mnemonic(mnemonicPhrase).toSeed();
+  const xPrv = new XPrv(seed);
+  return xPrv;
 }

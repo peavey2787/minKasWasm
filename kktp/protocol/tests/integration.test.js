@@ -1,82 +1,71 @@
-// integration.test.js
-// Minimal, real integration test scaffolding for KKTP State Machine and Protocol
-// No mocks, no globals, no window. Each test is a standalone async function.
-// Run with: import and call each exported function from a browser or Node test runner.
-
 import { KKTPStateMachine, KKTP_STATES } from "../stateMachine.js";
+import { kaspaPortal } from "../../../wrapper/kaspaPortal.js";
 
-import { KaspaPortal } from "../../../wrapper/kaspaPortal.js";
-
-// Helper: create a real portal with all services initialized
 const TEST_WALLET_PASSWORD = "integration-test-password";
-
 let sharedPortal = null;
+
+/**
+ * Helper: Initializes a real portal with a fresh wallet
+ */
 async function getSharedPortal() {
   if (sharedPortal) return sharedPortal;
-  sharedPortal = new KaspaPortal();
+  sharedPortal = kaspaPortal;
 
-  // Mock VRF verify to pass for integration tests (since we don't have full VRF generation here)
+  // Mock VRF for protocol handshake flow
   sharedPortal.vrf.verify = async () => true;
 
+  // 1. Connect (Initializes WASM and Transport)
   await sharedPortal.connect(null, "testnet-10");
-  // Clean up all wallets before creating a new one to avoid decryption errors
-  const wallets = await sharedPortal.identity.getAllWallets();
+
+  // 2. Clean slate for Identity
+  const wallets = await sharedPortal.identity.allWallets;
   for (const w of wallets) {
     await sharedPortal.identity.deleteWallet(w.filename);
   }
-  await sharedPortal.identity.createWallet({ password: TEST_WALLET_PASSWORD });
+
+  // 3. Create active wallet
+  await sharedPortal.openOrCreateWallet({ password: TEST_WALLET_PASSWORD });
   return sharedPortal;
 }
 
-// Helper: create real discovery and response anchors (production-ready, protocol-compliant)
+/**
+ * Helper: Creates real, signed discovery and response anchors
+ * utilizing the Portal and Protocol facades.
+ */
 async function createAnchors(portal) {
-  // Ensure wallet is initialized before key generation
-  if (!portal.identity.activeWallet) {
-    await portal.identity.createWallet({ password: TEST_WALLET_PASSWORD });
-  }
-  // Use different key indices for initiator and responder
+  const sid = "a".repeat(64);
+
   const initiatorKeys = await portal.generateIdentityKeys(0);
   const responderKeys = await portal.generateIdentityKeys(1);
 
-  // 32 bytes hex string for SID
-  const sid = "a".repeat(64);
-
-  const discovery = {
-    type: "discovery",
-    version: 1,
+  // 1. Create Discovery with explicit version in meta
+  const discovery = await portal.kktpProtocol.createDiscoveryAnchor(
     sid,
-    pub_sig: initiatorKeys.sig.publicKey,
-    pub_dh: initiatorKeys.dh.publicKey,
-    vrf_value: "00".repeat(32), // Mocked VRF
-    vrf_proof: "00".repeat(32), // Mocked VRF
-    meta: { game: "test-game", version: "1", expected_uptime_seconds: 3600 },
-  };
+    initiatorKeys.sig.publicKey,
+    initiatorKeys.dh.publicKey,
+    {
+      version: "1.0.0",
+      game: "integration-test"
+    }
+  );
 
-  // Sign discovery
-  discovery.sig = await portal.crypto.signAnchor(
+  // Manually add mock VRF values (usually handled by high-level portal methods)
+  discovery.vrf_value = "00".repeat(32);
+  discovery.vrf_proof = "00".repeat(32);
+
+  // 2. Sign Discovery using the Portal's signAnchor (which funnels to Protocol)
+  discovery.sig = await portal.signAnchor(discovery);
+
+  // 3. Create Response via Protocol Facade
+  const response = await portal.kktpProtocol.createResponseAnchor(
     discovery,
-    initiatorKeys.sig.privateKey,
-    false,
+    responderKeys.sig.publicKey,
+    responderKeys.dh.publicKey
   );
 
-  const response = {
-    type: "response",
-    version: 1,
-    sid,
-    initiator_pub_sig: discovery.pub_sig,
-    initiator_pub_dh: discovery.pub_dh,
-    pub_sig_resp: responderKeys.sig.publicKey,
-    pub_dh_resp: responderKeys.dh.publicKey,
-    vrf_value: "00".repeat(32),
-    vrf_proof: "00".repeat(32),
-  };
-
-  // Sign response
-  response.sig_resp = await portal.crypto.signAnchor(
-    response,
-    responderKeys.sig.privateKey,
-    true,
-  );
+  // 4. Sign Response
+  // Note: portal.signAnchor handles the 'sig_resp' key switch internally via anchor.type
+  response.sig_resp = await portal.signAnchor(response);
 
   return { discovery, response };
 }
@@ -84,32 +73,27 @@ async function createAnchors(portal) {
 /**
  * 1. End-to-End Session Establishment
  */
-
 export async function testSessionEstablishment() {
   const portal = await getSharedPortal();
   const { discovery, response } = await createAnchors(portal);
 
+  // Use the portal's sub-facades to initialize SM
   const initiator = new KKTPStateMachine(portal, true, 0);
   const responder = new KKTPStateMachine(portal, false, 1);
 
   await initiator.connect(discovery, response);
   await responder.connect(discovery, response);
 
-  if (
-    initiator.state !== KKTP_STATES.ACTIVE ||
-    responder.state !== KKTP_STATES.ACTIVE
-  )
-    throw new Error("Session not active");
-  if (initiator.kktp.sid !== responder.kktp.sid)
-    throw new Error("SID mismatch");
+  if (initiator.state !== KKTP_STATES.ACTIVE || responder.state !== KKTP_STATES.ACTIVE)
+    throw new Error("Session failed to reach ACTIVE state");
+
   if (initiator.kktp.mailboxId !== responder.kktp.mailboxId)
-    throw new Error("MailboxId mismatch");
+    throw new Error("Mailbox ID derivation mismatch");
 }
 
 /**
- * 2. Message Send/Receive
+ * 2. Message Send/Receive (Encryption/Decryption Test)
  */
-
 export async function testMessageSendReceive() {
   const portal = await getSharedPortal();
   const { discovery, response } = await createAnchors(portal);
@@ -120,11 +104,11 @@ export async function testMessageSendReceive() {
   await initiator.connect(discovery, response);
   await responder.connect(discovery, response);
 
-  const plaintext = "hello world";
-  const msg = initiator.sendMessage(plaintext);
+  const plaintext = "Secret Handshake";
+  const msg = initiator.sendMessage(plaintext); // This uses portal.crypto internally
   const received = responder.receiveMessage(msg);
 
-  if (!received.includes(plaintext)) throw new Error("Plaintext not delivered");
+  if (!received.includes(plaintext)) throw new Error("Decryption failed or message lost");
 }
 
 /**

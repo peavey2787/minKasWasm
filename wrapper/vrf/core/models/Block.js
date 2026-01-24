@@ -1,6 +1,16 @@
-// Block.js - Minimal browser-compatible Block class
+// Block.js
 export class Block {
-  constructor({ hash, height, time, source, confirms, blueScore, parents }) {
+  constructor({
+    hash,
+    height,
+    time,
+    source,
+    confirms,
+    blueScore,
+    parents,
+    signature,
+    pulseIndex
+  }) {
     this.hash = hash;
     this.height = height;
     this.time = time;
@@ -8,9 +18,17 @@ export class Block {
     this.confirms = confirms;
     this.blueScore = blueScore;
     this.parents = parents;
-    // Mark as final if confirmations or blueScore is present
+
+    // Safety check for finality
     this.isFinal =
-      (typeof confirms === "number" && confirms >= 0) ||
-      typeof blueScore === "number";
+      source === "nist" || // NIST is always final
+      (typeof confirms === "number" && confirms >= 6) || // BTC finality
+      (typeof blueScore === "number");
+
+    // Store NIST metadata if it exists
+    this.metadata = {
+      signature: signature || null,
+      pulseIndex: pulseIndex || null
+    };
   }
 }

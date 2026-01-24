@@ -3,37 +3,14 @@ import {
   signMessage,
   verifyMessage,
   XPrv,
-  Mnemonic,
   PrivateKeyGenerator,
   PublicKeyGenerator,
   Address,
   NetworkType,
 } from "../kas-wasm/kaspa.js";
-import { loadWalletData } from "../identity/storage.js";
 
 const MAX_PAYLOAD_BYTES = 32 * 1024; // 32KB
 const NETWORK = "testnet";
-
-/**
- * Generate a random BIP39 mnemonic phrase.
- * @param {number} [wordCount=24] - Number of words in the mnemonic.
- * @returns {string} The generated mnemonic phrase.
- */
-export function generateMnemonic(wordCount = 24) {
-  const mnemonic = Mnemonic.random(wordCount);
-  return mnemonic.phrase;
-}
-
-/** Retrieve the mnemonic phrase from storage.
- * @param {string} filename - Wallet filename.
- * @param {string} masterPassword - Password to decrypt wallet data.
- * @returns {Promise<string>} The mnemonic phrase.
- */
-export async function getMnemonicFromStorage(filename, masterPassword) {
-  const walletData = await loadWalletData(filename, masterPassword);
-  const mnemonic = walletData.mnemonic;
-  return mnemonic;
-}
 
 /** * Validate and normalize a Kaspa address.
  * @param {string|Address} address - The address to validate.
@@ -187,18 +164,6 @@ export function getPublicKeyHex(prvKeyHex) {
 }
 
 /**
- * Load and return the XPrv object from storage.
- * @param {string} filename - Wallet filename.
- * @param {string} masterPassword - Password to decrypt wallet data.
- * @returns {Promise<XPrv>} The loaded XPrv object.
- */
-export async function getXPrvFromStorage(filename, masterPassword) {
-  const walletData = await loadWalletData(filename, masterPassword);
-  const xPrv = XPrv.fromXPrv(walletData.xprv);
-  return xPrv;
-}
-
-/**
  * Get the private key bytes from an XPrv instance or hex string.
  * @param {XPrv|string} xPrv - XPrv instance or hex string.
  * @returns {Uint8Array} Private key bytes.
@@ -234,20 +199,6 @@ export function getPrivateKeyHex(xPrv) {
   throw new TypeError(
     "getPrivateKeyHex requires an XPrv instance, hex string, or Uint8Array",
   );
-}
-
-/**
- * Derive an XPrv from a mnemonic phrase and optional passphrase.
- * @param {string} mnemonicPhrase - BIP39 mnemonic phrase.
- * @param {string|null} [passphrase=null] - Optional passphrase.
- * @returns {XPrv} The derived XPrv object.
- */
-export function getXPrv(mnemonicPhrase, passphrase = null) {
-  const seed = passphrase
-    ? new Mnemonic(mnemonicPhrase).toSeed(passphrase)
-    : new Mnemonic(mnemonicPhrase).toSeed();
-  const xPrv = new XPrv(seed);
-  return xPrv;
 }
 
 /**

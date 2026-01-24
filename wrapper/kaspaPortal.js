@@ -1,3 +1,4 @@
+import { KKTPProtocol } from "../kktp/protocol/kktpProtocol.js";
 import { TransportFacade } from "./transport/transportFacade.js";
 import { IdentityFacade } from "./identity/identityFacade.js";
 import { IntelligenceFacade } from "./intelligence/intelligenceFacade.js";
@@ -31,9 +32,10 @@ export class KaspaPortal {
    */
   constructor(options = {}) {
     this._isReady = false;
+    this.kktpProtocol = new KKTPProtocol();
     this.transport = new TransportFacade();
     this.identity = new IdentityFacade();
-    this.crypto = new CryptoFacade(this.identity);
+    this.crypto = new CryptoFacade();
     this.vrf = new VrfFacade();
 
     // Initialize Intelligence with a null client initially.
@@ -62,27 +64,25 @@ export class KaspaPortal {
     networkId = "testnet-10",
     { onDisconnect, balanceElementId, startIntelligence = true } = {},
   ) {
-    // 1. Initialize Crypto (WASM)
-    await this.crypto.init();
 
-    // 2. Connect Transport
+    // 1. Connect Transport
     await this.transport.connect(rpcUrl, networkId, { onDisconnect });
 
-    // 3. Initialize Identity
+    // 2. Initialize Identity
     await this.identity.init({
       client: this.transport.client,
       networkId,
       balanceElementId,
     });
 
-    // 4. Inject Client into Intelligence
+    // 3. Inject Client into Intelligence
     // Since we instantiated it with null, we now provide the active client.
     this.intelligence.client = this.transport.client;
     if (this.intelligence.scanner) {
       this.intelligence.scanner.client = this.transport.client;
     }
 
-    // 5. Start Intelligence (optional)
+    // 4. Start Intelligence (optional)
     if (startIntelligence) {
       await this.intelligence.start();
     }
@@ -120,7 +120,7 @@ export class KaspaPortal {
    * Access the active wallet instance directly.
    */
   get wallet() {
-    return this.identity.activeWallet;
+    return this.identity.wallet;
   }
 
   // --- Wallet Proxy Methods ---
@@ -137,7 +137,7 @@ export class KaspaPortal {
         "KaspaPortal: You must call connect() before opening a wallet.",
       );
     }
-    const result = await this.identity.createWallet(options);
+    const result = await this.identity.createOrOpenWallet(options);
     return result;
   }
 
@@ -254,15 +254,20 @@ export class KaspaPortal {
    * @param {number} index - The session or user index.
    */
   async generateIdentityKeys(index) {
-    if (!this.identity.activeWallet) {
+    if (!this.identity.wallet.walletInitialized) {
       throw new Error("KaspaPortal: Wallet must be initialized.");
     }
 
-    // It will return both sig and dh keys derived from the wallet's XPrv.
-    return await this.crypto.generateIdentityKeys(
-      this.identity.activeWallet.xprv,
-      index,
-    );
+    // 1. Await the actual string from the facade
+    const xprv = await this.identity.getXprv();
+
+    // 2. Safety Check: If xprv is an object or undefined, WASM will crash
+    if (typeof xprv !== 'string') {
+      console.error("CRITICAL: xprv is not a string!", xprv);
+      throw new Error(`Expected xprv string, got ${typeof xprv}`);
+    }
+
+    return await this.crypto.generateIdentityKeys(xprv, index);
   }
 
   /**
@@ -271,15 +276,11 @@ export class KaspaPortal {
    * @returns {Promise<DHSession>} An initialized DHSession object.
    */
   async startSession(index) {
-    if (!this.identity.activeWallet) {
-      throw new Error(
-        "KaspaPortal: Wallet must be initialized before starting a session.",
-      );
+    if (!this.identity.wallet.walletInitialized) {
+      throw new Error("KaspaPortal: Wallet must be initialized before starting a session.");
     }
-    const { privateKey, publicKey } =
-      await this.crypto.generateNewKeypair(index);
-    // createDHSession calls initiateHandshake internally when keys are provided
-    return this.crypto.createDHSession(privateKey, publicKey);
+    const { dh } = await this.generateIdentityKeys(index);
+    return this.crypto.createDHSession(dh.privateKey, dh.publicKey);
   }
 
   /**
@@ -288,13 +289,11 @@ export class KaspaPortal {
    * @returns {Promise<string>} The signature.
    */
   async signAnchor(anchor) {
-    const isResponse = anchor.type === "response";
-    // The portal knows the current wallet's private key
-    return await this.crypto.signAnchor(
-      anchor,
-      this.wallet.privateKey,
-      isResponse,
-    );
+    if (!this.identity.wallet.walletInitialized) {
+      throw new Error("KaspaPortal: Wallet must be initialized.");
+    }
+    const { sig } = await this.generateIdentityKeys(0);
+    return await this.kktpProtocol.signAnchor(anchor, sig.privateKey);
   }
 
   /**
@@ -394,3 +393,6 @@ export class KaspaPortal {
     return this.vrf.generatePartialRandomness();
   }
 }
+
+// Instantiate it once here
+export const kaspaPortal = new KaspaPortal();

@@ -1,60 +1,61 @@
-// kktp-core/protocol/anchorFactory.js
-import { bytesToHex, hexToBytes } from "../utils/conversions.js";
+import { bytesToHex } from "../utils/conversions.js";
 import { constructAAD } from "./aad.js";
 import { XChaCha20Poly1305 } from "https://esm.sh/@noble/ciphers/chacha";
+import { kaspaPortal } from "../../portal/kaspaPortal.js";
 
 export class AnchorFactory {
-  constructor(portal) {
-    this.portal = portal;
-  }
-
   /**
    * Section 6.1: Discovery Anchor
    */
-  async createDiscovery(gameName, version) {
+  async createDiscovery(gameName, version = "1.0.0") {
     const sid = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
-    const sigKeypair = await this.portal.identity.getKeypair();
-    const dhKeypair = await this.portal.crypto.generateEphemeralDH();
 
-    const vrfInput = sigKeypair.publicKey + dhKeypair.publicKey + sid;
-    const { value, proof } = await this.portal.vrf.prove(vrfInput);
+    // Direct singleton use
+    const keys = await kaspaPortal.generateIdentityKeys(0);
+    const dhSession = await kaspaPortal.crypto.createDHSession();
+
+    const vrfInput = keys.sig.publicKey + dhSession.publicKey + sid;
+    const vrfData = await kaspaPortal.vrf.prove(vrfInput);
 
     const discovery = {
       type: "discovery",
       version: 1,
       sid: sid,
-      pub_sig: sigKeypair.publicKey,
-      pub_dh: dhKeypair.publicKey,
-      vrf_value: value,
-      vrf_proof: proof,
+      pub_sig: keys.sig.publicKey,
+      pub_dh: dhSession.publicKey,
+      vrf_value: vrfData.value,
+      vrf_proof: vrfData.proof,
       meta: {
         game: gameName,
-        version: version,
+        version: version, // Nested inside meta for validator
         expected_uptime_seconds: 3600,
       },
     };
 
-    discovery.sig = await this.portal.crypto.signAnchor(discovery);
-    return { discovery, dhPrivateKey: dhKeypair.privateKey };
+    discovery.sig = await kaspaPortal.signAnchor(discovery);
+    return { discovery, dhPrivateKey: dhSession.privateKey };
   }
 
   /**
-   * Section 6.2: Response Anchor (Schema Compliant)
+   * Section 6.2: Response Anchor
    */
   async createResponse(discovery) {
-    const sigKeypair = await this.portal.identity.getKeypair();
-    const dhKeypair = await this.portal.crypto.generateEphemeralDH();
+    const keys = await kaspaPortal.generateIdentityKeys(1);
+    const dhSession = await kaspaPortal.crypto.createDHSession();
 
     const response = {
       type: "response",
       version: 1,
       sid: discovery.sid,
-      initiator_pub_sig: discovery.pub_sig, // Literal Schema Compliance
-      initiator_pub_dh: discovery.pub_dh, // Literal Schema Compliance
-      pub_sig_resp: sigKeypair.publicKey,
-      pub_dh_resp: dhKeypair.publicKey,
+      initiator_pub_sig: discovery.pub_sig,
+      initiator_pub_dh: discovery.pub_dh,
+      pub_sig_resp: keys.sig.publicKey,
+      pub_dh_resp: dhSession.publicKey,
       vrf_value: null,
       vrf_proof: null,
+      meta: {
+        version: discovery.meta.version
+      }
     };
 
     const vrfInput =
@@ -64,12 +65,12 @@ export class AnchorFactory {
       response.pub_dh_resp +
       discovery.sid;
 
-    const vrfData = await this.portal.vrf.prove(vrfInput);
+    const vrfData = await kaspaPortal.vrf.prove(vrfInput);
     response.vrf_value = vrfData.value;
     response.vrf_proof = vrfData.proof;
 
-    response.sig_resp = await this.portal.crypto.signResponse(response);
-    return { response, dhPrivateKey: dhKeypair.privateKey };
+    response.sig_resp = await kaspaPortal.signAnchor(response);
+    return { response, dhPrivateKey: dhSession.privateKey };
   }
 
   /**
@@ -77,7 +78,7 @@ export class AnchorFactory {
    */
   async createMessage(mailboxId, direction, seq, plaintext, sessionKey) {
     const nonce = crypto.getRandomValues(new Uint8Array(24));
-    const aad = constructAAD(mailboxId, direction, seq); // Using your aad.js
+    const aad = constructAAD(mailboxId, direction, seq);
 
     const chacha = new XChaCha20Poly1305(sessionKey, nonce);
     const ciphertext = chacha.encrypt(new TextEncoder().encode(plaintext), aad);
@@ -94,22 +95,20 @@ export class AnchorFactory {
   }
 
   /**
-   * Section 8.1 / 5.5: Session End Anchor (Strict Schema Compliance)
+   * Section 8.1 / 5.5: Session End Anchor
    */
   async createSessionEnd(sid, reason = "Session terminated by user") {
-    const sigKeypair = await this.portal.identity.getKeypair();
+    const keys = await kaspaPortal.generateIdentityKeys(0);
 
     const sessionEnd = {
       type: "session_end",
       version: 1,
-      sid: sid, // Schema requires sid, not mailbox_id
-      pub_sig: sigKeypair.publicKey,
-      reason: reason, // Required by your schema
+      sid: sid,
+      pub_sig: keys.sig.publicKey,
+      reason: reason,
     };
 
-    // Use your portal's signAnchor which handles canonicalization
-    sessionEnd.sig = await this.portal.signAnchor(sessionEnd);
-
+    sessionEnd.sig = await kaspaPortal.signAnchor(sessionEnd);
     return sessionEnd;
   }
 }

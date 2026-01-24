@@ -4,9 +4,10 @@ import {
   responseValidator,
   mailboxMessageValidator,
   sessionEndValidator,
-} from "./protocol/validator.js";
+} from "./integrity/validator.js";
+import { canonicalize, prepareForSigning } from "./integrity/canonical.js";
 import { pack } from "./messenger.js";
-import { KKTP_STATES } from "./state-machine.js";
+import { KKTP_STATES } from "./stateMachine.js";
 
 export class KKTPProtocol {
   constructor(portal, stateMachine) {
@@ -152,5 +153,20 @@ export class KKTPProtocol {
       default:
         throw new Error(`Unknown KKTP Anchor type: ${anchor.type}`);
     }
+  }
+
+  /**
+   * Utility: Sign a KKTP Anchor
+   */
+  async signAnchor(anchor, privateKeyHex) {
+    const isResponse = anchor.type === "response";
+    const omitKeys = isResponse ? ["sig_resp"] : ["sig"];
+
+    const body = canonicalize(
+      prepareForSigning(anchor, { omitKeys, excludeMeta: true }),
+    );
+
+    // The protocol calls the crypto layer for the raw signature
+    return await this.portal.crypto.signMessage(privateKeyHex, body);
   }
 }

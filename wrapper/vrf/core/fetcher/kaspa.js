@@ -71,7 +71,12 @@ export async function getKaspaBlocks(n = KASPA_BLOCK_COUNT) {
           currentBlock = await parentResp.json();
           currentHash = selectedParentHash;
         }
-        logInfo("Kaspa blocks fetched", { n });
+        logInfo("Kaspa blocks fetched", {
+          count: blocks.length,
+          tipHeight: blocks[0]?.height,
+          blueScore: blocks[0]?.header?.blueScore,
+          hashes: blocks.map(b => b.hash.substring(0, 8)) // Only show first 8 chars of each hash
+        });
         return blocks;
       } catch (err) {
         lastErr = err;
@@ -97,7 +102,7 @@ export function kaspaApiToBlock(block, confirms) {
   }
   return new Block({
     hash,
-    height: block.header?.blueScore,
+    blueScore: block.header?.blueScore,
     time: parseInt(block.header?.timestamp) || 0,
     source: "kaspa",
     confirms,
