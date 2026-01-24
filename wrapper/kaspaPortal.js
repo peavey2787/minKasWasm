@@ -126,6 +126,22 @@ export class KaspaPortal {
   // --- Wallet Proxy Methods ---
 
   /**
+   * Opens an existing wallet or creates a new one.
+   * This is where you actually provide the password and mnemonic.
+   * * @param {Object} options - { password, mnemonic, filename, storeMnemonic }
+   * @returns {Promise<{address: string, mnemonic?: string}>}
+   */
+  async openOrCreateWallet(options) {
+    if (!this._isReady) {
+      throw new Error(
+        "KaspaPortal: You must call connect() before opening a wallet.",
+      );
+    }
+    const result = await this.identity.createWallet(options);
+    return result;
+  }
+
+  /**
    * Send a transaction (delegates to Identity).
    * @param {Object} options - { toAddress, amount, payload, priorityFeeKas }
    */
@@ -234,12 +250,19 @@ export class KaspaPortal {
   }
 
   /**
-   * Generate a new keypair from the active wallet (delegates to Identity).
-   * @param {number} index - Child index.
-   * @returns {Promise<{privateKey: string, publicKey: string}>}
+   * Derive two distinct keypairs (Signing & DH) from the same identity seed.
+   * @param {number} index - The session or user index.
    */
-  async generateKeypair(index) {
-    return this.identity.generateNewKeypair(index);
+  async generateIdentityKeys(index) {
+    if (!this.identity.activeWallet) {
+      throw new Error("KaspaPortal: Wallet must be initialized.");
+    }
+
+    // It will return both sig and dh keys derived from the wallet's XPrv.
+    return await this.crypto.generateIdentityKeys(
+      this.identity.activeWallet.xprv,
+      index,
+    );
   }
 
   /**
@@ -254,7 +277,7 @@ export class KaspaPortal {
       );
     }
     const { privateKey, publicKey } =
-      await this.identity.generateNewKeypair(index);
+      await this.crypto.generateNewKeypair(index);
     // createDHSession calls initiateHandshake internally when keys are provided
     return this.crypto.createDHSession(privateKey, publicKey);
   }

@@ -2,11 +2,11 @@
 import {
   discoveryValidator,
   responseValidator,
-} from "./canonical/validator.js";
-import { canonicalize, prepareForSigning } from "./canonical/canonical.js";
-import { bytesToHex, hexToBytes } from "./utils/conversion.js";
-import { blake2b } from "https://esm.sh/@noble/hashes/blake2b";
-import { hkdf } from "https://esm.sh/@noble/hashes/hkdf";
+} from "../integrity/validator.js";
+import { canonicalize, prepareForSigning } from "../integrity/canonical.js";
+import { bytesToHex, hexToBytes } from "../utils/conversions.js";
+import { blake2b } from "https://esm.sh/@noble/hashes@1.3.0/blake2b";
+import { hkdf } from "https://esm.sh/@noble/hashes@1.3.0/hkdf";
 
 /**
  * Establishes a session with mandatory VRF binding verification.

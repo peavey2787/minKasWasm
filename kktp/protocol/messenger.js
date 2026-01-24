@@ -1,7 +1,7 @@
 // kktp-core/messenger.js
-import { constructAAD } from "./canonical/aad.js";
-import { mailboxMessageValidator } from "./canonical/validator.js";
-import { bytesToHex, hexToBytes } from "./utils/conversion.js";
+import { constructAAD } from "./integrity/aad.js";
+import { mailboxMessageValidator } from "./integrity/validator.js";
+import { bytesToHex, hexToBytes } from "./utils/conversions.js";
 
 /**
  * Packs a plaintext message into a protocol-compliant Mailbox Message (Section 5.4)

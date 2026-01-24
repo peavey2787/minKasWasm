@@ -78,6 +78,24 @@ export class DHSession {
   }
 
   /**
+   * Derives the raw shared secret (for KKTP HKDF).
+   */
+  deriveSharedSecret(peerPublicKeyHex) {
+    this.peerPublicKeyHex = peerPublicKeyHex;
+    this.peerPublicKeyBytes = utilities.hexToBytes(peerPublicKeyHex);
+    this.sharedSecretBytes = secp.getSharedSecret(
+      this.myPrivateKeyBytes,
+      this.peerPublicKeyBytes,
+      true,
+    );
+    return this.sharedSecretBytes;
+  }
+
+  setSessionKey(key) {
+    this.sessionKey = key;
+  }
+
+  /**
    * Encrypt a message with the session key
    */
   encryptMessage(plaintext) {

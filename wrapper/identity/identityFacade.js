@@ -33,16 +33,46 @@ export class IdentityFacade {
    * @param {boolean} [options.storeMnemonic] - Whether to store the mnemonic (default false).
    * @returns {Promise<{address: string, mnemonic: string}>}
    */
-  async createWallet(options) {
+  async createOrOpenWallet(options) {
     return walletService.createWallet(options);
   }
 
-  /**
-   * Get the current spendable balance of the active wallet.
-   * @returns {Promise<bigint>} Balance in Sompi.
+  /** Close the active wallet.
+   * @returns {Promise<void>}
    */
-  async getSpendableBalance() {
-    return walletService.getSpendableBalance();
+  async closeWallet() {
+    return walletService.closeWallet();
+  }
+
+  /** Set the active account by index.
+   * @param {number} index - Account index to activate.
+   * @returns {Promise<void>}
+   */
+  async setActiveAccount(index) {
+    return walletService.activateAccount(index);
+  }
+
+  /** Generate a new receive address for the current wallet.
+   * @returns {Promise<string>} New address.
+   */
+  async generateNewAddress() {
+    return walletService.generateNewAddress();
+  }
+
+  /** Estimate transaction fee.
+   * @param {number|string} amount - Amount in KAS.
+   * @param {string} toAddress - Recipient address.
+   * @param {string} [payload] - Optional transaction payload.
+   * @param {number} [priorityFeeKas] - Priority fee in KAS.
+   * @returns {Promise<number>} Estimated fee in KAS.
+   */
+  async estimateTransactionFee(amount, toAddress, payload, priorityFeeKas) {
+    return walletService.estimateTransactionFee(
+      amount,
+      toAddress,
+      payload,
+      priorityFeeKas,
+    );
   }
 
   /**
@@ -60,41 +90,6 @@ export class IdentityFacade {
   }
 
   /**
-   * Generate a new receive address for the current wallet.
-   * @returns {Promise<string>} New address.
-   */
-  async generateNewAddress() {
-    return walletService.generateNewAddress();
-  }
-
-  /**
-   * Generate a new keypair (e.g. for encryption or advanced signing).
-   * @param {number} [index=0] - Child index for derivation.
-   * @returns {Promise<{privateKey: string, publicKey: string}>}
-   */
-  async generateNewKeypair(index) {
-    return walletService.generateNewKeypair(index);
-  }
-
-  /**
-   * Get a list of all stored wallets.
-   * @returns {Promise<Array<{filename: string, title: string}>>}
-   */
-  async getAllWallets() {
-    return walletService.getAllWallets();
-  }
-
-  /**
-   * Get the mnemonic for a specific wallet.
-   * @param {string} filename
-   * @param {string} password
-   * @returns {Promise<string>} Mnemonic phrase.
-   */
-  async getMnemonic(filename, password) {
-    return walletService.getMnemonic(filename, password);
-  }
-
-  /**
    * Delete a wallet from storage.
    * @param {string} filename
    */
@@ -106,14 +101,46 @@ export class IdentityFacade {
    * Access the Wallet class definition if available.
    * This allows advanced users to instantiate Wallet directly if needed.
    */
-  get Wallet() {
-    return walletService.Wallet;
+  get wallet() {
+    return walletService.getWalletContext();
+  }
+
+  /**
+   * Access the wallet secret of the active wallet.
+   */
+  get walletSecret() {
+    return walletService.getWalletSecret();
+  }
+
+  /**
+   * Access the mnemonic of the active wallet.
+   */
+  get mnemonic() {
+    return walletService.getMnemonic();
+  }
+
+  get xPrv() {
+    return walletService.getXPrv();
+  }
+
+  /**
+   * Access the active wallet instance if exposed by the service.
+   */
+  get allWallets() {
+    return walletService.getAllWallets();
   }
 
   /**
    * Access the active wallet instance if exposed by the service.
    */
   get activeWallet() {
-    return walletService.wallet;
+    return walletService.getActiveWallet();
+  }
+
+  /**
+   * Access the spendable balance of the active wallet.
+   */
+  get spendableBalance() {
+    return walletService.getSpendableBalance();
   }
 }

@@ -1,5 +1,5 @@
 // kktp-core/stateMachine.js
-import { establishSession } from "./handshake.js";
+import { establishSession } from "./integrity/handshake.js";
 import { pack, unpack } from "./messenger.js";
 
 export const KKTP_STATES = {
@@ -10,9 +10,10 @@ export const KKTP_STATES = {
 };
 
 export class KKTPStateMachine {
-  constructor(portal, isInitiator = true) {
+  constructor(portal, isInitiator = true, keyIndex = 0) {
     this.portal = portal;
     this.isInitiator = isInitiator;
+    this.keyIndex = keyIndex;
     this.state = KKTP_STATES.INIT;
 
     this.kktp = {
@@ -41,6 +42,7 @@ export class KKTPStateMachine {
         this.portal,
         discovery,
         response,
+        this.keyIndex,
       );
 
       this.kktp.session = session;

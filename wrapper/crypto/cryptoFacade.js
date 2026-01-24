@@ -4,6 +4,7 @@ import { DHSession } from "./dh_encryption.js";
 import {
   signMessageWithPrivateKeyHex,
   verifyMessageWithPublicKeyHex,
+  deriveChildKeyPair,
 } from "../utilities/utilities.js";
 /**
  * Facade for cryptographic operations including Symmetric Encryption and Diffie-Hellman Key Exchange.
@@ -61,15 +62,90 @@ export class CryptoFacade {
   }
 
   /**
-   * Derive a keypair using the active wallet identity.
-   * @param {number} index - Child index.
+   * Generates the two distinct key sets.
+   * @param {string} xprvHex - The master or account kprv
+   * @param {number} index - The child index
    */
-  async deriveKeypair(index) {
-    if (!this.identity)
-      throw new Error(
-        "CryptoFacade: IdentityFacade not available for key derivation.",
-      );
-    return this.identity.generateNewKeypair(index);
+  async generateIdentityKeys(xprvHex, index) {
+    // 1. Get raw Signing Keys (Branch 0)
+    const sigRaw = await deriveChildKeyPair({ xprvHex, branch: 0, index });
+
+    // 2. Get raw DH Keys (Branch 100)
+    const dhRaw = await deriveChildKeyPair({ xprvHex, branch: 100, index });
+
+    return {
+      sig: {
+        privateKey: sigRaw.privateKey,
+        publicKey: sigRaw.publicKey, // 66 hex
+      },
+      dh: {
+        privateKey: dhRaw.privateKey,
+        publicKey: dhRaw.publicKey, // 66 hex (Compressed) to satisfy utilities.hexToBytes
+      },
+    };
+  }
+
+  /**
+   * Return derived signing keys for the active account.
+   * This avoids exposing walletSecret to callers.
+   */
+  async getDefaultSigningKeysForActiveAccount() {
+    if (!walletInitialized || !wallet)
+      throw new Error("Wallet not initialized. Call init() first.");
+    if (!walletSecret)
+      throw new Error("Wallet secret not set (create/open wallet first).");
+
+    const accounts = await wallet.accountsEnumerate({});
+    const active = accounts?.accountDescriptors?.[currentAccountIndex];
+    if (!active) throw new Error("Active account not found.");
+
+    // Your utilities derive functions accept "mainnet"/"testnet" (not "testnet-10")
+    const netName = String(currentNetworkId || "")
+      .toLowerCase()
+      .startsWith("testnet")
+      ? "testnet"
+      : "mainnet";
+
+    const xprv = await utilities.getXPrvFromStorage(filename, walletSecret);
+    const xprvHex = xprv.toString();
+
+    const receive0 = await utilities.deriveReceivingChildKeyPair({
+      xprvHex,
+      network: netName,
+      accountIndex: BigInt(currentAccountIndex),
+      index: 0,
+    });
+
+    // If you added deriveChangeChildKeyPair earlier, use it; otherwise add it to utilities.js.
+    const change0 = await utilities.deriveChangeChildKeyPair({
+      xprvHex,
+      network: netName,
+      accountIndex: BigInt(currentAccountIndex),
+      index: 0,
+    });
+
+    return {
+      receive: receive0, // { privateKey, publicKey, address }
+      change: change0, // { privateKey, publicKey, address }
+    };
+  }
+
+  /**
+   * Generate a new keypair for the given index using the wallet's XPrv.
+   * @param {number} index - The child index for key derivation.
+   * @returns {Promise<{privateKey: string, publicKey: string}>} - The derived keypair.
+   */
+  async generateNewKeypair(index) {
+    const xprv = await utilities.getXPrvFromStorage(filename, walletSecret);
+    const xprvHex = xprv.toString();
+    const derivedKeyPair = await utilities.deriveReceivingChildKeyPair({
+      xprvHex,
+      index,
+    });
+    return {
+      privateKey: derivedKeyPair.privateKey,
+      publicKey: derivedKeyPair.publicKey,
+    };
   }
 
   /**

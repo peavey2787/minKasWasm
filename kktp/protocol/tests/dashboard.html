@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>KKTP Protocol Integration Test Dashboard</title>
+  <style>
+    body { font-family: sans-serif; margin: 2em; }
+    button { margin: 0.5em; }
+    .test-result { margin: 0.5em 0; }
+    .pass { color: green; }
+    .fail { color: red; }
+  </style>
+</head>
+<body>
+  <h1>KKTP Protocol Integration Test Dashboard</h1>
+  <div>
+    <button id="btn-run-all">Run All Integration Tests</button>
+    <button id="btn-test-1">Session Establishment</button>
+    <button id="btn-test-2">Message Send/Receive</button>
+    <button id="btn-test-3">Out-of-Order Delivery</button>
+    <button id="btn-test-4">Buffer Overflow/Adversarial</button>
+  </div>
+  <div id="results"></div>
+  <script type="module">
+    import {
+      testSessionEstablishment,
+      testMessageSendReceive,
+      testOutOfOrderDelivery,
+      testAdversarialBufferOverflow,
+      runAllIntegrationTests
+    } from './integration.test.js';
+
+    const resultsDiv = document.getElementById('results');
+    document.getElementById('btn-run-all').onclick = async () => {
+      resultsDiv.innerHTML += `<div>Running all integration tests...</div>`;
+      const results = await runAllIntegrationTests();
+      for (const r of results) {
+        resultsDiv.innerHTML += `<div class='test-result ${r.status === 'PASS' ? 'pass' : 'fail'}'>${r.name}: ${r.status}${r.error ? `<br><pre>${r.error}</pre>` : ''}</div>`;
+      }
+    };
+    document.getElementById('btn-test-1').onclick = async () => runSingle(testSessionEstablishment);
+    document.getElementById('btn-test-2').onclick = async () => runSingle(testMessageSendReceive);
+    document.getElementById('btn-test-3').onclick = async () => runSingle(testOutOfOrderDelivery);
+    document.getElementById('btn-test-4').onclick = async () => runSingle(testAdversarialBufferOverflow);
+
+    async function runSingle(fn) {
+      resultsDiv.innerHTML += `<div>Running <b>${fn.name}</b>...</div>`;
+      try {
+        await fn();
+        resultsDiv.innerHTML += `<div class='test-result pass'>${fn.name}: PASS</div>`;
+      } catch (e) {
+        resultsDiv.innerHTML += `<div class='test-result fail'>${fn.name}: FAIL<br><pre>${e}</pre></div>`;
+      }
+    }
+  </script>
+</body>
+</html>

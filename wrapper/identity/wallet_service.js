@@ -27,8 +27,10 @@ let walletStarted = false;
  * Get internal wallet context for advanced flows (UTXO selection, WASM tx builder, etc.)
  */
 export function getWalletContext() {
+  if (!wallet) return null;
+
   return {
-    wallet,
+    ...wallet, // Spread all properties/methods from the Wallet instance
     walletInitialized,
     accountId,
     filename,
@@ -36,6 +38,83 @@ export function getWalletContext() {
     currentAccountIndex,
     log,
   };
+}
+
+/** Get the current wallet secret (password)
+ * @returns {string|null} walletSecret
+ */
+export function getWalletSecret() {
+  return walletSecret;
+}
+
+/**
+ * Get a list of all wallet files/descriptors available.
+ * @returns {Promise<Array>} Array of wallet descriptors (each has filename, title, etc.)
+ */
+export async function getAllWallets() {
+  if (!wallet) {
+    throw new Error("Wallet not initialized. Call init() first.");
+  }
+  try {
+    const result = await wallet.walletEnumerate({});
+    return result.walletDescriptors || [];
+  } catch (err) {
+    throw new Error(
+      "Failed to enumerate wallets: " +
+        (err && err.message ? err.message : err),
+    );
+  }
+}
+
+/**
+ * Get the mnemonic phrase from storage for the given wallet filename and password.
+ * @param {string} filename - Wallet filename.
+ * @param {string} password - Password to decrypt wallet data.
+ * @returns {Promise<string>} - The mnemonic phrase.
+ */
+export async function getMnemonic({ theFilename = "", password = "" } = {}) {
+  if (theFilename.length === 0) {
+    theFilename = filename;
+  }
+  if (password.length === 0) {
+    password = walletSecret;
+  }
+  return await utilities.getMnemonicFromStorage(theFilename, password);
+}
+
+/**
+ * Get the extended private key (XPrv) for the current wallet.
+ * @returns {Promise<string>} - The XPrv as a string.
+ */
+export async function getXprv() {
+  if (!walletInitialized || !wallet) {
+    throw new Error("Wallet not initialized. Call init() first.");
+  }
+  return await utilities.getXPrvFromStorage(filename, walletSecret);
+}
+
+/**
+ * Get the spendable (mature) balance for the current wallet account.
+ * @returns {Promise<BigInt>} - The spendable balance in sompi (BigInt).
+ */
+export async function getSpendableBalance() {
+  const res = await wallet.accountsGet({ accountId });
+
+  let bal = null;
+
+  if (res.account?.balance) {
+    bal = res.account.balance;
+  } else if (res.accounts?.[0]?.balance) {
+    bal = res.accounts[0].balance;
+  } else if (res.accountDescriptor?.balance) {
+    bal = res.accountDescriptor.balance;
+  }
+
+  if (!bal || !bal.mature) {
+    return 0n;
+  }
+
+  return BigInt(bal.mature);
 }
 
 /**
@@ -55,7 +134,7 @@ export function init({
   onBalanceChange = null,
   logger = null,
 } = {}) {
-  if (walletInitialized) return;
+  if (walletInitialized) return walletInitialized;
 
   // Use the provided logger, or a no-op if not supplied
   log = typeof logger === "function" ? logger : () => {};
@@ -108,6 +187,7 @@ export function init({
   });
 
   walletInitialized = true;
+  return walletInitialized;
 }
 
 /**
@@ -542,30 +622,6 @@ export async function send({ amount, toAddress, payload, priorityFeeKas }) {
 }
 
 /**
- * Get the spendable (mature) balance for the current wallet account.
- * @returns {Promise<BigInt>} - The spendable balance in sompi (BigInt).
- */
-export async function getSpendableBalance() {
-  const res = await wallet.accountsGet({ accountId });
-
-  let bal = null;
-
-  if (res.account?.balance) {
-    bal = res.account.balance;
-  } else if (res.accounts?.[0]?.balance) {
-    bal = res.accounts[0].balance;
-  } else if (res.accountDescriptor?.balance) {
-    bal = res.accountDescriptor.balance;
-  }
-
-  if (!bal || !bal.mature) {
-    return 0n;
-  }
-
-  return BigInt(bal.mature);
-}
-
-/**
  * Generate a new receiving or change address for the current account.
  * @param {boolean} [change=false] - If true, generate a change address; otherwise, receiving address.
  * @returns {Promise<string>} - The new address as a string.
@@ -577,24 +633,6 @@ export async function generateNewAddress(change = false) {
     addressKind: change ? "change" : "receive",
   });
   return addr.address;
-}
-
-/**
- * Generate a new keypair for the given index using the wallet's XPrv.
- * @param {number} index - The child index for key derivation.
- * @returns {Promise<{privateKey: string, publicKey: string}>} - The derived keypair.
- */
-export async function generateNewKeypair(index) {
-  const xprv = await utilities.getXPrvFromStorage(filename, walletSecret);
-  const xprvHex = xprv.toString();
-  const derivedKeyPair = await utilities.deriveReceivingChildKeyPair({
-    xprvHex,
-    index,
-  });
-  return {
-    privateKey: derivedKeyPair.privateKey,
-    publicKey: derivedKeyPair.publicKey,
-  };
 }
 
 /**
@@ -618,87 +656,4 @@ export async function deleteWalletData(filename) {
     req.onerror = () => reject(req.error);
     req.onblocked = () => reject(new Error("Delete blocked"));
   });
-}
-
-/**
- * Get a list of all wallet files/descriptors available.
- * @returns {Promise<Array>} Array of wallet descriptors (each has filename, title, etc.)
- */
-export async function getAllWallets() {
-  if (!wallet) {
-    throw new Error("Wallet not initialized. Call init() first.");
-  }
-  try {
-    const result = await wallet.walletEnumerate({});
-    return result.walletDescriptors || [];
-  } catch (err) {
-    throw new Error(
-      "Failed to enumerate wallets: " +
-        (err && err.message ? err.message : err),
-    );
-  }
-}
-
-/**
- * Get the mnemonic phrase from storage for the given wallet filename and password.
- * @param {string} filename - Wallet filename.
- * @param {string} password - Password to decrypt wallet data.
- * @returns {Promise<string>} - The mnemonic phrase.
- */
-export async function getMnemonic({ theFilename = "", password = "" } = {}) {
-  if (theFilename.length === 0) {
-    theFilename = filename;
-  }
-  if (password.length === 0) {
-    password = walletSecret;
-  }
-  return await utilities.getMnemonicFromStorage(theFilename, password);
-}
-
-/**
- * Return derived signing keys for the active account.
- * This avoids exposing walletSecret to callers.
- *
- * NOTE: For now this is “demo-simple” and derives index 0 receive+change keys.
- * If you start using multiple address indexes, expand this to a range.
- */
-export async function getDefaultSigningKeysForActiveAccount() {
-  if (!walletInitialized || !wallet)
-    throw new Error("Wallet not initialized. Call init() first.");
-  if (!walletSecret)
-    throw new Error("Wallet secret not set (create/open wallet first).");
-
-  const accounts = await wallet.accountsEnumerate({});
-  const active = accounts?.accountDescriptors?.[currentAccountIndex];
-  if (!active) throw new Error("Active account not found.");
-
-  // Your utilities derive functions accept "mainnet"/"testnet" (not "testnet-10")
-  const netName = String(currentNetworkId || "")
-    .toLowerCase()
-    .startsWith("testnet")
-    ? "testnet"
-    : "mainnet";
-
-  const xprv = await utilities.getXPrvFromStorage(filename, walletSecret);
-  const xprvHex = xprv.toString();
-
-  const receive0 = await utilities.deriveReceivingChildKeyPair({
-    xprvHex,
-    network: netName,
-    accountIndex: BigInt(currentAccountIndex),
-    index: 0,
-  });
-
-  // If you added deriveChangeChildKeyPair earlier, use it; otherwise add it to utilities.js.
-  const change0 = await utilities.deriveChangeChildKeyPair({
-    xprvHex,
-    network: netName,
-    accountIndex: BigInt(currentAccountIndex),
-    index: 0,
-  });
-
-  return {
-    receive: receive0, // { privateKey, publicKey, address }
-    change: change0, // { privateKey, publicKey, address }
-  };
 }

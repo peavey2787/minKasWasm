@@ -7,6 +7,7 @@ import {
   PrivateKeyGenerator,
   PublicKeyGenerator,
   Address,
+  NetworkType,
 } from "../kas-wasm/kaspa.js";
 import { loadWalletData } from "../identity/storage.js";
 
@@ -249,8 +250,6 @@ export function getXPrv(mnemonicPhrase, passphrase = null) {
   return xPrv;
 }
 
-// This network parameter can be "mainnet"/"testnet"
-// or a NetworkType.MAINNET (1 = mainnet, 2 = testnet)
 /**
  * Derive a receiving child key pair and address from an XPrv hex.
  * @param {Object} params
@@ -265,6 +264,7 @@ export async function deriveReceivingChildKeyPair({
   network = NETWORK,
   accountIndex = 0n,
   index = 0,
+  branch = 0,
 }) {
   if (typeof index !== "number" || index < 0) {
     throw new Error("Index must be a non-negative integer");
@@ -290,6 +290,45 @@ export async function deriveReceivingChildKeyPair({
     publicKey: pubKey.toString(),
     address: addr,
   };
+}
+
+/**
+ * Manually derive keys using raw XPrv derivation.
+ */
+export async function deriveChildKeyPair({
+  xprvHex,
+  network = "testnet-10",
+  accountIndex = 0n,
+  branch = 0,
+  index = 0,
+}) {
+  const masterXPrv = XPrv.fromXPrv(xprvHex);
+
+  // Chain the derivation and free the intermediate objects
+  const p = masterXPrv.deriveChild(44, true);
+  const c = p.deriveChild(111111, true);
+  const a = c.deriveChild(Number(accountIndex), true);
+  const b = a.deriveChild(branch, false);
+  const leaf = b.deriveChild(index, false);
+
+  const privKey = leaf.toPrivateKey();
+  const pubKey = privKey.toPublicKey();
+
+  const networkType = network.includes("mainnet")
+    ? NetworkType.Mainnet
+    : NetworkType.Testnet;
+  const address = privKey.toAddress(networkType).toString();
+
+  const result = {
+    privateKey: privKey.toString(),
+    publicKey: pubKey.toString(),
+    address: address,
+  };
+
+  // CLEANUP: Essential for WASM
+  [masterXPrv, p, c, a, b, leaf].forEach((obj) => obj.free());
+
+  return result;
 }
 
 /**
