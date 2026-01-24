@@ -1,5 +1,6 @@
 // kktp-core/mailbox.js
 import { hexToBytes } from './utils/conversion.js';
+import { constructAAD } from './integrity/aad.js';
 import { XChaCha20Poly1305 } from "https://esm.sh/@noble/ciphers/chacha";
 
 export class Mailbox {
@@ -74,23 +75,10 @@ export class Mailbox {
         const chacha = new XChaCha20Poly1305(key, hexToBytes(msg.nonce));
 
         // Construct AAD: mailbox_id (raw) || direction (utf8) || seq (u64be)
-        const aad = this._constructAAD(msg.direction, msg.seq);
+        const aad = constructAAD(this.mailboxId, msg.direction, msg.seq);
         
         const ciphertext = hexToBytes(msg.ciphertext);
         return chacha.decrypt(ciphertext, aad);
-    }
-
-    _constructAAD(direction, seq) {
-        const mbBytes = hexToBytes(this.mailboxId);
-        const dirBytes = new TextEncoder().encode(direction);
-        const seqBytes = new Uint8Array(8);
-        new DataView(seqBytes.buffer).setBigUint64(0, BigInt(seq), false); // Big-Endian
-
-        const aad = new Uint8Array(mbBytes.length + dirBytes.length + 8);
-        aad.set(mbBytes, 0);
-        aad.set(dirBytes, mbBytes.length);
-        aad.set(seqBytes, mbBytes.length + dirBytes.length);
-        return aad;
     }
 
     onMessage(cb) {
