@@ -1,5 +1,4 @@
 import { fetchBlocks, getBitcoinBlocks, getKaspaBlocks, getQRNG } from './core/fetcher/index.js';
-import { hexToBinary } from './core/crypto.js';
 import core from './core/index.js';
 
 /**

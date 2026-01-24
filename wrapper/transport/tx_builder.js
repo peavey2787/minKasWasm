@@ -1,4 +1,4 @@
-import { createTransactions, Generator, PrivateKey, sompiToKaspaString } from '../../kas-wasm/kaspa.js';
+import { createTransactions, Generator, PrivateKey, sompiToKaspaString } from '../kas-wasm/kaspa.js';
 import { payloadToHex } from '../utilities/utilities.js';
 
 /**

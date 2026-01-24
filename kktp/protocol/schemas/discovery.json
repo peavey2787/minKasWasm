@@ -1,7 +1,6 @@
-// vscode-json-schema: ignore
-
 {
   "type": "object",
+  
   "properties": {
     "type": {
       "type": "string",

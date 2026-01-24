@@ -112,7 +112,7 @@ export class KaspaPortal {
     return this.identity.activeWallet;
   }
 
-  // --- Proxy Methods ---
+  // --- Wallet Proxy Methods ---
 
   /**
    * Send a transaction (delegates to Identity).
@@ -128,6 +128,18 @@ export class KaspaPortal {
    */
   async getBalance() {
     return this.identity.getSpendableBalance();
+  }
+
+  // --- Intelligence Proxy Methods ---
+
+  /**
+   * Dynamically updates the payload prefix the scanner is looking for.
+   * @param {string} prefix - The new prefix (e.g., "KKTP:mailbox_id:").
+   */
+  setScannerPrefix(prefix) {
+    if (this.intelligence && this.intelligence.scanner) {
+      this.intelligence.scanner.prefix = prefix;
+    }
   }
 
   /**
@@ -193,6 +205,8 @@ export class KaspaPortal {
     this.intelligence.onCacheEvict(cb);
     return this;
   }
+
+  // --- Crypto Proxy Methods ---
 
   /**
    * Encrypt a message (delegates to Crypto).

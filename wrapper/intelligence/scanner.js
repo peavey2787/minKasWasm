@@ -27,24 +27,30 @@ export const SearchMode = Object.freeze({
  * Generic Kaspa Block Scanner for subscribing to new blocks and searching payloads/addresses.
  */
 export class KaspaBlockScanner {
-  #prefix = null;
+  #prefixes = new Set();
   indexer = null;
 
   /**
    * Create a KaspaBlockScanner instance.
    * @param {Object} client - The Kaspa RPC client instance.
    * @param {Object} options - Scanner options.
-   * @param {string|null} [options.prefix=null] - Plain string prefix to encode and match in payloads.
+   * @param {string|null} [options.prefixes=[]] - Array of plain string prefixes to encode and match in payloads.
    * @param {string[]} [options.addresses=[]] - List of addresses to watch.
    * @param {string} [options.mode=SearchMode.INCLUDES] - Search mode: includes, startsWith, exact, endsWith.
    */
-  constructor(client, { prefix = null, addresses = [], mode = SearchMode.INCLUDES, indexerOptions = {} } = {}) {
+  constructor(client, { prefixes = [], addresses = [], mode = SearchMode.INCLUDES, indexerOptions = {} } = {}) {
     this.client = client;
     this.blockSubscription = null;
     this.scanning = false;
     this.onBlock = null; // callback(block, matches)
-    // Hex encode so we don't have to decode every payload for matching
-    this.#prefix = prefix ? stringToHex(prefix) : null; 
+
+    // Initialize with provided prefixes
+    if (Array.isArray(prefixes)) {
+      prefixes.forEach(p => this.addPrefix(p));
+    } else if (prefixes) {
+      this.addPrefix(prefixes);
+    }
+
     this.addresses = Array.isArray(addresses) ? addresses : [];
     this.searchMode = Object.values(SearchMode).includes(mode) ? mode : SearchMode.INCLUDES;
     this.indexer = new KaspaIndexer(indexerOptions);
@@ -56,14 +62,27 @@ export class KaspaBlockScanner {
     });
   }
 
-  get prefix() {
-    return this.#prefix;
+  get prefixes() {
+    return Array.from(this.#prefixes);
   }
 
-  set prefix(value) {
-    this.#prefix = value ? stringToHex(value) : null;
+  /** Sets the entire list of prefixes, replacing existing ones. */
+  set prefixes(values) {
+    this.#prefixes.clear();
+    const arr = Array.isArray(values) ? values : [values];
+    arr.forEach(v => this.addPrefix(v));
   }
 
+  /** Adds a prefix to the watch list. */
+  addPrefix(prefix) {
+    if (!prefix) return;
+    this.#prefixes.add(stringToHex(prefix));
+  }
+
+  /** Removes a prefix from the watch list. */
+  removePrefix(prefix) {
+    this.#prefixes.delete(stringToHex(prefix));
+  }
 
   // --- Modularized scanning logic ---
   async start(onBlock) {
@@ -130,23 +149,25 @@ export class KaspaBlockScanner {
     let payloadMatch = false;
     let decodedPayload = null;
 
-    if (this.prefix && tx.payload) {
-      const payloadHex = tx.payload;
-      const prefixHex = this.prefix;
-      switch (this.searchMode) {
-        case SearchMode.INCLUDES:
-          if (payloadHex.includes(prefixHex)) payloadMatch = true;
-          break;
-        case SearchMode.STARTS_WITH:
-          if (payloadHex.startsWith(prefixHex)) payloadMatch = true;
-          break;
-        case SearchMode.EXACT:
-          if (payloadHex === prefixHex) payloadMatch = true;
-          break;
-        case SearchMode.ENDS_WITH:
-          if (payloadHex.endsWith(prefixHex)) payloadMatch = true;
-          break;
-      }
+    if (this.#prefixes.length > 0 && tx.payload) {
+      const payloadHex = tx.payload;      
+      
+      // Use 'return' inside the switch cases so .some() sees the match
+      payloadMatch = this.#prefixes.some(prefixHex => {
+        switch (this.searchMode) {
+          case SearchMode.INCLUDES:
+            return payloadHex.includes(prefixHex);
+          case SearchMode.STARTS_WITH:
+            return payloadHex.startsWith(prefixHex);
+          case SearchMode.EXACT:
+            return payloadHex === prefixHex;
+          case SearchMode.ENDS_WITH:
+            return payloadHex.endsWith(prefixHex);
+          default:
+            return false;
+        }
+      });
+
       if (payloadMatch) {
         try {
           decodedPayload = hexToString(payloadHex);

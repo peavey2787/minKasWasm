@@ -1,4 +1,4 @@
-import { kaspaToSompi } from '../../kas-wasm/kaspa.js';
+import { kaspaToSompi } from '../kas-wasm/kaspa.js';
 
 /**
  * Normalize UTXO result to a flat array of entries.

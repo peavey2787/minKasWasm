@@ -1,5 +1,13 @@
 import * as secp from "https://esm.sh/@noble/secp256k1";
-import { signMessage, verifyMessage, XPrv, Mnemonic, PrivateKeyGenerator, PublicKeyGenerator, Address } from '../../kas-wasm/kaspa.js';
+import {
+  signMessage, 
+  verifyMessage,
+  XPrv, 
+  Mnemonic, 
+  PrivateKeyGenerator, 
+  PublicKeyGenerator, 
+  Address 
+} from '../kas-wasm/kaspa.js';
 import { loadWalletData } from '../identity/storage.js';
 
 const MAX_PAYLOAD_BYTES = 32 * 1024; // 32KB
