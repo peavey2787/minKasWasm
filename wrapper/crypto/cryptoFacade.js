@@ -1,7 +1,7 @@
 import initKaspa from '../kas-wasm/kaspa.js';
 import { encryptMessage, decryptMessage } from './encryption.js';
 import { DHSession } from './dh_encryption.js';
-import { signMessageWithPrivateKeyHex, verifyMessageWithPublicKeyHex } from '../utilities.utilities.js';
+import { signMessageWithPrivateKeyHex, verifyMessageWithPublicKeyHex } from '../utilities/utilities.js';
 /**
  * Facade for cryptographic operations including Symmetric Encryption and Diffie-Hellman Key Exchange.
  * Provides a unified interface for encryption tasks within the application.

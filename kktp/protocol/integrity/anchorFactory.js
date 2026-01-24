@@ -90,22 +90,22 @@ export class AnchorFactory {
     }
 
     /**
-     * Section 8.1: Session End Anchor
+     * Section 8.1 / 5.5: Session End Anchor (Strict Schema Compliance)
      */
-    async createSessionEnd(mailboxId, lastSeqA, lastSeqB) {
+    async createSessionEnd(sid, reason = "Session terminated by user") {
         const sigKeypair = await this.portal.identity.getKeypair();
 
         const sessionEnd = {
             type: "session_end",
             version: 1,
-            mailbox_id: mailboxId,
+            sid: sid,         // Schema requires sid, not mailbox_id
             pub_sig: sigKeypair.publicKey,
-            last_seq_a: Number(lastSeqA),
-            last_seq_b: Number(lastSeqB),
-            timestamp: Math.floor(Date.now() / 1000)
+            reason: reason,   // Required by your schema
         };
 
-        sessionEnd.sig = await this.portal.crypto.signAnchor(sessionEnd);
+        // Use your portal's signAnchor which handles canonicalization
+        sessionEnd.sig = await this.portal.signAnchor(sessionEnd);
+
         return sessionEnd;
     }
 }
