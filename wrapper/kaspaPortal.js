@@ -245,6 +245,38 @@ export class KaspaPortal {
     return this.crypto.createDHSession(privateKey, publicKey);
   }
 
+  /**
+   * Sign an anchor object (delegates to Crypto).
+   * @param {Object} anchor - The anchor to sign.
+   * @returns {Promise<string>} The signature.
+   */
+  async signAnchor(anchor) {
+    const isResponse = anchor.type === 'response';
+    // The portal knows the current wallet's private key
+    return await this.crypto.signAnchor(anchor, this.wallet.privateKey, isResponse);
+  }
+
+  /**
+   * Sign a message (delegates to Crypto).
+   * @param {string} privateKeyHex - Private key hex string.
+   * @param {string} message - The canonicalized message body.
+   * @returns {Promise<string>} The signature.
+   */
+  async signMessage(privateKeyHex, message) {
+    return await this.crypto.signMessage(privateKeyHex, message);
+  }
+
+  /**
+   * Verify a message signature (delegates to Crypto).
+   * @param {string} publicKey - Public key hex string.
+   * @param {string} body - The canonicalized message body.
+   * @param {string} sig - The signature to verify.
+   * @returns {Promise<boolean>} True if valid, false otherwise.
+   */
+  async verifyMessage(publicKey, body, sig) {
+    return await this.crypto.verifyMessage(publicKey, body, sig);
+  }
+  
   // --- VRF Proxy Methods ---
 
   /**
