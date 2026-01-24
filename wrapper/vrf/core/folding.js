@@ -1,8 +1,8 @@
 // Folding logic for VRF randomness extraction
-import { FoldingValidationError, FoldingExtractionError } from './errors.js';
-import { extractBits } from './extractor.js';
-import { sha256Hash, hexToBytes, bytesToPositions } from './crypto.js';
-import { logInfo, logError } from './logs/logger.js';
+import { FoldingValidationError, FoldingExtractionError } from "./errors.js";
+import { extractBits } from "./extractor.js";
+import { sha256Hash, hexToBytes, bytesToPositions } from "./crypto.js";
+import { logInfo, logError } from "./logs/logger.js";
 
 /**
  * SHA-256 Folding Rule
@@ -13,13 +13,29 @@ import { logInfo, logError } from './logs/logger.js';
  */
 export async function sha256FoldingRule(previousOutput, numPositions) {
   // Input validation
-  if (typeof previousOutput !== 'string' || !/^[01]+$/.test(previousOutput) || previousOutput.length < 8) {
-    logError({ msg: 'sha256FoldingRule: Invalid previousOutput', previousOutput, numPositions });
-    throw new Error('sha256FoldingRule: previousOutput must be a non-empty bitstring');
+  if (
+    typeof previousOutput !== "string" ||
+    !/^[01]+$/.test(previousOutput) ||
+    previousOutput.length < 8
+  ) {
+    logError({
+      msg: "sha256FoldingRule: Invalid previousOutput",
+      previousOutput,
+      numPositions,
+    });
+    throw new Error(
+      "sha256FoldingRule: previousOutput must be a non-empty bitstring",
+    );
   }
-  if (typeof numPositions !== 'number' || numPositions <= 0 || numPositions > 4096) {
-    logError({ msg: 'sha256FoldingRule: Invalid numPositions', numPositions });
-    throw new Error('sha256FoldingRule: numPositions must be a positive integer <= 4096');
+  if (
+    typeof numPositions !== "number" ||
+    numPositions <= 0 ||
+    numPositions > 4096
+  ) {
+    logError({ msg: "sha256FoldingRule: Invalid numPositions", numPositions });
+    throw new Error(
+      "sha256FoldingRule: numPositions must be a positive integer <= 4096",
+    );
   }
   // Hash the previous output repeatedly to get enough bytes
   let hashInput = previousOutput;
@@ -36,11 +52,24 @@ export async function sha256FoldingRule(previousOutput, numPositions) {
       hashInput = hash; // chain hashes
     }
   } catch (e) {
-    try { logError({ msg: 'sha256FoldingRule: sha256Hash failed', error: e, previousOutput, numPositions }); } catch {};
-    throw new FoldingExtractionError('sha256FoldingRule: sha256Hash failed', { cause: e, previousOutput, numPositions });
+    try {
+      logError({
+        msg: "sha256FoldingRule: sha256Hash failed",
+        error: e,
+        previousOutput,
+        numPositions,
+      });
+    } catch {}
+    throw new FoldingExtractionError("sha256FoldingRule: sha256Hash failed", {
+      cause: e,
+      previousOutput,
+      numPositions,
+    });
   }
   const positions = bytesToPositions(hashBytes, numPositions);
-  try { logInfo({ previousOutput, rule: 'sha256', positions }); } catch {} // fire-and-forget, robust
+  try {
+    logInfo({ previousOutput, rule: "sha256", positions });
+  } catch {} // fire-and-forget, robust
   return positions;
 }
 
@@ -50,28 +79,52 @@ export async function sha256FoldingRule(previousOutput, numPositions) {
  * @param {string} seed - Optional seed for deterministic generation
  * @returns {number[]} - Initial position array
  */
-export async function getInitialPositions(numPositions, seed = 'beacon') {
-  if (typeof numPositions !== 'number' || numPositions <= 0 || numPositions > 4096) {
-    logError({ msg: 'getInitialPositions: Invalid numPositions', numPositions });
-    throw new FoldingValidationError('getInitialPositions: numPositions must be a positive integer <= 4096', { numPositions });
+export async function getInitialPositions(numPositions, seed = "beacon") {
+  if (
+    typeof numPositions !== "number" ||
+    numPositions <= 0 ||
+    numPositions > 4096
+  ) {
+    logError({
+      msg: "getInitialPositions: Invalid numPositions",
+      numPositions,
+    });
+    throw new FoldingValidationError(
+      "getInitialPositions: numPositions must be a positive integer <= 4096",
+      { numPositions },
+    );
   }
-  if (typeof seed !== 'string' || seed.length < 1 || seed.length > 128) {
-    logError({ msg: 'getInitialPositions: Invalid seed', seed });
-    throw new FoldingValidationError('getInitialPositions: seed must be a non-empty string <= 128 chars', { seed });
+  if (typeof seed !== "string" || seed.length < 1 || seed.length > 128) {
+    logError({ msg: "getInitialPositions: Invalid seed", seed });
+    throw new FoldingValidationError(
+      "getInitialPositions: seed must be a non-empty string <= 128 chars",
+      { seed },
+    );
   }
   let hash, bytes;
   try {
     hash = await sha256Hash(seed);
     bytes = Array.from(hexToBytes(hash));
   } catch (e) {
-    try { logError({ msg: 'getInitialPositions: sha256Hash failed', error: e, seed }); } catch {};
-    throw new FoldingExtractionError('getInitialPositions: sha256Hash failed', { cause: e, seed });
+    try {
+      logError({
+        msg: "getInitialPositions: sha256Hash failed",
+        error: e,
+        seed,
+      });
+    } catch {}
+    throw new FoldingExtractionError("getInitialPositions: sha256Hash failed", {
+      cause: e,
+      seed,
+    });
   }
   const positions = [];
   for (let i = 0; i < numPositions; i++) {
     positions.push(bytes[i % bytes.length]);
   }
-  try { logInfo({ seed, rule: 'initial', positions }); } catch {} // fire-and-forget
+  try {
+    logInfo({ seed, rule: "initial", positions });
+  } catch {} // fire-and-forget
   return positions;
 }
 
@@ -87,9 +140,13 @@ export async function updatePositions(previousOutput, rule, numPositions) {
   if (!previousOutput) {
     return getInitialPositions(numPositions);
   }
-  if (rule !== 'sha256') {
-    try { logError({ msg: 'updatePositions: Unsupported folding rule', rule }); } catch {};
-    throw new FoldingValidationError('Only sha256 folding rule is supported.', { rule });
+  if (rule !== "sha256") {
+    try {
+      logError({ msg: "updatePositions: Unsupported folding rule", rule });
+    } catch {}
+    throw new FoldingValidationError("Only sha256 folding rule is supported.", {
+      rule,
+    });
   }
   return await sha256FoldingRule(previousOutput, numPositions);
 }
@@ -103,56 +160,119 @@ export async function updatePositions(previousOutput, rule, numPositions) {
  * @param {number} numPositions - Number of positions for each iteration
  * @returns {Promise<Object>} - { finalPositions, finalOutput, history }
  */
-export async function recursiveFolding(blocks, initialOutput, rule, iterations, numPositions) {
+export async function recursiveFolding(
+  blocks,
+  initialOutput,
+  rule,
+  iterations,
+  numPositions,
+) {
   // Input validation
-  if (!Array.isArray(blocks) || blocks.length === 0 || blocks.length > 32 || !blocks.every(b => b && typeof b.hash === 'string' && /^[0-9a-fA-F]{64}$/.test(b.hash))) {
-    try { logError({ msg: 'recursiveFolding: Invalid blocks', blocks }); } catch {};
-    throw new FoldingValidationError('recursiveFolding: blocks must be array of 1-32 objects with 64-char hex .hash', { blocks });
+  if (
+    !Array.isArray(blocks) ||
+    blocks.length === 0 ||
+    blocks.length > 32 ||
+    !blocks.every(
+      (b) =>
+        b && typeof b.hash === "string" && /^[0-9a-fA-F]{64}$/.test(b.hash),
+    )
+  ) {
+    try {
+      logError({ msg: "recursiveFolding: Invalid blocks", blocks });
+    } catch {}
+    throw new FoldingValidationError(
+      "recursiveFolding: blocks must be array of 1-32 objects with 64-char hex .hash",
+      { blocks },
+    );
   }
-  if (typeof initialOutput !== 'string' || !/^[01]+$/.test(initialOutput) || initialOutput.length < 8) {
-    try { logError({ msg: 'recursiveFolding: Invalid initialOutput', initialOutput }); } catch {};
-    throw new FoldingValidationError('recursiveFolding: initialOutput must be a non-empty bitstring', { initialOutput });
+  if (
+    typeof initialOutput !== "string" ||
+    !/^[01]+$/.test(initialOutput) ||
+    initialOutput.length < 8
+  ) {
+    try {
+      logError({
+        msg: "recursiveFolding: Invalid initialOutput",
+        initialOutput,
+      });
+    } catch {}
+    throw new FoldingValidationError(
+      "recursiveFolding: initialOutput must be a non-empty bitstring",
+      { initialOutput },
+    );
   }
-  if (typeof iterations !== 'number' || iterations < 1 || iterations > 32) {
-    try { logError({ msg: 'recursiveFolding: Invalid iterations', iterations }); } catch {};
-    throw new FoldingValidationError('recursiveFolding: iterations must be 1-32', { iterations });
+  if (typeof iterations !== "number" || iterations < 1 || iterations > 32) {
+    try {
+      logError({ msg: "recursiveFolding: Invalid iterations", iterations });
+    } catch {}
+    throw new FoldingValidationError(
+      "recursiveFolding: iterations must be 1-32",
+      { iterations },
+    );
   }
-  if (typeof numPositions !== 'number' || numPositions <= 0 || numPositions > 4096) {
-    try { logError({ msg: 'recursiveFolding: Invalid numPositions', numPositions }); } catch {};
-    throw new FoldingValidationError('recursiveFolding: numPositions must be a positive integer <= 4096', { numPositions });
+  if (
+    typeof numPositions !== "number" ||
+    numPositions <= 0 ||
+    numPositions > 4096
+  ) {
+    try {
+      logError({ msg: "recursiveFolding: Invalid numPositions", numPositions });
+    } catch {}
+    throw new FoldingValidationError(
+      "recursiveFolding: numPositions must be a positive integer <= 4096",
+      { numPositions },
+    );
   }
   let currentOutput = initialOutput;
   let positions = await getInitialPositions(numPositions);
   let hashLength = 256; // fallback, will be updated
-  const history = [{
-    iteration: 0,
-    output: initialOutput,
-    positions: positions.slice(),
-    rule: 'initial',
-    audit: []
-  }];
+  const history = [
+    {
+      iteration: 0,
+      output: initialOutput,
+      positions: positions.slice(),
+      rule: "initial",
+      audit: [],
+    },
+  ];
   let allAnomalies = [];
   for (let i = 1; i <= iterations; i++) {
     try {
       positions = await updatePositions(currentOutput, rule, numPositions);
       // Dynamically determine hash length from first block
-      if (blocks[0] && typeof blocks[0].hash === 'string') {
+      if (blocks[0] && typeof blocks[0].hash === "string") {
         hashLength = blocks[0].hash.length * 4;
       }
-      const safePositions = positions.map(pos => pos % hashLength);
+      const safePositions = positions.map((pos) => pos % hashLength);
       // Extract new bits using safe positions
       // Always pass iteration in opts to extractBits
       const { bitstring, auditTrail } = await extractBits(
         blocks,
         safePositions,
-        (anomaly, details) => { try { logInfo({ anomaly, ...details }); } catch {} },
-        { iteration: i }
+        (anomaly, details) => {
+          try {
+            logInfo({ anomaly, ...details });
+          } catch {}
+        },
+        { iteration: i },
       );
-      try { logInfo({ iteration: i, positions: safePositions.slice(), bitstring }); } catch {} // fire-and-forget, robust
+      try {
+        logInfo({ iteration: i, positions: safePositions.slice(), bitstring });
+      } catch {} // fire-and-forget, robust
       if (!bitstring || bitstring.length === 0) {
-        try { logError({ msg: 'recursiveFolding: No bits extracted', iteration: i, positions: safePositions, blocks }); } catch {};
+        try {
+          logError({
+            msg: "recursiveFolding: No bits extracted",
+            iteration: i,
+            positions: safePositions,
+            blocks,
+          });
+        } catch {}
         // Always include iteration in meta for FoldingExtractionError
-        throw new FoldingExtractionError('recursiveFolding: No bits extracted at iteration ' + i, { iteration: i, positions: safePositions, blocks });
+        throw new FoldingExtractionError(
+          "recursiveFolding: No bits extracted at iteration " + i,
+          { iteration: i, positions: safePositions, blocks },
+        );
       }
       currentOutput = bitstring;
       history.push({
@@ -160,12 +280,20 @@ export async function recursiveFolding(blocks, initialOutput, rule, iterations, 
         output: currentOutput,
         positions: safePositions.slice(),
         rule,
-        audit: auditTrail
+        audit: auditTrail,
       });
       // Aggregate anomalies from auditTrail
-      allAnomalies.push(...(auditTrail.filter(a => a.anomaly)));
+      allAnomalies.push(...auditTrail.filter((a) => a.anomaly));
     } catch (e) {
-      try { logError({ msg: 'recursiveFolding: Error in iteration', error: e, iteration: i, rule, numPositions }); } catch {};
+      try {
+        logError({
+          msg: "recursiveFolding: Error in iteration",
+          error: e,
+          iteration: i,
+          rule,
+          numPositions,
+        });
+      } catch {}
       // Always set meta.iteration for FoldingExtractionError
       if (e instanceof FoldingExtractionError) {
         e.meta = { ...(e.meta || {}), iteration: i };
@@ -177,7 +305,7 @@ export async function recursiveFolding(blocks, initialOutput, rule, iterations, 
     finalPositions: positions,
     finalOutput: currentOutput,
     history,
-    anomalies: allAnomalies
+    anomalies: allAnomalies,
   };
 }
 
@@ -190,7 +318,11 @@ export function getFoldingStats(foldingResult) {
   const { history, finalPositions } = foldingResult;
   // Use dynamic hash length if available
   let hashLength = 256;
-  if (finalPositions && finalPositions.length > 0 && foldingResult.finalPositions) {
+  if (
+    finalPositions &&
+    finalPositions.length > 0 &&
+    foldingResult.finalPositions
+  ) {
     // Try to infer from max position value
     const maxPos = Math.max(...finalPositions);
     hashLength = Math.max(256, Math.ceil((maxPos + 1) / 64) * 64); // round up to next 64
@@ -205,8 +337,8 @@ export function getFoldingStats(foldingResult) {
     iterations: history.length - 1,
     totalPositions: finalPositions.length,
     uniquePositions: unique,
-    coverage: ((unique / hashLength) * 100).toFixed(2) + '%',
-    distribution: distribution
+    coverage: ((unique / hashLength) * 100).toFixed(2) + "%",
+    distribution: distribution,
   };
 }
 
@@ -222,15 +354,15 @@ export async function fold(randA, randB, options = {}) {
   // Default: 2 rounds, 256 positions, sha256 folding
   const ensureCanonicalHash = async (input) => {
     // If already a 64-char hex string, return as-is
-    if (typeof input === 'string' && /^[0-9a-fA-F]{64}$/.test(input)) {
+    if (typeof input === "string" && /^[0-9a-fA-F]{64}$/.test(input)) {
       return input;
     }
     // If input is a bitstring (only 0/1), convert to hex, pad, and hash
-    if (typeof input === 'string' && /^[01]+$/.test(input)) {
+    if (typeof input === "string" && /^[01]+$/.test(input)) {
       // Pad to 256 bits
-      const padded = input.padEnd(256, '0').slice(0, 256);
+      const padded = input.padEnd(256, "0").slice(0, 256);
       // Convert to hex
-      let hex = '';
+      let hex = "";
       for (let i = 0; i < 256; i += 4) {
         hex += parseInt(padded.slice(i, i + 4), 2).toString(16);
       }
@@ -238,18 +370,27 @@ export async function fold(randA, randB, options = {}) {
       return await sha256Hash(hex);
     }
     // If input is a hex string but not 64 chars, hash it
-    if (typeof input === 'string' && /^[0-9a-fA-F]+$/.test(input)) {
+    if (typeof input === "string" && /^[0-9a-fA-F]+$/.test(input)) {
       return await sha256Hash(input);
     }
-    throw new Error('Invalid input for canonical hash');
+    throw new Error("Invalid input for canonical hash");
   };
 
   const hashA = await ensureCanonicalHash(randA);
   const hashB = await ensureCanonicalHash(randB);
-  const blocks = [{ hash: hashA, isFinal: true }, { hash: hashB, isFinal: true }];
+  const blocks = [
+    { hash: hashA, isFinal: true },
+    { hash: hashB, isFinal: true },
+  ];
   // Initial extraction: use all positions
   const positions = Array.from({ length: 256 }, (_, i) => i);
   const { bitstring: initialBits } = await extractBits(blocks, positions);
-  const foldingResult = await recursiveFolding(blocks, initialBits, 'sha256', options.iterations || 2, options.numPositions || 256);
+  const foldingResult = await recursiveFolding(
+    blocks,
+    initialBits,
+    "sha256",
+    options.iterations || 2,
+    options.numPositions || 256,
+  );
   return foldingResult.finalOutput;
 }

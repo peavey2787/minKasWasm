@@ -46,13 +46,27 @@ function serializeString(str) {
   for (let i = 0; i < str.length; i++) {
     const c = str.charCodeAt(i);
     switch (c) {
-      case 0x22: out += '\\"'; break;
-      case 0x5C: out += '\\\\'; break;
-      case 0x08: out += '\\b'; break;
-      case 0x0C: out += '\\f'; break;
-      case 0x0A: out += '\\n'; break;
-      case 0x0D: out += '\\r'; break;
-      case 0x09: out += '\\t'; break;
+      case 0x22:
+        out += '\\"';
+        break;
+      case 0x5c:
+        out += "\\\\";
+        break;
+      case 0x08:
+        out += "\\b";
+        break;
+      case 0x0c:
+        out += "\\f";
+        break;
+      case 0x0a:
+        out += "\\n";
+        break;
+      case 0x0d:
+        out += "\\r";
+        break;
+      case 0x09:
+        out += "\\t";
+        break;
       default:
         if (c < 0x20) out += "\\u" + c.toString(16).padStart(4, "0");
         else out += str[i];
@@ -62,7 +76,7 @@ function serializeString(str) {
 }
 
 function serializeArray(arr) {
-  return "[" + arr.map(v => canonicalize(v)).join(",") + "]";
+  return "[" + arr.map((v) => canonicalize(v)).join(",") + "]";
 }
 
 function serializeObject(obj) {
@@ -84,7 +98,7 @@ function serializeObject(obj) {
  * Strips non-JSON types and creates a clean deep-clone POJO.
  */
 export function toPlainJson(value) {
-  if (value === null || typeof value !== 'object') return value;
+  if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) return value.map(toPlainJson);
 
   const out = {};
@@ -99,13 +113,16 @@ export function toPlainJson(value) {
  * Prepares a KKTP anchor for signing by omitting the signature field
  * and the non-signed metadata.
  */
-export function prepareForSigning(obj, { omitKeys = [], excludeMeta = true } = {}) {
+export function prepareForSigning(
+  obj,
+  { omitKeys = [], excludeMeta = true } = {},
+) {
   const clean = toPlainJson(obj);
 
   function walk(v) {
     if (v === null || typeof v !== "object") return v;
     if (Array.isArray(v)) return v.map(walk);
-    
+
     const out = {};
     for (const k of Object.keys(v)) {
       if (omitKeys.includes(k)) continue;

@@ -1,13 +1,13 @@
 // indexer.js - Kaspa Transaction Indexer (browser version)
 
 export const IndexerEventType = Object.freeze({
-  TRANSACTION_IN_MEMORY: 'transaction-in-memory',
-  MATCHING_TRANSACTION_IN_MEMORY: 'matching-transaction-in-memory',
-  BLOCK_IN_MEMORY: 'block-in-memory',
-  TRANSACTION_CACHED: 'transaction-cached',
-  MATCHING_TRANSACTION_CACHED: 'matching-transaction-cached',
-  BLOCK_CACHED: 'block-cached',
-  EVICT: 'evict'
+  TRANSACTION_IN_MEMORY: "transaction-in-memory",
+  MATCHING_TRANSACTION_IN_MEMORY: "matching-transaction-in-memory",
+  BLOCK_IN_MEMORY: "block-in-memory",
+  TRANSACTION_CACHED: "transaction-cached",
+  MATCHING_TRANSACTION_CACHED: "matching-transaction-cached",
+  BLOCK_CACHED: "block-cached",
+  EVICT: "evict",
 });
 
 export const MatchMode = Object.freeze({
@@ -15,20 +15,20 @@ export const MatchMode = Object.freeze({
   TRANSACTIONS: "transactions",
   MATCHING: "matching",
   BLOCKS: "blocks",
-  CUSTOM: "custom"
+  CUSTOM: "custom",
 });
 
 export const EvictionReason = Object.freeze({
   TTL: "ttl",
   SIZE: "size",
   IN_MEMORY_TRANSACTION: "in_memory_transaction",
-  IN_MEMORY_BLOCK: "in_memory_block"
+  IN_MEMORY_BLOCK: "in_memory_block",
 });
 
 export const IndexerStore = Object.freeze({
   TRANSACTIONS: "transactions",
   MATCHING_TRANSACTIONS: "matching_transactions",
-  BLOCKS: "blocks"
+  BLOCKS: "blocks",
 });
 
 /** KaspaIndexer class for indexing transactions and blocks in the browser using IndexedDB.
@@ -40,7 +40,7 @@ export class KaspaIndexer {
     blocksIndexed: 0,
     evictions: { ttl: 0, size: 0 },
     cacheHits: 0,
-    cacheMisses: 0
+    cacheMisses: 0,
   };
 
   // In-memory rolling cache for deduplication
@@ -67,7 +67,7 @@ export class KaspaIndexer {
     ttlMinutes = null,
     flushInterval = 5000,
     maxSize = null,
-    batchThresholdRatio = 0.10,
+    batchThresholdRatio = 0.1,
     priorityTTL = true,
     inMemoryMaxTxs = 1000,
     inMemoryMaxBlocks = 1000,
@@ -76,7 +76,7 @@ export class KaspaIndexer {
     indexAllTransactions = true,
     indexAllMatchingTransactions = true,
     indexAllBlocks = false,
-    onIndexerUpdate = null
+    onIndexerUpdate = null,
   } = {}) {
     this.active = false;
     this.ttlMs = ttlMinutes ? ttlMinutes * 60 * 1000 : null;
@@ -87,7 +87,8 @@ export class KaspaIndexer {
     this.dbName = dbName;
     this.db = null;
     this._evictionInterval = null;
-    this.onIndexerUpdate = typeof onIndexerUpdate === 'function' ? onIndexerUpdate : null;
+    this.onIndexerUpdate =
+      typeof onIndexerUpdate === "function" ? onIndexerUpdate : null;
     this.matchMode = matchMode;
     this.indexAllTransactions = indexAllTransactions;
     this.indexAllMatchingTransactions = indexAllMatchingTransactions;
@@ -111,15 +112,22 @@ export class KaspaIndexer {
       request.onupgradeneeded = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains(IndexerStore.MATCHING_TRANSACTIONS)) {
-          const store = db.createObjectStore(IndexerStore.MATCHING_TRANSACTIONS, { keyPath: "txid" });
+          const store = db.createObjectStore(
+            IndexerStore.MATCHING_TRANSACTIONS,
+            { keyPath: "txid" },
+          );
           store.createIndex("timestamp", "timestamp");
         }
         if (!db.objectStoreNames.contains(IndexerStore.TRANSACTIONS)) {
-          const txStore = db.createObjectStore(IndexerStore.TRANSACTIONS, { keyPath: "txid" });
+          const txStore = db.createObjectStore(IndexerStore.TRANSACTIONS, {
+            keyPath: "txid",
+          });
           txStore.createIndex("timestamp", "timestamp");
         }
         if (!db.objectStoreNames.contains(IndexerStore.BLOCKS)) {
-          const blockStore = db.createObjectStore(IndexerStore.BLOCKS, { keyPath: "hash" });
+          const blockStore = db.createObjectStore(IndexerStore.BLOCKS, {
+            keyPath: "hash",
+          });
           blockStore.createIndex("timestamp", "timestamp");
         }
       };
@@ -130,7 +138,8 @@ export class KaspaIndexer {
         resolve(this.db);
       };
       request.onerror = (e) => reject(e);
-      request.onblocked = () => reject(new Error("IndexedDB open blocked (another tab/connection?)"));
+      request.onblocked = () =>
+        reject(new Error("IndexedDB open blocked (another tab/connection?)"));
     });
     return this._initPromise;
   }
@@ -166,7 +175,7 @@ export class KaspaIndexer {
       blocksIndexed: 0,
       evictions: { ttl: 0, size: 0 },
       cacheHits: 0,
-      cacheMisses: 0
+      cacheMisses: 0,
     };
   }
 
@@ -196,7 +205,7 @@ export class KaspaIndexer {
     this.flush(); // flush any remaining data
   }
 
-/* Indexing methods */
+  /* Indexing methods */
 
   /**
    * Add a transaction to the indexer.
@@ -205,12 +214,12 @@ export class KaspaIndexer {
    * @returns {Promise<void>}
    */
   async addTransaction(tx, isMatch = true) {
-    // CRITICAL: WASM pointers cannot be indexed. 
+    // CRITICAL: WASM pointers cannot be indexed.
     // They must be dehydrated before reaching the indexer.
-    if (tx && typeof tx.free === 'function') {
+    if (tx && typeof tx.free === "function") {
       throw new Error(
         `KaspaIndexer Error: Received raw WASM transaction (txid: ${tx.verboseData?.transactionId}). ` +
-        `Transactions must be dehydrated using utilities.dehydrateTx() before indexing to ensure memory safety and storage compatibility.`
+          `Transactions must be dehydrated using utilities.dehydrateTx() before indexing to ensure memory safety and storage compatibility.`,
       );
     }
 
@@ -219,7 +228,8 @@ export class KaspaIndexer {
     if (this.matchMode === MatchMode.MATCHING && !isMatch) return;
     if (this.matchMode === MatchMode.TRANSACTIONS && isMatch) return;
     if (this.matchMode === MatchMode.CUSTOM) {
-      if (!this.indexAllTransactions && !this.indexAllMatchingTransactions) return;
+      if (!this.indexAllTransactions && !this.indexAllMatchingTransactions)
+        return;
       if (!this.indexAllTransactions && !isMatch) return;
       if (!this.indexAllMatchingTransactions && isMatch) return;
     }
@@ -245,24 +255,30 @@ export class KaspaIndexer {
     this._pendingTxs.push({ entry, isMatch });
 
     // Notify for all transactions added in-memory, respecting matchMode and indexAll* flags
-    if (typeof this.onIndexerUpdate === 'function') {
+    if (typeof this.onIndexerUpdate === "function") {
       // Only emit if user wants all transactions in memory
       if (
         this.matchMode === MatchMode.ALL ||
         this.matchMode === MatchMode.TRANSACTIONS ||
         (this.matchMode === MatchMode.CUSTOM && this.indexAllTransactions)
       ) {
-        this.onIndexerUpdate({ type: IndexerEventType.TRANSACTION_IN_MEMORY, data: entry });
+        this.onIndexerUpdate({
+          type: IndexerEventType.TRANSACTION_IN_MEMORY,
+          data: entry,
+        });
       }
       // Only emit if user wants matching transactions in memory
       if (
-        (isMatch && (
-          this.matchMode === MatchMode.ALL ||
+        isMatch &&
+        (this.matchMode === MatchMode.ALL ||
           this.matchMode === MatchMode.MATCHING ||
-          (this.matchMode === MatchMode.CUSTOM && this.indexAllMatchingTransactions)
-        ))
+          (this.matchMode === MatchMode.CUSTOM &&
+            this.indexAllMatchingTransactions))
       ) {
-        this.onIndexerUpdate({ type: IndexerEventType.MATCHING_TRANSACTION_IN_MEMORY, data: entry });
+        this.onIndexerUpdate({
+          type: IndexerEventType.MATCHING_TRANSACTION_IN_MEMORY,
+          data: entry,
+        });
       }
     }
 
@@ -302,7 +318,7 @@ export class KaspaIndexer {
       const now = Number(block.header?.timestamp ?? block.timestamp);
       const hash = block.header?.hash || block.hash;
       if (!hash) {
-        console.error('Block has no hash, cannot index.', block);
+        console.error("Block has no hash, cannot index.", block);
         return;
       }
       const blockEntry = { ...block, timestamp: now, hash };
@@ -310,13 +326,16 @@ export class KaspaIndexer {
       this._metrics.blocksIndexed++;
 
       // Only emit if user wants blocks in memory
-      if (typeof this.onIndexerUpdate === 'function') {
+      if (typeof this.onIndexerUpdate === "function") {
         if (
           this.matchMode === MatchMode.ALL ||
           this.matchMode === MatchMode.BLOCKS ||
           (this.matchMode === MatchMode.CUSTOM && this.indexAllBlocks)
         ) {
-          this.onIndexerUpdate({ type: IndexerEventType.BLOCK_IN_MEMORY, data: blockEntry });
+          this.onIndexerUpdate({
+            type: IndexerEventType.BLOCK_IN_MEMORY,
+            data: blockEntry,
+          });
         }
       }
       // Flush if buffer is full
@@ -345,9 +364,17 @@ export class KaspaIndexer {
 
       // 1. Batch flush transactions
       if (this._pendingTxs.length) {
-        const txReqMatching = this.db.transaction(IndexerStore.MATCHING_TRANSACTIONS, "readwrite");
-        const storeMatching = txReqMatching.objectStore(IndexerStore.MATCHING_TRANSACTIONS);
-        const txReqAll = this.db.transaction(IndexerStore.TRANSACTIONS, "readwrite");
+        const txReqMatching = this.db.transaction(
+          IndexerStore.MATCHING_TRANSACTIONS,
+          "readwrite",
+        );
+        const storeMatching = txReqMatching.objectStore(
+          IndexerStore.MATCHING_TRANSACTIONS,
+        );
+        const txReqAll = this.db.transaction(
+          IndexerStore.TRANSACTIONS,
+          "readwrite",
+        );
         const storeAll = txReqAll.objectStore(IndexerStore.TRANSACTIONS);
 
         for (const { entry, isMatch } of this._pendingTxs) {
@@ -365,11 +392,11 @@ export class KaspaIndexer {
           }
 
           if (
-            isMatch && (
-              this.matchMode === MatchMode.ALL ||
+            isMatch &&
+            (this.matchMode === MatchMode.ALL ||
               this.matchMode === MatchMode.MATCHING ||
-              (this.matchMode === MatchMode.CUSTOM && this.indexAllMatchingTransactions)
-            )
+              (this.matchMode === MatchMode.CUSTOM &&
+                this.indexAllMatchingTransactions))
           ) {
             batchMatchingTxs.push(entry);
           }
@@ -407,15 +434,24 @@ export class KaspaIndexer {
 
       // 3. Emit Batch Events
       // This happens once per flush cycle, drastically reducing serialization overhead
-      if (typeof this.onIndexerUpdate === 'function') {
+      if (typeof this.onIndexerUpdate === "function") {
         if (batchTxs.length > 0) {
-          this.onIndexerUpdate({ type: IndexerEventType.TRANSACTION_CACHED, data: batchTxs });
+          this.onIndexerUpdate({
+            type: IndexerEventType.TRANSACTION_CACHED,
+            data: batchTxs,
+          });
         }
         if (batchMatchingTxs.length > 0) {
-          this.onIndexerUpdate({ type: IndexerEventType.MATCHING_TRANSACTION_CACHED, data: batchMatchingTxs });
+          this.onIndexerUpdate({
+            type: IndexerEventType.MATCHING_TRANSACTION_CACHED,
+            data: batchMatchingTxs,
+          });
         }
         if (batchBlocks.length > 0) {
-          this.onIndexerUpdate({ type: IndexerEventType.BLOCK_CACHED, data: batchBlocks });
+          this.onIndexerUpdate({
+            type: IndexerEventType.BLOCK_CACHED,
+            data: batchBlocks,
+          });
         }
       }
 
@@ -446,37 +482,76 @@ export class KaspaIndexer {
         const over = await this._isAnyRelevantStoreOverMaxSize();
         if (!over) return;
       }
-    const stdOnEvict = (storeName) => (evictInfo) => {
-      if (this.onIndexerUpdate) {        
-        this.onIndexerUpdate({
-          type: IndexerEventType.EVICT,
-          data: {
-            key: evictInfo.key,
-            reason: evictInfo.reason,
-            storeName
-          }
-        });
-      }
-    };
+      const stdOnEvict = (storeName) => (evictInfo) => {
+        if (this.onIndexerUpdate) {
+          this.onIndexerUpdate({
+            type: IndexerEventType.EVICT,
+            data: {
+              key: evictInfo.key,
+              reason: evictInfo.reason,
+              storeName,
+            },
+          });
+        }
+      };
 
-      if (this.matchMode === MatchMode.ALL || this.matchMode === MatchMode.MATCHING) {
-        await this._evictStore(IndexerStore.MATCHING_TRANSACTIONS, "txid", stdOnEvict(IndexerStore.MATCHING_TRANSACTIONS), now);
+      if (
+        this.matchMode === MatchMode.ALL ||
+        this.matchMode === MatchMode.MATCHING
+      ) {
+        await this._evictStore(
+          IndexerStore.MATCHING_TRANSACTIONS,
+          "txid",
+          stdOnEvict(IndexerStore.MATCHING_TRANSACTIONS),
+          now,
+        );
       }
-      if (this.matchMode === MatchMode.ALL || this.matchMode === MatchMode.TRANSACTIONS) {
-        await this._evictStore(IndexerStore.TRANSACTIONS, "txid", stdOnEvict(IndexerStore.TRANSACTIONS), now);
+      if (
+        this.matchMode === MatchMode.ALL ||
+        this.matchMode === MatchMode.TRANSACTIONS
+      ) {
+        await this._evictStore(
+          IndexerStore.TRANSACTIONS,
+          "txid",
+          stdOnEvict(IndexerStore.TRANSACTIONS),
+          now,
+        );
       }
-      if (this.matchMode === MatchMode.ALL || this.matchMode === MatchMode.BLOCKS) {
-        await this._evictStore(IndexerStore.BLOCKS, "hash", stdOnEvict(IndexerStore.BLOCKS), now);
+      if (
+        this.matchMode === MatchMode.ALL ||
+        this.matchMode === MatchMode.BLOCKS
+      ) {
+        await this._evictStore(
+          IndexerStore.BLOCKS,
+          "hash",
+          stdOnEvict(IndexerStore.BLOCKS),
+          now,
+        );
       }
       if (this.matchMode === MatchMode.CUSTOM) {
         if (this.indexAllMatchingTransactions) {
-          await this._evictStore(IndexerStore.MATCHING_TRANSACTIONS, "txid", stdOnEvict(IndexerStore.MATCHING_TRANSACTIONS), now);
+          await this._evictStore(
+            IndexerStore.MATCHING_TRANSACTIONS,
+            "txid",
+            stdOnEvict(IndexerStore.MATCHING_TRANSACTIONS),
+            now,
+          );
         }
         if (this.indexAllTransactions) {
-          await this._evictStore(IndexerStore.TRANSACTIONS, "txid", stdOnEvict(IndexerStore.TRANSACTIONS), now);
+          await this._evictStore(
+            IndexerStore.TRANSACTIONS,
+            "txid",
+            stdOnEvict(IndexerStore.TRANSACTIONS),
+            now,
+          );
         }
         if (this.indexAllBlocks) {
-          await this._evictStore(IndexerStore.BLOCKS, "hash", stdOnEvict(IndexerStore.BLOCKS), now);
+          await this._evictStore(
+            IndexerStore.BLOCKS,
+            "hash",
+            stdOnEvict(IndexerStore.BLOCKS),
+            now,
+          );
         }
       }
     })();
@@ -516,7 +591,8 @@ export class KaspaIndexer {
         tx.oncomplete = () => {
           // Metrics / observability
           if (this._metrics) {
-            this._metrics.storesCleared = (this._metrics.storesCleared || 0) + 1;
+            this._metrics.storesCleared =
+              (this._metrics.storesCleared || 0) + 1;
             this._metrics.clearsByStore = this._metrics.clearsByStore || {};
             this._metrics.clearsByStore[storeName] =
               (this._metrics.clearsByStore[storeName] || 0) + 1;
@@ -525,11 +601,17 @@ export class KaspaIndexer {
         };
 
         tx.onerror = (e) => {
-          console.error(`IndexedDB clear failed for store ${storeName}:`, e.target.error);
+          console.error(
+            `IndexedDB clear failed for store ${storeName}:`,
+            e.target.error,
+          );
           reject(e.target.error);
         };
         tx.onabort = (e) => {
-          console.error(`IndexedDB transaction aborted for store ${storeName}:`, e.target.error);
+          console.error(
+            `IndexedDB transaction aborted for store ${storeName}:`,
+            e.target.error,
+          );
           reject(e.target.error);
         };
       } catch (err) {
@@ -548,13 +630,15 @@ export class KaspaIndexer {
   }
 
   /* In-memory Getters */
-  
+
   /**
    * Get matching transactions in memory.
    * @returns {Object[]}
    */
   getAllMatchingTransactions() {
-    return this._pendingTxs.filter(({ isMatch }) => isMatch).map(({ entry }) => entry);
+    return this._pendingTxs
+      .filter(({ isMatch }) => isMatch)
+      .map(({ entry }) => entry);
   }
 
   /**
@@ -564,7 +648,7 @@ export class KaspaIndexer {
   getAllTransactions() {
     return this._pendingTxs.map(({ entry }) => entry);
   }
-  
+
   /** Get all blocks in memory.
    * @returns {Object[]}
    */
@@ -582,7 +666,7 @@ export class KaspaIndexer {
     return match ? match.entry : null;
   }
 
-/* IndexedDB Getters */
+  /* IndexedDB Getters */
 
   /**
    * Get a transaction by its txid.
@@ -590,7 +674,10 @@ export class KaspaIndexer {
    * @returns {Promise<Object|null>} - The matching transaction or null.
    */
   async getCachedTransaction(txid) {
-    return this._queryStore(IndexerStore.MATCHING_TRANSACTIONS, txs => txs.find(tx => tx.txid === txid) || null);
+    return this._queryStore(
+      IndexerStore.MATCHING_TRANSACTIONS,
+      (txs) => txs.find((tx) => tx.txid === txid) || null,
+    );
   }
 
   /**
@@ -598,7 +685,7 @@ export class KaspaIndexer {
    * @returns {Promise<Object[]>} - Array of all transactions.
    */
   async getAllCachedMatchingTransactions() {
-    return this._queryStore(IndexerStore.MATCHING_TRANSACTIONS, txs => txs);
+    return this._queryStore(IndexerStore.MATCHING_TRANSACTIONS, (txs) => txs);
   }
 
   /**
@@ -606,7 +693,7 @@ export class KaspaIndexer {
    * @returns {Promise<Object[]>} - Array of all blocks.
    */
   async getAllCachedTransactions() {
-    return this._queryStore(IndexerStore.TRANSACTIONS, txs => txs);
+    return this._queryStore(IndexerStore.TRANSACTIONS, (txs) => txs);
   }
 
   /**
@@ -614,7 +701,7 @@ export class KaspaIndexer {
    * @returns {Promise<Object[]>} - Array of all blocks.
    */
   async getAllCachedBlocks() {
-    return this._queryStore(IndexerStore.BLOCKS, blocks => blocks);
+    return this._queryStore(IndexerStore.BLOCKS, (blocks) => blocks);
   }
 
   /**
@@ -625,14 +712,20 @@ export class KaspaIndexer {
    * @param {bigint} amount - Amount transferred.
    * @returns {Promise<Object|null>} - The most recent matching transaction or null.
    */
-  async getMostRecentCachedTransaction(sender, receiver, blockDaaScore, amount) {
-    return this._queryStore(IndexerStore.MATCHING_TRANSACTIONS, txs => {
+  async getMostRecentCachedTransaction(
+    sender,
+    receiver,
+    blockDaaScore,
+    amount,
+  ) {
+    return this._queryStore(IndexerStore.MATCHING_TRANSACTIONS, (txs) => {
       const matches = txs
-        .filter(tx =>
-          tx.sender === sender &&
-          tx.receiver === receiver &&
-          tx.blockDaaScore === blockDaaScore &&
-          tx.amount === amount
+        .filter(
+          (tx) =>
+            tx.sender === sender &&
+            tx.receiver === receiver &&
+            tx.blockDaaScore === blockDaaScore &&
+            tx.amount === amount,
         )
         .sort((a, b) => b.timestamp - a.timestamp);
       return matches[0] || null;
@@ -645,8 +738,8 @@ export class KaspaIndexer {
    * @returns {Promise<Object[]>} - Array of matching transactions.
    */
   async getCachedTransactionsAfterBlockDaaScore(minBlockDaaScore) {
-    return this._queryStore(IndexerStore.MATCHING_TRANSACTIONS, txs =>
-      txs.filter(tx => tx.blockDaaScore > minBlockDaaScore)
+    return this._queryStore(IndexerStore.MATCHING_TRANSACTIONS, (txs) =>
+      txs.filter((tx) => tx.blockDaaScore > minBlockDaaScore),
     );
   }
 
@@ -658,19 +751,19 @@ export class KaspaIndexer {
    */
   async getCachedTransactionsForAddress(address, recentSeconds = null) {
     const now = Date.now();
-    return this._queryStore(IndexerStore.MATCHING_TRANSACTIONS, txs => {
-      let matches = txs.filter(tx =>
-        tx.sender === address || tx.receiver === address
+    return this._queryStore(IndexerStore.MATCHING_TRANSACTIONS, (txs) => {
+      let matches = txs.filter(
+        (tx) => tx.sender === address || tx.receiver === address,
       );
       if (recentSeconds) {
-        const cutoff = now - (recentSeconds * 1000);
-        matches = matches.filter(tx => tx.timestamp >= cutoff);
+        const cutoff = now - recentSeconds * 1000;
+        matches = matches.filter((tx) => tx.timestamp >= cutoff);
       }
       return matches.sort((a, b) => b.timestamp - a.timestamp);
     });
   }
 
-/* Internal helpers */
+  /* Internal helpers */
 
   _startEvictionTimer() {
     if (this._evictionInterval) clearInterval(this._evictionInterval);
@@ -749,24 +842,27 @@ export class KaspaIndexer {
         };
 
         req.onsuccess = () => finalize(() => processFn(req.result || []));
-        req.onerror = () => reject(req.error || new Error("IndexedDB getAll() failed"));
+        req.onerror = () =>
+          reject(req.error || new Error("IndexedDB getAll() failed"));
 
-        tx.onabort = () => reject(tx.error || new Error("IndexedDB transaction aborted"));
-        tx.onerror = () => reject(tx.error || new Error("IndexedDB transaction error"));
+        tx.onabort = () =>
+          reject(tx.error || new Error("IndexedDB transaction aborted"));
+        tx.onerror = () =>
+          reject(tx.error || new Error("IndexedDB transaction error"));
       } catch (err) {
         reject(err);
       }
     });
   }
 
-  /** 
+  /**
    * (Internal) Helper to prune in-memory buffer to max size.
    * @param {Array} buffer - The in-memory buffer array.
    * @param {number} max - The maximum allowed size.
    * @param {string} evictionReason - Reason for eviction.
    * @param {string} storeName - Name of the store.
    * @param {string} keyField - Key field name.
-   */   
+   */
   _pruneInMemoryBuffer(buffer, max, evictionReason, storeName, keyField) {
     while (buffer.length > max) {
       const removed = buffer.shift();
@@ -776,8 +872,8 @@ export class KaspaIndexer {
           data: {
             key: removed.entry ? removed.entry[keyField] : removed[keyField],
             reason: evictionReason,
-            storeName
-          }
+            storeName,
+          },
         });
       }
     }
@@ -786,8 +882,10 @@ export class KaspaIndexer {
   _awaitIDBTransaction(tx) {
     return new Promise((resolve, reject) => {
       tx.oncomplete = () => resolve();
-      tx.onabort = () => reject(tx.error || new Error("IndexedDB transaction aborted"));
-      tx.onerror = () => reject(tx.error || new Error("IndexedDB transaction error"));
+      tx.onabort = () =>
+        reject(tx.error || new Error("IndexedDB transaction aborted"));
+      tx.onerror = () =>
+        reject(tx.error || new Error("IndexedDB transaction error"));
     });
   }
 
@@ -796,7 +894,7 @@ export class KaspaIndexer {
       return [
         { name: IndexerStore.MATCHING_TRANSACTIONS, keyField: "txid" },
         { name: IndexerStore.TRANSACTIONS, keyField: "txid" },
-        { name: IndexerStore.BLOCKS, keyField: "hash" }
+        { name: IndexerStore.BLOCKS, keyField: "hash" },
       ];
     }
     if (this.matchMode === MatchMode.MATCHING) {
@@ -810,9 +908,15 @@ export class KaspaIndexer {
     }
     if (this.matchMode === MatchMode.CUSTOM) {
       const stores = [];
-      if (this.indexAllMatchingTransactions) stores.push({ name: IndexerStore.MATCHING_TRANSACTIONS, keyField: "txid" });
-      if (this.indexAllTransactions) stores.push({ name: IndexerStore.TRANSACTIONS, keyField: "txid" });
-      if (this.indexAllBlocks) stores.push({ name: IndexerStore.BLOCKS, keyField: "hash" });
+      if (this.indexAllMatchingTransactions)
+        stores.push({
+          name: IndexerStore.MATCHING_TRANSACTIONS,
+          keyField: "txid",
+        });
+      if (this.indexAllTransactions)
+        stores.push({ name: IndexerStore.TRANSACTIONS, keyField: "txid" });
+      if (this.indexAllBlocks)
+        stores.push({ name: IndexerStore.BLOCKS, keyField: "hash" });
       return stores;
     }
     return [];
@@ -851,7 +955,7 @@ export class KaspaIndexer {
       if (this.onIndexerUpdate) {
         this.onIndexerUpdate({
           type: IndexerEventType.EVICT,
-          data: { key: evictInfo.key, reason: evictInfo.reason, storeName }
+          data: { key: evictInfo.key, reason: evictInfo.reason, storeName },
         });
       }
     };
@@ -883,11 +987,17 @@ export class KaspaIndexer {
       if (onEvict) onEvict(evictInfo);
     };
 
-    await this._evictBySize(store, keyField, this.maxSize, onEvictAndRemove, now);
+    await this._evictBySize(
+      store,
+      keyField,
+      this.maxSize,
+      onEvictAndRemove,
+      now,
+    );
     await this._awaitIDBTransaction(txReq);
   }
 
-    /**
+  /**
    * Prune an IndexedDB store by TTL and/or max size.
    * @param {string} storeName - The name of the store (use IndexerStore constant).
    * @param {string} keyField - The key field name (e.g., "txid" or "hash").
@@ -901,18 +1011,22 @@ export class KaspaIndexer {
     const store = storeTx.objectStore(storeName);
 
     if (this.priorityTTL) {
-      if (this.ttlMs) await this._evictByTTL(store, keyField, now, this.ttlMs, onEvict);
-      if (this.maxSize) await this._evictBySize(store, keyField, this.maxSize, onEvict, now);
+      if (this.ttlMs)
+        await this._evictByTTL(store, keyField, now, this.ttlMs, onEvict);
+      if (this.maxSize)
+        await this._evictBySize(store, keyField, this.maxSize, onEvict, now);
     } else {
-      if (this.maxSize) await this._evictBySize(store, keyField, this.maxSize, onEvict, now);
-      if (this.ttlMs) await this._evictByTTL(store, keyField, now, this.ttlMs, onEvict);
+      if (this.maxSize)
+        await this._evictBySize(store, keyField, this.maxSize, onEvict, now);
+      if (this.ttlMs)
+        await this._evictByTTL(store, keyField, now, this.ttlMs, onEvict);
     }
 
     await this._awaitIDBTransaction(storeTx);
   }
 
-  /** 
-   * (Internal) Helper to evict from a given store, enforcing eviction priority. 
+  /**
+   * (Internal) Helper to evict from a given store, enforcing eviction priority.
    */
   async _evictStore(storeName, keyField, onEvict, now) {
     await this._dbReady;
@@ -933,32 +1047,60 @@ export class KaspaIndexer {
     };
 
     if (this.priorityTTL) {
-      if (this.ttlMs) await this._evictByTTL(store, keyField, now, this.ttlMs, onEvictAndRemove);
-      if (this.maxSize) await this._evictBySize(store, keyField, this.maxSize, onEvictAndRemove, now);
+      if (this.ttlMs)
+        await this._evictByTTL(
+          store,
+          keyField,
+          now,
+          this.ttlMs,
+          onEvictAndRemove,
+        );
+      if (this.maxSize)
+        await this._evictBySize(
+          store,
+          keyField,
+          this.maxSize,
+          onEvictAndRemove,
+          now,
+        );
     } else {
-      if (this.maxSize) await this._evictBySize(store, keyField, this.maxSize, onEvictAndRemove, now);
-      if (this.ttlMs) await this._evictByTTL(store, keyField, now, this.ttlMs, onEvictAndRemove);
+      if (this.maxSize)
+        await this._evictBySize(
+          store,
+          keyField,
+          this.maxSize,
+          onEvictAndRemove,
+          now,
+        );
+      if (this.ttlMs)
+        await this._evictByTTL(
+          store,
+          keyField,
+          now,
+          this.ttlMs,
+          onEvictAndRemove,
+        );
     }
 
     await this._awaitIDBTransaction(txReq);
   }
 
-  /** 
-   * (Internal) Evict items from a store by TTL. 
+  /**
+   * (Internal) Evict items from a store by TTL.
    */
   async _evictByTTL(store, keyField, now, ttlMs, onEvict) {
     const cutoff = now - ttlMs;
     const index = store.index("timestamp");
     const range = IDBKeyRange.upperBound(cutoff);
-  
+
     // First, count total items and expired items
-    const totalCount = await new Promise(resolve => {
+    const totalCount = await new Promise((resolve) => {
       const req = store.count();
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(0);
     });
-  
-    const expiredCount = await new Promise(resolve => {
+
+    const expiredCount = await new Promise((resolve) => {
       let count = 0;
       const req = index.openCursor(range);
       req.onsuccess = (e) => {
@@ -972,9 +1114,9 @@ export class KaspaIndexer {
       };
       req.onerror = () => resolve(0);
     });
-  
+
     const batchThreshold = Math.floor(totalCount * this.batchThresholdRatio);
-  
+
     // Now, batch remove if expiredCount >= batchThreshold
     if (expiredCount >= batchThreshold) {
       await new Promise((resolve) => {
@@ -986,9 +1128,13 @@ export class KaspaIndexer {
             if (entry.timestamp <= cutoff) {
               const delReq = store.delete(cursor.primaryKey);
               delReq.onerror = (err) => {
-                console.error("IndexedDB delete failed (TTL eviction):", err.target.error);
+                console.error(
+                  "IndexedDB delete failed (TTL eviction):",
+                  err.target.error,
+                );
               };
-              if (onEvict) onEvict({ key: cursor.primaryKey, reason: EvictionReason.TTL });
+              if (onEvict)
+                onEvict({ key: cursor.primaryKey, reason: EvictionReason.TTL });
               this._metrics.evictions.ttl++;
             }
             cursor.continue();
@@ -997,15 +1143,18 @@ export class KaspaIndexer {
           }
         };
         req.onerror = (e) => {
-          console.error("IndexedDB openCursor failed (TTL eviction):", e.target.error);
+          console.error(
+            "IndexedDB openCursor failed (TTL eviction):",
+            e.target.error,
+          );
           resolve();
         };
       });
     }
   }
 
-  /** 
-   * (Internal) Evict items from a store by max size. 
+  /**
+   * (Internal) Evict items from a store by max size.
    */
   async _evictBySize(store, keyField, maxSize, onEvict, now) {
     if (!maxSize || maxSize <= 0) return;
@@ -1014,7 +1163,10 @@ export class KaspaIndexer {
       const req = store.count();
       req.onsuccess = () => resolve(req.result || 0);
       req.onerror = (e) => {
-        console.error("IndexedDB count failed (Size eviction):", e.target.error);
+        console.error(
+          "IndexedDB count failed (Size eviction):",
+          e.target.error,
+        );
         resolve(0);
       };
     });
@@ -1028,7 +1180,10 @@ export class KaspaIndexer {
       let deleted = 0;
 
       cursorReq.onerror = (err) => {
-        console.error("IndexedDB openCursor failed (Size eviction):", err.target.error);
+        console.error(
+          "IndexedDB openCursor failed (Size eviction):",
+          err.target.error,
+        );
         resolve();
       };
 
@@ -1041,10 +1196,14 @@ export class KaspaIndexer {
 
         const delReq = store.delete(cursor.primaryKey);
         delReq.onerror = (err) => {
-          console.error("IndexedDB delete failed (Size eviction):", err.target.error);
+          console.error(
+            "IndexedDB delete failed (Size eviction):",
+            err.target.error,
+          );
         };
 
-        if (onEvict) onEvict({ key: cursor.primaryKey, reason: EvictionReason.SIZE });
+        if (onEvict)
+          onEvict({ key: cursor.primaryKey, reason: EvictionReason.SIZE });
         this._metrics.evictions.size++;
         deleted++;
         cursor.continue();

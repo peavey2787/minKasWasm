@@ -1,7 +1,7 @@
-import { connect } from './kaspa_client.js';
-import * as txBuilder from './tx_builder.js';
-import * as utxoManager from './utxo_manager.js';
-import { runRpcCommand } from './rpc_runner.js';
+import { connect } from "./kaspa_client.js";
+import * as txBuilder from "./tx_builder.js";
+import * as utxoManager from "./utxo_manager.js";
+import { runRpcCommand } from "./rpc_runner.js";
 
 export class TransportFacade {
   constructor() {
@@ -42,9 +42,9 @@ export class TransportFacade {
   async getAccountUtxos(accountDescriptor) {
     this._checkConnected();
     // utxoManager expects a wallet-like object with an rpc property
-    return utxoManager.getAccountUtxos({ 
-      wallet: { rpc: this.client }, 
-      accountDescriptor 
+    return utxoManager.getAccountUtxos({
+      wallet: { rpc: this.client },
+      accountDescriptor,
     });
   }
 
@@ -94,10 +94,10 @@ export class TransportFacade {
    */
   async submitPendingTransaction(pendingTx, privateKeys = []) {
     this._checkConnected();
-    return txBuilder.submitPendingTransaction({ 
-      pendingTx, 
-      privateKeys, 
-      client: this.client 
+    return txBuilder.submitPendingTransaction({
+      pendingTx,
+      privateKeys,
+      client: this.client,
     });
   }
 
@@ -106,9 +106,9 @@ export class TransportFacade {
    */
   async buildSignSubmitTransaction(args) {
     this._checkConnected();
-    return txBuilder.buildSignSubmitTransaction({ 
-      ...args, 
-      client: this.client 
+    return txBuilder.buildSignSubmitTransaction({
+      ...args,
+      client: this.client,
     });
   }
 
@@ -123,6 +123,7 @@ export class TransportFacade {
   }
 
   _checkConnected() {
-    if (!this.client) throw new Error("TransportFacade: Not connected to Kaspa node.");
+    if (!this.client)
+      throw new Error("TransportFacade: Not connected to Kaspa node.");
   }
 }

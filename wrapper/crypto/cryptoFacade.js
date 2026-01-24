@@ -1,7 +1,10 @@
-import initKaspa from '../kas-wasm/kaspa.js';
-import { encryptMessage, decryptMessage } from './encryption.js';
-import { DHSession } from './dh_encryption.js';
-import { signMessageWithPrivateKeyHex, verifyMessageWithPublicKeyHex } from '../utilities/utilities.js';
+import initKaspa from "../kas-wasm/kaspa.js";
+import { encryptMessage, decryptMessage } from "./encryption.js";
+import { DHSession } from "./dh_encryption.js";
+import {
+  signMessageWithPrivateKeyHex,
+  verifyMessageWithPublicKeyHex,
+} from "../utilities/utilities.js";
 /**
  * Facade for cryptographic operations including Symmetric Encryption and Diffie-Hellman Key Exchange.
  * Provides a unified interface for encryption tasks within the application.
@@ -62,40 +65,49 @@ export class CryptoFacade {
    * @param {number} index - Child index.
    */
   async deriveKeypair(index) {
-    if (!this.identity) throw new Error("CryptoFacade: IdentityFacade not available for key derivation.");
+    if (!this.identity)
+      throw new Error(
+        "CryptoFacade: IdentityFacade not available for key derivation.",
+      );
     return this.identity.generateNewKeypair(index);
   }
 
-    /**
-     * Section 5.1: Canonical Anchor Signing
-     * Automatically handles canonicalization and field omission.
-     */
-    async signAnchor(anchor, privateKeyHex, isResponse = false) {
-      const omitKeys = isResponse ? ['sig_resp'] : ['sig'];
-      // Anchors exclude meta from the signature hash per Section 5.1
-      const body = canonicalize(prepareForSigning(anchor, { omitKeys, excludeMeta: true }));
-      return await signMessageWithPrivateKeyHex(privateKeyHex, body);
-    }
+  /**
+   * Section 5.1: Canonical Anchor Signing
+   * Automatically handles canonicalization and field omission.
+   */
+  async signAnchor(anchor, privateKeyHex, isResponse = false) {
+    const omitKeys = isResponse ? ["sig_resp"] : ["sig"];
+    // Anchors exclude meta from the signature hash per Section 5.1
+    const body = canonicalize(
+      prepareForSigning(anchor, { omitKeys, excludeMeta: true }),
+    );
+    return await signMessageWithPrivateKeyHex(privateKeyHex, body);
+  }
 
-    /**
-     * Verify a signed anchor using the provided public key.
-     * @param {Object} anchor - The anchor object containing the signature.
-     * @param {string} publicKeyHex - The public key in hex format.
-     * @param {boolean} isResponse - Whether this is a response anchor (affects signature field).
-     * @returns {Promise<boolean>} True if the signature is valid, false otherwise.
-     */     
-    async signMessage(privateKeyHex, message) {
-      return await signMessageWithPrivateKeyHex(privateKeyHex, message);
-    }
+  /**
+   * Verify a signed anchor using the provided public key.
+   * @param {Object} anchor - The anchor object containing the signature.
+   * @param {string} publicKeyHex - The public key in hex format.
+   * @param {boolean} isResponse - Whether this is a response anchor (affects signature field).
+   * @returns {Promise<boolean>} True if the signature is valid, false otherwise.
+   */
+  async signMessage(privateKeyHex, message) {
+    return await signMessageWithPrivateKeyHex(privateKeyHex, message);
+  }
 
-    /**
-     * Verify a signed message using a public key.
-     * @param {string} publicKeyHex - The public key in hex format.
-     * @param {string} message - The original message that was signed.
-     * @param {string} signatureHex - The signature in hex format.
-     * @returns {Promise<boolean>} True if the signature is valid, false otherwise.
-     */
-    async verifyMessage(publicKeyHex, message, signatureHex) {
-      return await verifyMessageWithPublicKeyHex(publicKeyHex, message, signatureHex);
-    }
+  /**
+   * Verify a signed message using a public key.
+   * @param {string} publicKeyHex - The public key in hex format.
+   * @param {string} message - The original message that was signed.
+   * @param {string} signatureHex - The signature in hex format.
+   * @returns {Promise<boolean>} True if the signature is valid, false otherwise.
+   */
+  async verifyMessage(publicKeyHex, message, signatureHex) {
+    return await verifyMessageWithPublicKeyHex(
+      publicKeyHex,
+      message,
+      signatureHex,
+    );
+  }
 }

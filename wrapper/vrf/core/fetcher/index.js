@@ -1,19 +1,19 @@
 // index.js
 // Main fetcher interface
 
-import { getBitcoinBlocks, btcApiToBlock } from './bitcoin.js';
-import { getKaspaBlocks, kaspaApiToBlock } from './kaspa.js';
-import { getQRNG } from './qrng.js';
+import { getBitcoinBlocks, btcApiToBlock } from "./bitcoin.js";
+import { getKaspaBlocks, kaspaApiToBlock } from "./kaspa.js";
+import { getQRNG } from "./qrng.js";
 
 // Registry for extensible randomness sources
 const RANDOMNESS_FETCHERS = {
   bitcoin: getBitcoinBlocks,
   kaspa: getKaspaBlocks,
-  qrng: getQRNG
+  qrng: getQRNG,
 };
 
 export async function fetchBlocks(source, n) {
-  if (source === 'hybrid') {
+  if (source === "hybrid") {
     return {
       bitcoin: await getBitcoinBlocks(n),
       kaspa: await getKaspaBlocks(n),
@@ -24,4 +24,10 @@ export async function fetchBlocks(source, n) {
   return { [source]: await fetcher(n) };
 }
 
-export { getBitcoinBlocks, getKaspaBlocks, getQRNG, btcApiToBlock, kaspaApiToBlock };
+export {
+  getBitcoinBlocks,
+  getKaspaBlocks,
+  getQRNG,
+  btcApiToBlock,
+  kaspaApiToBlock,
+};

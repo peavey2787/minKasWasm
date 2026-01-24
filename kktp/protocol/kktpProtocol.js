@@ -1,12 +1,12 @@
 // core/protocol/kktpProtocol.js
-import { 
-  discoveryValidator, 
-  responseValidator, 
-  mailboxMessageValidator, 
-  sessionEndValidator 
-} from './protocol/validator.js';
-import { pack } from './messenger.js';
-import { KKTP_STATES } from './state-machine.js';
+import {
+  discoveryValidator,
+  responseValidator,
+  mailboxMessageValidator,
+  sessionEndValidator,
+} from "./protocol/validator.js";
+import { pack } from "./messenger.js";
+import { KKTP_STATES } from "./state-machine.js";
 
 export class KKTPProtocol {
   constructor(portal, stateMachine) {
@@ -25,7 +25,7 @@ export class KKTPProtocol {
       sid,
       pub_sig: pubSig,
       pub_dh: pubDh,
-      meta: metadata
+      meta: metadata,
     };
     discoveryValidator.validate(anchor);
     // Save this anchor! The Initiator needs it to verify the future Response.
@@ -44,10 +44,10 @@ export class KKTPProtocol {
       sid: discovery.sid,
       pub_sig_resp: pubSigResp,
       pub_dh_resp: pubDhResp,
-      meta: metadata
+      meta: metadata,
     };
     responseValidator.validate(anchor);
-    // The responder can connect IMMEDIATELY because they 
+    // The responder can connect IMMEDIATELY because they
     // already have both the discovery (passed in) and the response (just created).
     await this.sm.connect(discovery, anchor);
     return anchor;
@@ -76,22 +76,22 @@ export class KKTPProtocol {
       version: 1,
       sid: this.sm.kktp.sid,
       pub_sig: this.sm.kktp.myPubSig, // We need to store our identity pubkey in the SM
-      reason: reason
+      reason: reason,
     };
 
     // 2. Canonicalize and Sign (Section 5.1 & 7.9)
     // We omit 'sig' from the signing input as per Section 5.1
-    const body = canonicalize(prepareForSigning(anchor, { omitKeys: ['sig'] }));
-    
+    const body = canonicalize(prepareForSigning(anchor, { omitKeys: ["sig"] }));
+
     // Use the portal to sign with the user's private key
     anchor.sig = await this.portal.crypto.signMessage(body, keyIndex);
 
     // 3. Final Validation against your Schema
     sessionEndValidator.validate(anchor);
-    
+
     // 4. State Transition (Section 6.8)
     this.sm.state = KKTP_STATES.CLOSED;
-    
+
     return anchor;
   }
 
@@ -103,20 +103,26 @@ export class KKTPProtocol {
       case "discovery":
         discoveryValidator.validate(anchor);
         // Trigger UI/Game logic to ask user if they want to respond
-        return { type: 'DISCOVERY_RECEIVED', data: anchor };
+        return { type: "DISCOVERY_RECEIVED", data: anchor };
 
       case "response":
         responseValidator.validate(anchor);
         const discoveryRef = this.sm.kktp.discoveryAnchor;
-        if (!discoveryRef) throw new Error("Need original discovery anchor to process response.");
-        await this.sm.connect(discoveryRef, anchor);                
-        return { type: 'HANDSHAKE_COMPLETE', mailboxId: this.sm.kktp.mailboxId };
+        if (!discoveryRef)
+          throw new Error(
+            "Need original discovery anchor to process response.",
+          );
+        await this.sm.connect(discoveryRef, anchor);
+        return {
+          type: "HANDSHAKE_COMPLETE",
+          mailboxId: this.sm.kktp.mailboxId,
+        };
 
       case "msg":
         mailboxMessageValidator.validate(anchor);
         // Decrypt and reorder via State Machine
         const messages = this.sm.receiveMessage(anchor);
-        return { type: 'MESSAGES_READY', data: messages };
+        return { type: "MESSAGES_READY", data: messages };
 
       // Inside processIncoming(anchor)
       case "session_end":
@@ -126,15 +132,22 @@ export class KKTPProtocol {
         const isA = anchor.pub_sig === this.sm.kktp.pub_sig;
         const isB = anchor.pub_sig === this.sm.kktp.pub_sig_resp;
 
-        if (!isA && !isB) throw new Error("Unauthorized SessionEnd: Signature key mismatch.");
+        if (!isA && !isB)
+          throw new Error("Unauthorized SessionEnd: Signature key mismatch.");
 
-        const body = canonicalize(prepareForSigning(anchor, { omitKeys: ['sig'] }));
-        const isValid = await this.portal.crypto.verifyMessage(anchor.pub_sig, body, anchor.sig);
+        const body = canonicalize(
+          prepareForSigning(anchor, { omitKeys: ["sig"] }),
+        );
+        const isValid = await this.portal.crypto.verifyMessage(
+          anchor.pub_sig,
+          body,
+          anchor.sig,
+        );
 
         if (!isValid) throw new Error("Invalid SessionEnd signature.");
 
         this.sm.state = KKTP_STATES.CLOSED;
-        return { type: 'SESSION_CLOSED', data: anchor.reason };
+        return { type: "SESSION_CLOSED", data: anchor.reason };
 
       default:
         throw new Error(`Unknown KKTP Anchor type: ${anchor.type}`);

@@ -1,7 +1,7 @@
 // encryption.js
 import {
   encryptXChaCha20Poly1305,
-  decryptXChaCha20Poly1305
+  decryptXChaCha20Poly1305,
 } from "../kas-wasm/kaspa.js";
 
 /**
@@ -19,7 +19,7 @@ export function encryptMessage(plaintext, password) {
     const cipherText = encryptXChaCha20Poly1305(plaintext, password);
     return {
       version: 1, // bump if you change format later
-      cipherText
+      cipherText,
     };
   } catch (err) {
     throw new Error(`Encryption failed: ${err.message}`);
@@ -46,13 +46,15 @@ export function decryptMessage(payload, password) {
     }
     cipherText = payload.cipherText;
   } else {
-    throw new TypeError("decryptMessage requires a cipherText string or payload object");
+    throw new TypeError(
+      "decryptMessage requires a cipherText string or payload object",
+    );
   }
 
   try {
     return decryptXChaCha20Poly1305(cipherText, password);
   } catch (err) {
-    let msg = (err && err.message) ? err.message : String(err);
+    let msg = err && err.message ? err.message : String(err);
     // Check for the specific "Unable to decrypt" failure
     if (msg.includes("Unable to decrypt")) {
       msg += " (likely due to the wrong password or corrupted data)";

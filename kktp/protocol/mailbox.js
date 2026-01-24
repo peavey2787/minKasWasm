@@ -1,6 +1,6 @@
 // kktp-core/mailbox.js
-import { hexToBytes } from './utils/conversion.js';
-import { constructAAD } from './integrity/aad.js';
+import { hexToBytes } from "./utils/conversion.js";
+import { constructAAD } from "./integrity/aad.js";
 import { XChaCha20Poly1305 } from "https://esm.sh/@noble/ciphers/chacha";
 
 export class Mailbox {
@@ -9,11 +9,11 @@ export class Mailbox {
     this.session = session;
     this.mailboxId = mailboxId;
     this.prefix = `KKTP:${mailboxId}:`;
-    
+
     // Section 7.2: Reassembly Buffer
-    this.expectedSeq = { "AtoB": 1, "BtoA": 1 };
-    this.buffer = { "AtoB": {}, "BtoA": {} };
-    
+    this.expectedSeq = { AtoB: 1, BtoA: 1 };
+    this.buffer = { AtoB: {}, BtoA: {} };
+
     this.onMessageCallback = null;
     this._setupListener();
   }
@@ -29,7 +29,7 @@ export class Mailbox {
   }
 
   async _handleIncomingMatch(match) {
-    const payload = match.decodedPayload; 
+    const payload = match.decodedPayload;
     if (!payload.startsWith(this.prefix)) return;
 
     // Strip prefix and parse JSON (Section 6.5)
@@ -49,13 +49,13 @@ export class Mailbox {
   async _processBuffer(direction) {
     while (this.buffer[direction][this.expectedSeq[direction]]) {
       const msg = this.buffer[direction][this.expectedSeq[direction]];
-      
+
       try {
         const plaintext = await this._decrypt(msg);
         if (this.onMessageCallback) {
-          this.onMessageCallback({ 
-            ...msg, 
-            plaintext: new TextDecoder().decode(plaintext) 
+          this.onMessageCallback({
+            ...msg,
+            plaintext: new TextDecoder().decode(plaintext),
           });
         }
       } catch (e) {
@@ -67,21 +67,21 @@ export class Mailbox {
     }
   }
 
-    /**
-     * Section 6.6: AEAD Decryption with AAD Binding
-     */
-    async _decrypt(msg) {
-        const key = this.session.getSessionKey(); // Derived in handshake.js
-        const chacha = new XChaCha20Poly1305(key, hexToBytes(msg.nonce));
+  /**
+   * Section 6.6: AEAD Decryption with AAD Binding
+   */
+  async _decrypt(msg) {
+    const key = this.session.getSessionKey(); // Derived in handshake.js
+    const chacha = new XChaCha20Poly1305(key, hexToBytes(msg.nonce));
 
-        // Construct AAD: mailbox_id (raw) || direction (utf8) || seq (u64be)
-        const aad = constructAAD(this.mailboxId, msg.direction, msg.seq);
-        
-        const ciphertext = hexToBytes(msg.ciphertext);
-        return chacha.decrypt(ciphertext, aad);
-    }
+    // Construct AAD: mailbox_id (raw) || direction (utf8) || seq (u64be)
+    const aad = constructAAD(this.mailboxId, msg.direction, msg.seq);
 
-    onMessage(cb) {
-        this.onMessageCallback = cb;
-    }
+    const ciphertext = hexToBytes(msg.ciphertext);
+    return chacha.decrypt(ciphertext, aad);
+  }
+
+  onMessage(cb) {
+    this.onMessageCallback = cb;
+  }
 }

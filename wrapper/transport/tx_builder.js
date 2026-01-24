@@ -1,5 +1,10 @@
-import { createTransactions, Generator, PrivateKey, sompiToKaspaString } from '../kas-wasm/kaspa.js';
-import { payloadToHex } from '../utilities/utilities.js';
+import {
+  createTransactions,
+  Generator,
+  PrivateKey,
+  sompiToKaspaString,
+} from "../kas-wasm/kaspa.js";
+import { payloadToHex } from "../utilities/utilities.js";
 
 /**
  * Estimate mass/fees for a prospective transaction using the WASM Generator.
@@ -13,10 +18,13 @@ export async function estimateTransaction({
   networkId,
   payload, // string (utf8 or hex)
 } = {}) {
-  if (!Array.isArray(entries) || entries.length === 0) throw new Error('estimateTransaction: entries required.');
-  if (!Array.isArray(outputs) || outputs.length === 0) throw new Error('estimateTransaction: outputs required.');
-  if (!changeAddress) throw new Error('estimateTransaction: changeAddress required.');
-  if (!networkId) throw new Error('estimateTransaction: networkId required.');
+  if (!Array.isArray(entries) || entries.length === 0)
+    throw new Error("estimateTransaction: entries required.");
+  if (!Array.isArray(outputs) || outputs.length === 0)
+    throw new Error("estimateTransaction: outputs required.");
+  if (!changeAddress)
+    throw new Error("estimateTransaction: changeAddress required.");
+  if (!networkId) throw new Error("estimateTransaction: networkId required.");
 
   const payloadHex = payloadToHex(payload);
 
@@ -44,7 +52,11 @@ export async function estimateTransaction({
     const finalTransactionId = summary?.finalTransactionId;
 
     // free WASM summary if available
-    try { summary?.free?.(); } catch { /* ignore */ }
+    try {
+      summary?.free?.();
+    } catch {
+      /* ignore */
+    }
 
     const baseFee = fees - (priorityFee ?? 0n);
 
@@ -56,14 +68,19 @@ export async function estimateTransaction({
       baseFee,
       baseFeeKas: sompiToKaspaString(baseFee),
       finalAmount,
-      finalAmountKas: finalAmount != null ? sompiToKaspaString(finalAmount) : null,
+      finalAmountKas:
+        finalAmount != null ? sompiToKaspaString(finalAmount) : null,
       transactions: txCount,
       utxos: utxoCount,
       finalTransactionId: finalTransactionId ?? null,
       payloadBytes: payloadHex ? Math.floor(payloadHex.length / 2) : 0,
     };
   } finally {
-    try { generator?.free?.(); } catch { /* ignore */ }
+    try {
+      generator?.free?.();
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -72,14 +89,18 @@ export async function estimateTransaction({
  * Some builds accept WASM PrivateKey objects, others accept strings.
  */
 export async function signPendingTransaction(pendingTx, privateKeys) {
-  if (!pendingTx?.sign) throw new Error('PendingTransaction.sign is not available.');
+  if (!pendingTx?.sign)
+    throw new Error("PendingTransaction.sign is not available.");
 
   const keys = Array.isArray(privateKeys) ? privateKeys : [];
-  if (keys.length === 0) throw new Error('No private keys provided for signing.');
+  if (keys.length === 0)
+    throw new Error("No private keys provided for signing.");
 
   // Prefer WASM PrivateKey objects
   try {
-    const wasmKeys = keys.map((k) => (k instanceof PrivateKey ? k : new PrivateKey(String(k))));
+    const wasmKeys = keys.map((k) =>
+      k instanceof PrivateKey ? k : new PrivateKey(String(k)),
+    );
     await pendingTx.sign(wasmKeys);
     return;
   } catch {
@@ -100,10 +121,14 @@ export async function buildPendingTransaction({
   networkId,
   payload, // string (utf8 or hex)
 } = {}) {
-  if (!Array.isArray(entries) || entries.length === 0) throw new Error('buildPendingTransaction: entries required.');
-  if (!Array.isArray(outputs) || outputs.length === 0) throw new Error('buildPendingTransaction: outputs required.');
-  if (!changeAddress) throw new Error('buildPendingTransaction: changeAddress required.');
-  if (!networkId) throw new Error('buildPendingTransaction: networkId required.');
+  if (!Array.isArray(entries) || entries.length === 0)
+    throw new Error("buildPendingTransaction: entries required.");
+  if (!Array.isArray(outputs) || outputs.length === 0)
+    throw new Error("buildPendingTransaction: outputs required.");
+  if (!changeAddress)
+    throw new Error("buildPendingTransaction: changeAddress required.");
+  if (!networkId)
+    throw new Error("buildPendingTransaction: networkId required.");
 
   const payloadHex = payloadToHex(payload);
 
@@ -117,7 +142,7 @@ export async function buildPendingTransaction({
   });
 
   if (!transactions || transactions.length === 0) {
-    throw new Error('Failed to create transactions (empty result).');
+    throw new Error("Failed to create transactions (empty result).");
   }
 
   return transactions[0];
@@ -127,20 +152,28 @@ export async function buildPendingTransaction({
  * Sign + submit a pending transaction.
  * Returns a normalized result with txid if available.
  */
-export async function submitPendingTransaction({ pendingTx, privateKeys, client } = {}) {
-  if (!pendingTx) throw new Error('submitPendingTransaction: pendingTx required.');
-  if (!client) throw new Error('submitPendingTransaction: client required.');
+export async function submitPendingTransaction({
+  pendingTx,
+  privateKeys,
+  client,
+} = {}) {
+  if (!pendingTx)
+    throw new Error("submitPendingTransaction: pendingTx required.");
+  if (!client) throw new Error("submitPendingTransaction: client required.");
 
   if (privateKeys && privateKeys.length > 0) {
     await signPendingTransaction(pendingTx, privateKeys);
   }
 
-  if (typeof pendingTx.submit !== 'function') {
-    throw new Error('PendingTransaction.submit is not available in this WASM build.');
+  if (typeof pendingTx.submit !== "function") {
+    throw new Error(
+      "PendingTransaction.submit is not available in this WASM build.",
+    );
   }
 
   const submitRes = await pendingTx.submit(client);
-  const txid = pendingTx.id ?? submitRes?.transactionId ?? submitRes?.txid ?? null;
+  const txid =
+    pendingTx.id ?? submitRes?.transactionId ?? submitRes?.txid ?? null;
 
   return { txid, submitRes, pendingTx };
 }

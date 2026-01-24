@@ -1,4 +1,4 @@
-import { dehydrateTx } from '../utilities/utilities.js';
+import { dehydrateTx } from "../utilities/utilities.js";
 /**
  * Walks the DAG forward from a starting block hash to the present, invoking a callback for each block.
  * @param {Object} options
@@ -9,20 +9,28 @@ import { dehydrateTx } from '../utilities/utilities.js';
  * @param {function} [options.logFn] - Optional logging function
  * @param {function} options.onBlock - Function(block) called for each block; return true to stop walking
  */
-export async function walkDagToPresent({ client, startHash, maxSeconds = 30, minTimestamp = 0, logFn, onBlock } = {}) {
-  if (!client) throw new Error('walkDagToPresent: client is required');
-  if (typeof startHash !== 'string' || startHash.length === 0) throw new Error('walkDagToPresent: startHash is required');
+export async function walkDagToPresent({
+  client,
+  startHash,
+  maxSeconds = 30,
+  minTimestamp = 0,
+  logFn,
+  onBlock,
+} = {}) {
+  if (!client) throw new Error("walkDagToPresent: client is required");
+  if (typeof startHash !== "string" || startHash.length === 0)
+    throw new Error("walkDagToPresent: startHash is required");
   let lowHash = startHash;
   let processed = 0;
-  logFn = typeof logFn === 'function' ? logFn : () => {};
+  logFn = typeof logFn === "function" ? logFn : () => {};
 
   const maxSecondsNum = Number(maxSeconds);
   if (!Number.isFinite(maxSecondsNum) || maxSecondsNum <= 0) {
-    throw new Error('walkDagToPresent: maxSeconds must be a positive number');
+    throw new Error("walkDagToPresent: maxSeconds must be a positive number");
   }
 
   const startedAt = Date.now();
-  const deadline = startedAt + (maxSecondsNum * 1000);
+  const deadline = startedAt + maxSecondsNum * 1000;
 
   while (true) {
     if (Date.now() >= deadline) {
@@ -32,7 +40,11 @@ export async function walkDagToPresent({ client, startHash, maxSeconds = 30, min
     logFn(`[RPC] getBlocks({ lowHash: ${lowHash} })`);
     let resp;
     try {
-      resp = await client.getBlocks({ lowHash, includeBlocks: true, includeTransactions: true });
+      resp = await client.getBlocks({
+        lowHash,
+        includeBlocks: true,
+        includeTransactions: true,
+      });
     } catch (err) {
       logFn(`[ERROR] RPC failed: ${err && err.message ? err.message : err}`);
       break;
@@ -48,46 +60,50 @@ export async function walkDagToPresent({ client, startHash, maxSeconds = 30, min
       break;
     }
     logFn(`[INFO] Received ${resp.blocks.length} blocks for hash: ${lowHash}`);
-    try{
+    try {
       for (const block of resp.blocks) {
         if (Date.now() >= deadline) {
-          logFn(`[END] Time budget exceeded (maxSeconds=${maxSeconds}) during batch processing.`);
+          logFn(
+            `[END] Time budget exceeded (maxSeconds=${maxSeconds}) during batch processing.`,
+          );
           break;
         }
         processed++;
-        const blockHash = block.hash || block.header?.hash || '';
+        const blockHash = block.hash || block.header?.hash || "";
         logFn(`[INFO] Block ${processed}: ${blockHash}`);
-        
+
         const blockTime = Number(block.verboseData?.timestamp || 0);
         if (blockTime < minTimestamp) continue;
 
-        if (typeof onBlock === 'function') {
+        if (typeof onBlock === "function") {
           // 1. Create the safe copy
           const safeBlock = {
             hash: blockHash,
             timestamp: blockTime,
             // Use utilities to turn every WASM tx into a plain JS object
-            transactions: Array.isArray(block.transactions) 
-              ? block.transactions.map(t => dehydrateTx(t, block))
-              : []
+            transactions: Array.isArray(block.transactions)
+              ? block.transactions.map((t) => dehydrateTx(t, block))
+              : [],
           };
 
           // 2. Pass the SAFE copy to the callback
-          const shouldStop = onBlock(safeBlock); 
-          
+          const shouldStop = onBlock(safeBlock);
+
           if (shouldStop === true) {
-            logFn('[END] onBlock requested stop.');
+            logFn("[END] onBlock requested stop.");
             return;
           }
         }
       }
     } finally {
       // --- THIS IS THE FINAL SWEEP ---
-      logFn(`[CLEANUP] Freeing transactions for ${resp.blocks.length} blocks...`);
+      logFn(
+        `[CLEANUP] Freeing transactions for ${resp.blocks.length} blocks...`,
+      );
       for (const block of resp.blocks) {
         if (block.transactions) {
           for (const tx of block.transactions) {
-            if (typeof tx.free === 'function') {
+            if (typeof tx.free === "function") {
               tx.free();
             }
           }
@@ -96,20 +112,30 @@ export async function walkDagToPresent({ client, startHash, maxSeconds = 30, min
     }
 
     if (Date.now() >= deadline) {
-      logFn(`[END] Time budget exceeded (maxSeconds=${maxSeconds}) after batch.`);
+      logFn(
+        `[END] Time budget exceeded (maxSeconds=${maxSeconds}) after batch.`,
+      );
       break;
     }
 
     const lastBlock = resp.blocks[resp.blocks.length - 1];
-    const nextLowHash = (lastBlock?.hash || lastBlock?.header?.hash || '').toString();
+    const nextLowHash = (
+      lastBlock?.hash ||
+      lastBlock?.header?.hash ||
+      ""
+    ).toString();
     if (!nextLowHash || nextLowHash === lowHash) {
-      logFn(`[END] Low hash did not advance (nextLowHash=${nextLowHash || 'null'}). Stopping to avoid infinite loop.`);
+      logFn(
+        `[END] Low hash did not advance (nextLowHash=${nextLowHash || "null"}). Stopping to avoid infinite loop.`,
+      );
       break;
     }
     lowHash = nextLowHash;
   }
   const elapsedMs = Date.now() - startedAt;
-  logFn(`[COMPLETE] walkDagToPresent finished. Processed: ${processed} blocks. Elapsed: ${elapsedMs}ms.`);
+  logFn(
+    `[COMPLETE] walkDagToPresent finished. Processed: ${processed} blocks. Elapsed: ${elapsedMs}ms.`,
+  );
 }
 
 function createPayloadSearchWorker() {
@@ -244,7 +270,7 @@ function createPayloadSearchWorker() {
     };
   `;
 
-  const blob = new Blob([workerSource], { type: 'text/javascript' });
+  const blob = new Blob([workerSource], { type: "text/javascript" });
   const url = URL.createObjectURL(blob);
   const worker = new Worker(url);
   URL.revokeObjectURL(url);
@@ -257,37 +283,47 @@ function createWorkerRpc(worker) {
 
   const onMessage = (event) => {
     const msg = event?.data;
-    if (!msg || msg.type !== 'result') return;
+    if (!msg || msg.type !== "result") return;
     const { id } = msg;
     const entry = pending.get(id);
     if (!entry) return;
     pending.delete(id);
     if (msg.ok) entry.resolve(msg);
-    else entry.reject(new Error(msg.error || 'Worker failed'));
+    else entry.reject(new Error(msg.error || "Worker failed"));
   };
   const onError = (event) => {
-    const err = event?.message ? new Error(event.message) : new Error('Worker error');
+    const err = event?.message
+      ? new Error(event.message)
+      : new Error("Worker error");
     for (const { reject } of pending.values()) reject(err);
     pending.clear();
   };
 
-  worker.addEventListener('message', onMessage);
-  worker.addEventListener('error', onError);
+  worker.addEventListener("message", onMessage);
+  worker.addEventListener("error", onError);
 
   return {
     process(blocks, { searchText, matchMode, minTimestamp }) {
       const id = nextId++;
       return new Promise((resolve, reject) => {
         pending.set(id, { resolve, reject });
-        worker.postMessage({ type: 'process', id, blocks, searchText, matchMode, minTimestamp });
+        worker.postMessage({
+          type: "process",
+          id,
+          blocks,
+          searchText,
+          matchMode,
+          minTimestamp,
+        });
       });
     },
     dispose() {
-      worker.removeEventListener('message', onMessage);
-      worker.removeEventListener('error', onError);
-      for (const { reject } of pending.values()) reject(new Error('Worker disposed'));
+      worker.removeEventListener("message", onMessage);
+      worker.removeEventListener("error", onError);
+      for (const { reject } of pending.values())
+        reject(new Error("Worker disposed"));
       pending.clear();
-    }
+    },
   };
 }
 
@@ -303,31 +339,46 @@ function createWorkerRpc(worker) {
  * @param {function} [options.logFn] - Optional logging function
  * @returns {Promise<Object|null>} - Match object or null if not found
  */
-export async function scanDagForward({ client, startHash, searchText, matchMode, maxSeconds = 30, minTimestamp = 0, logFn, utilities } = {}) {
-  if (!client) throw new Error('scanDagForward: client is required');
-  if (typeof startHash !== 'string' || startHash.length === 0) throw new Error('scanDagForward: startHash is required');
+export async function scanDagForward({
+  client,
+  startHash,
+  searchText,
+  matchMode,
+  maxSeconds = 30,
+  minTimestamp = 0,
+  logFn,
+  utilities,
+} = {}) {
+  if (!client) throw new Error("scanDagForward: client is required");
+  if (typeof startHash !== "string" || startHash.length === 0)
+    throw new Error("scanDagForward: startHash is required");
 
-  logFn = typeof logFn === 'function' ? logFn : () => {};
+  logFn = typeof logFn === "function" ? logFn : () => {};
 
   const maxSecondsNum = Number(maxSeconds);
   if (!Number.isFinite(maxSecondsNum) || maxSecondsNum <= 0) {
-    throw new Error('scanDagForward: maxSeconds must be a positive number');
+    throw new Error("scanDagForward: maxSeconds must be a positive number");
   }
 
-  const allowedModes = new Set(['exact', 'prefix', 'contains', 'cleaned_contains']);
+  const allowedModes = new Set([
+    "exact",
+    "prefix",
+    "contains",
+    "cleaned_contains",
+  ]);
   if (!allowedModes.has(matchMode)) {
     throw new Error(`scanDagForward: unsupported matchMode: ${matchMode}`);
   }
   if (searchText == null) {
-    throw new Error('scanDagForward: searchText is required');
+    throw new Error("scanDagForward: searchText is required");
   }
   const searchTextStr = searchText.toString();
   if (searchTextStr.length === 0) {
-    throw new Error('scanDagForward: searchText must be non-empty');
+    throw new Error("scanDagForward: searchText must be non-empty");
   }
 
   const startedAt = Date.now();
-  const deadline = startedAt + (maxSecondsNum * 1000);
+  const deadline = startedAt + maxSecondsNum * 1000;
 
   let lowHash = startHash;
   let processedBatches = 0;
@@ -342,14 +393,14 @@ export async function scanDagForward({ client, startHash, searchText, matchMode,
   const awaitWithTimeout = (promise, ms, onTimeout) => {
     if (!Number.isFinite(ms) || ms <= 0) {
       onTimeout?.();
-      return Promise.reject(new Error('Time budget exceeded'));
+      return Promise.reject(new Error("Time budget exceeded"));
     }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         try {
           onTimeout?.();
         } finally {
-          reject(new Error('Time budget exceeded'));
+          reject(new Error("Time budget exceeded"));
         }
       }, ms);
       promise
@@ -366,7 +417,11 @@ export async function scanDagForward({ client, startHash, searchText, matchMode,
 
   const fetchBatch = async (hash) => {
     logFn(`[RPC] getBlocks({ lowHash: ${hash} })`);
-    return client.getBlocks({ lowHash: hash, includeBlocks: true, includeTransactions: true });
+    return client.getBlocks({
+      lowHash: hash,
+      includeBlocks: true,
+      includeTransactions: true,
+    });
   };
 
   try {
@@ -402,15 +457,23 @@ export async function scanDagForward({ client, startHash, searchText, matchMode,
       }
 
       processedBatches++;
-      logFn(`[INFO] Received ${resp.blocks.length} blocks for hash: ${lowHash} (batch ${processedBatches})`);
+      logFn(
+        `[INFO] Received ${resp.blocks.length} blocks for hash: ${lowHash} (batch ${processedBatches})`,
+      );
 
       const lastBlock = resp.blocks[resp.blocks.length - 1];
-      const nextLowHash = (lastBlock?.hash || lastBlock?.header?.hash || '').toString();
+      const nextLowHash = (
+        lastBlock?.hash ||
+        lastBlock?.header?.hash ||
+        ""
+      ).toString();
 
       if (!nextLowHash || nextLowHash === lowHash) {
-        logFn(`[END] Low hash did not advance (nextLowHash=${nextLowHash || 'null'}). Stopping to avoid infinite loop.`);
+        logFn(
+          `[END] Low hash did not advance (nextLowHash=${nextLowHash || "null"}). Stopping to avoid infinite loop.`,
+        );
         // Free this specific response before breaking
-        resp.blocks.forEach(b => b.transactions?.forEach(t => t.free?.()));
+        resp.blocks.forEach((b) => b.transactions?.forEach((t) => t.free?.()));
         break;
       }
 
@@ -418,32 +481,34 @@ export async function scanDagForward({ client, startHash, searchText, matchMode,
       const compactBlocks = [];
       for (const block of resp.blocks) {
         const txs = [];
-        const blockTxs = Array.isArray(block?.transactions) ? block.transactions : [];
-        
+        const blockTxs = Array.isArray(block?.transactions)
+          ? block.transactions
+          : [];
+
         for (const tx of blockTxs) {
           // Use the utility to create a safe JS copy
           const dehydrated = dehydrateTx(tx, block);
-          
+
           if (dehydrated && dehydrated.payloadHex) {
             txs.push(dehydrated);
           }
-          
+
           // Free the WASM transaction immediately after extraction
-          if (typeof tx.free === 'function') tx.free();
+          if (typeof tx.free === "function") tx.free();
         }
 
-        compactBlocks.push({ 
-          hash: block.hash || block.header?.hash || '', 
-          timestamp: Number(block.verboseData?.timestamp || 0), 
+        compactBlocks.push({
+          hash: block.hash || block.header?.hash || "",
+          timestamp: Number(block.verboseData?.timestamp || 0),
           blueScore: block.verboseData?.blueScore || 0,
-          txs 
+          txs,
         });
       }
 
       const workerPromise = workerRpc.process(compactBlocks, {
         searchText: searchTextStr,
         matchMode,
-        minTimestamp
+        minTimestamp,
       });
 
       const canPrefetch = Date.now() < deadline;
@@ -455,10 +520,18 @@ export async function scanDagForward({ client, startHash, searchText, matchMode,
       let workerResult;
       try {
         const remainingMs = deadline - Date.now();
-        workerResult = await awaitWithTimeout(workerPromise, remainingMs, () => {
-          try { workerRpc.dispose(); } catch {}
-          try { worker.terminate(); } catch {}
-        });
+        workerResult = await awaitWithTimeout(
+          workerPromise,
+          remainingMs,
+          () => {
+            try {
+              workerRpc.dispose();
+            } catch {}
+            try {
+              worker.terminate();
+            } catch {}
+          },
+        );
       } catch (err) {
         logFn(`[ERROR] Worker processing failed: ${err?.message || err}`);
         break;
@@ -469,7 +542,9 @@ export async function scanDagForward({ client, startHash, searchText, matchMode,
 
       if (workerResult.match) {
         const m = workerResult.match;
-        logFn(`[MATCH] Found match in tx: ${m.txid} in block: ${(m.blockHash || '').slice(0, 16)}...`);
+        logFn(
+          `[MATCH] Found match in tx: ${m.txid} in block: ${(m.blockHash || "").slice(0, 16)}...`,
+        );
         return m; // FINALLY block handles prefetchedResp cleanup
       }
 
@@ -482,7 +557,9 @@ export async function scanDagForward({ client, startHash, searchText, matchMode,
       try {
         nextResp = await fetchPromise;
       } catch (err) {
-        logFn(`[ERROR] RPC failed (prefetch): ${err && err.message ? err.message : err}`);
+        logFn(
+          `[ERROR] RPC failed (prefetch): ${err && err.message ? err.message : err}`,
+        );
         break;
       }
 
@@ -493,23 +570,28 @@ export async function scanDagForward({ client, startHash, searchText, matchMode,
   } finally {
     // Cleanup 1: Prefetched batches that weren't used
     if (prefetchedResp && prefetchedResp.blocks) {
-      prefetchedResp.blocks.forEach(b => {
-        b.transactions?.forEach(t => {
-          if (typeof t.free === 'function') t.free();
+      prefetchedResp.blocks.forEach((b) => {
+        b.transactions?.forEach((t) => {
+          if (typeof t.free === "function") t.free();
         });
       });
     }
 
     // Cleanup 2: Error boundary: always kill worker to prevent ghost processes.
-    try { workerRpc.dispose(); } catch {}
-    try { worker.terminate(); } catch {}
+    try {
+      workerRpc.dispose();
+    } catch {}
+    try {
+      worker.terminate();
+    } catch {}
   }
 
   const elapsedMs = Date.now() - startedAt;
-  logFn(`[COMPLETE] scanDagForward finished. Batches: ${processedBatches}. Blocks: ${processedBlocks}. Txs: ${processedTxs}. Elapsed: ${elapsedMs}ms. No match found.`);
+  logFn(
+    `[COMPLETE] scanDagForward finished. Batches: ${processedBatches}. Blocks: ${processedBlocks}. Txs: ${processedTxs}. Elapsed: ${elapsedMs}ms. No match found.`,
+  );
   return null;
 }
-
 
 /**
  * Walks the DAG backwards, following parent links, until a match is found or the root is reached.
@@ -522,19 +604,29 @@ export async function scanDagForward({ client, startHash, searchText, matchMode,
  * @param {number} [options.maxDepth=Infinity] - Optional safety limit for number of unique blocks visited
  * @returns {Promise<Object|null>} - Match object or null if not found
  */
-export async function scanDagBackward({ client, startHash, matchFn, maxSeconds = 30, maxDepth = Infinity, visited = new Set(), logFn } = {}) {
-  if (!client) throw new Error('scanDagBackward: client is required');
-  if (typeof startHash !== 'string' || startHash.length === 0) throw new Error('scanDagBackward: startHash is required');
-  if (typeof matchFn !== 'function') throw new Error('scanDagBackward: matchFn must be a function');
-  
+export async function scanDagBackward({
+  client,
+  startHash,
+  matchFn,
+  maxSeconds = 30,
+  maxDepth = Infinity,
+  visited = new Set(),
+  logFn,
+} = {}) {
+  if (!client) throw new Error("scanDagBackward: client is required");
+  if (typeof startHash !== "string" || startHash.length === 0)
+    throw new Error("scanDagBackward: startHash is required");
+  if (typeof matchFn !== "function")
+    throw new Error("scanDagBackward: matchFn must be a function");
+
   let queue = [startHash];
   let queueHead = 0;
   let processed = 0;
   visited = visited || new Set();
-  logFn = typeof logFn === 'function' ? logFn : () => {};
+  logFn = typeof logFn === "function" ? logFn : () => {};
 
   const startedAt = Date.now();
-  const deadline = startedAt + (Number(maxSeconds) * 1000);
+  const deadline = startedAt + Number(maxSeconds) * 1000;
 
   while (queueHead < queue.length) {
     if (Date.now() >= deadline) {
@@ -550,7 +642,7 @@ export async function scanDagBackward({ client, startHash, matchFn, maxSeconds =
 
     if (visited.has(hash)) continue;
     visited.add(hash);
-    
+
     if (maxDepth !== Infinity && visited.size > maxDepth) {
       logFn(`[END] Max depth reached (maxDepth=${maxDepth}).`);
       break;
@@ -572,7 +664,7 @@ export async function scanDagBackward({ client, startHash, matchFn, maxSeconds =
 
     const block = resp.block;
     processed++;
-    const blockHash = block.hash || block.header?.hash || '';
+    const blockHash = block.hash || block.header?.hash || "";
     logFn(`[INFO] Block ${processed}: ${blockHash}`);
 
     try {
@@ -580,10 +672,10 @@ export async function scanDagBackward({ client, startHash, matchFn, maxSeconds =
       if (matchFn(block, null)) {
         logFn(`[MATCH] Found match in block: ${blockHash}`);
         // Return a safe JS object instead of the WASM block
-        return { 
-          blockHash, 
+        return {
+          blockHash,
           timestamp: Number(block.header?.timestamp || 0),
-          tx: null 
+          tx: null,
         };
       }
 
@@ -591,12 +683,14 @@ export async function scanDagBackward({ client, startHash, matchFn, maxSeconds =
       if (Array.isArray(block.transactions)) {
         for (const tx of block.transactions) {
           if (matchFn(block, tx)) {
-            logFn(`[MATCH] Found match in tx: ${tx.verboseData?.transactionId}`);
-            
+            logFn(
+              `[MATCH] Found match in tx: ${tx.verboseData?.transactionId}`,
+            );
+
             // CRITICAL: Dehydrate BEFORE the finally block calls tx.free()
             return {
               blockHash,
-              tx: dehydrateTx(tx, block)
+              tx: dehydrateTx(tx, block),
             };
           }
         }
@@ -606,18 +700,20 @@ export async function scanDagBackward({ client, startHash, matchFn, maxSeconds =
       const parents = block.header?.parentHashes || block.parentHashes || [];
       for (const parent of parents) {
         if (!visited.has(parent)) queue.push(parent);
-      }    
+      }
     } finally {
       // SWEEP: This runs even after the 'return' statements above.
       // Because we returned a dehydrated copy, freeing the WASM here is safe.
       if (block.transactions) {
         for (const t of block.transactions) {
-          if (typeof t.free === 'function') t.free();
+          if (typeof t.free === "function") t.free();
         }
       }
     }
   }
 
-  logFn(`[COMPLETE] scanDagBackward finished. Processed: ${processed} blocks. No match found.`);
+  logFn(
+    `[COMPLETE] scanDagBackward finished. Processed: ${processed} blocks. No match found.`,
+  );
   return null;
 }

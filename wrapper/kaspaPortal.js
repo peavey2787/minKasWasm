@@ -1,13 +1,24 @@
-import { TransportFacade } from './transport/transportFacade.js';
-import { IdentityFacade } from './identity/identityFacade.js';
-import { IntelligenceFacade } from './intelligence/intelligenceFacade.js';
-import { CryptoFacade } from './crypto/cryptoFacade.js';
-import { VrfFacade } from './vrf/vrfFacade.js';
-import { SearchMode } from './intelligence/scanner.js';
-import { IndexerEventType, MatchMode, EvictionReason, IndexerStore } from './intelligence/indexer.js';
+import { TransportFacade } from "./transport/transportFacade.js";
+import { IdentityFacade } from "./identity/identityFacade.js";
+import { IntelligenceFacade } from "./intelligence/intelligenceFacade.js";
+import { CryptoFacade } from "./crypto/cryptoFacade.js";
+import { VrfFacade } from "./vrf/vrfFacade.js";
+import { SearchMode } from "./intelligence/scanner.js";
+import {
+  IndexerEventType,
+  MatchMode,
+  EvictionReason,
+  IndexerStore,
+} from "./intelligence/indexer.js";
 
 // Re-export common enums for convenience
-export { SearchMode, IndexerEventType, MatchMode, EvictionReason, IndexerStore };
+export {
+  SearchMode,
+  IndexerEventType,
+  MatchMode,
+  EvictionReason,
+  IndexerStore,
+};
 
 /**
  * KaspaPortal: The Master Facade.
@@ -30,15 +41,15 @@ export class KaspaPortal {
     // before the connection is established. The client is injected in connect().
     const intelligenceOpts = options.intelligence || {};
     this.intelligence = new IntelligenceFacade(
-      null, 
-      intelligenceOpts.scanner || {}, 
-      intelligenceOpts.indexer || {}
+      null,
+      intelligenceOpts.scanner || {},
+      intelligenceOpts.indexer || {},
     );
   }
 
   /**
    * Connect to the Kaspa network and initialize all services.
-   * 
+   *
    * @param {string} [rpcUrl] - WebSocket URL or null for public resolver.
    * @param {string} [networkId="testnet-10"] - Network ID.
    * @param {Object} [options] - Connection options.
@@ -46,11 +57,11 @@ export class KaspaPortal {
    * @param {string} [options.balanceElementId] - DOM ID for auto-updating balance (Identity).
    * @param {boolean} [options.startIntelligence=true] - Whether to automatically start the Intelligence scanner/indexer.
    */
-  async connect(rpcUrl, networkId = "testnet-10", { 
-    onDisconnect, 
-    balanceElementId, 
-    startIntelligence = true 
-  } = {}) {
+  async connect(
+    rpcUrl,
+    networkId = "testnet-10",
+    { onDisconnect, balanceElementId, startIntelligence = true } = {},
+  ) {
     // 1. Initialize Crypto (WASM)
     await this.crypto.init();
 
@@ -61,7 +72,7 @@ export class KaspaPortal {
     await this.identity.init({
       client: this.transport.client,
       networkId,
-      balanceElementId
+      balanceElementId,
     });
 
     // 4. Inject Client into Intelligence
@@ -238,9 +249,12 @@ export class KaspaPortal {
    */
   async startSession(index) {
     if (!this.identity.activeWallet) {
-      throw new Error("KaspaPortal: Wallet must be initialized before starting a session.");
+      throw new Error(
+        "KaspaPortal: Wallet must be initialized before starting a session.",
+      );
     }
-    const { privateKey, publicKey } = await this.identity.generateNewKeypair(index);
+    const { privateKey, publicKey } =
+      await this.identity.generateNewKeypair(index);
     // createDHSession calls initiateHandshake internally when keys are provided
     return this.crypto.createDHSession(privateKey, publicKey);
   }
@@ -251,9 +265,13 @@ export class KaspaPortal {
    * @returns {Promise<string>} The signature.
    */
   async signAnchor(anchor) {
-    const isResponse = anchor.type === 'response';
+    const isResponse = anchor.type === "response";
     // The portal knows the current wallet's private key
-    return await this.crypto.signAnchor(anchor, this.wallet.privateKey, isResponse);
+    return await this.crypto.signAnchor(
+      anchor,
+      this.wallet.privateKey,
+      isResponse,
+    );
   }
 
   /**
@@ -276,7 +294,7 @@ export class KaspaPortal {
   async verifyMessage(publicKey, body, sig) {
     return await this.crypto.verifyMessage(publicKey, body, sig);
   }
-  
+
   // --- VRF Proxy Methods ---
 
   /**

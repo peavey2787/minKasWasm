@@ -37,4 +37,3 @@ export async function runRpcCommand(client, cmdText) {
     return "Error: " + err;
   }
 }
-

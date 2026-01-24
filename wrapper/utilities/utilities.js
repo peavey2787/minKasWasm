@@ -1,14 +1,14 @@
 import * as secp from "https://esm.sh/@noble/secp256k1";
 import {
-  signMessage, 
+  signMessage,
   verifyMessage,
-  XPrv, 
-  Mnemonic, 
-  PrivateKeyGenerator, 
-  PublicKeyGenerator, 
-  Address 
-} from '../kas-wasm/kaspa.js';
-import { loadWalletData } from '../identity/storage.js';
+  XPrv,
+  Mnemonic,
+  PrivateKeyGenerator,
+  PublicKeyGenerator,
+  Address,
+} from "../kas-wasm/kaspa.js";
+import { loadWalletData } from "../identity/storage.js";
 
 const MAX_PAYLOAD_BYTES = 32 * 1024; // 32KB
 const NETWORK = "testnet";
@@ -39,16 +39,16 @@ export async function getMnemonicFromStorage(filename, masterPassword) {
  * @returns {Address} The validated Address object.
  * @throws {Error} If the address is invalid.
  */
-export function validateAddress(address) {  
-  if (address == null || address === '') {
-    throw new Error('Invalid address: ' + address);
-  }  
+export function validateAddress(address) {
+  if (address == null || address === "") {
+    throw new Error("Invalid address: " + address);
+  }
   if (typeof address === "string") {
-    try{
+    try {
       address = new Address(address);
       return address;
     } catch (err) {
-      throw new Error('Invalid address format: ' + address);
+      throw new Error("Invalid address format: " + address);
     }
   }
   return address;
@@ -60,7 +60,7 @@ export function validateAddress(address) {
  * @returns {boolean} True if valid, false otherwise.
  */
 export function validatePayload(payload) {
-  if (typeof payload !== 'string') return false;
+  if (typeof payload !== "string") return false;
   if (payload.length > MAX_PAYLOAD_BYTES * 2) return false;
   return true;
 }
@@ -88,8 +88,8 @@ export function payloadToHex(payload) {
 export function stringToHex(str) {
   // Convert a JS string to a hex-encoded byte string (UTF-8)
   return Array.from(new TextEncoder().encode(str))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 /**
@@ -103,7 +103,7 @@ export function hexToString(hex) {
 
   // Convert hex → bytes → UTF‑8 string
   const bytes = new Uint8Array(
-    hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
+    hex.match(/.{1,2}/g).map((byte) => parseInt(byte, 16)),
   );
 
   return new TextDecoder().decode(bytes);
@@ -115,7 +115,9 @@ export function hexToString(hex) {
  * @returns {string} Hex string.
  */
 export function bytesToHex(bytes) {
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 /**
@@ -126,7 +128,9 @@ export function bytesToHex(bytes) {
 export function hexToBytes(hex) {
   if (hex.startsWith("0x")) hex = hex.slice(2);
   if (hex.length !== 64 && hex.length !== 66) {
-    throw new Error("Key must be 32 bytes (64 hex chars) or compressed secp256k1 public key (66 hex chars)");
+    throw new Error(
+      "Key must be 32 bytes (64 hex chars) or compressed secp256k1 public key (66 hex chars)",
+    );
   }
   const arr = new Uint8Array(hex.length / 2);
   for (let i = 0; i < arr.length; i++) {
@@ -141,14 +145,16 @@ export function hexToBytes(hex) {
  * @return {Object} Dehydrated transaction summary.
  */
 export function dehydrateTx({ tx, block, decodedPayload }) {
-  if (!tx) { return null }
+  if (!tx) {
+    return null;
+  }
   const txData = {
     txid: tx.verboseData.transactionId,
     timestamp: tx.verboseData.blockTime,
-    payload: tx.payload
+    payload: tx.payload,
   };
-  if (decodedPayload) { 
-    txData.decodedPayload = decodedPayload; 
+  if (decodedPayload) {
+    txData.decodedPayload = decodedPayload;
   }
   if (block) {
     txData.blockHash = block.header.hash;
@@ -204,7 +210,9 @@ export function getPrivateKeyBytes(xPrv) {
   if (typeof xPrv === "string") {
     return hexToBytes(xPrv);
   }
-  throw new TypeError("getPrivateKeyBytes requires an XPrv instance or hex string");
+  throw new TypeError(
+    "getPrivateKeyBytes requires an XPrv instance or hex string",
+  );
 }
 
 /**
@@ -222,7 +230,9 @@ export function getPrivateKeyHex(xPrv) {
   if (typeof xPrv === "Uint8Array") {
     return bytesToHex(xPrv);
   }
-  throw new TypeError("getPrivateKeyHex requires an XPrv instance, hex string, or Uint8Array");
+  throw new TypeError(
+    "getPrivateKeyHex requires an XPrv instance, hex string, or Uint8Array",
+  );
 }
 
 /**
@@ -250,7 +260,12 @@ export function getXPrv(mnemonicPhrase, passphrase = null) {
  * @param {number} [params.index=0] - Child index.
  * @returns {Promise<{privateKey: string, publicKey: string, address: string}>} Key pair and address.
  */
-export async function deriveReceivingChildKeyPair({xprvHex, network = NETWORK, accountIndex = 0n, index = 0}) {
+export async function deriveReceivingChildKeyPair({
+  xprvHex,
+  network = NETWORK,
+  accountIndex = 0n,
+  index = 0,
+}) {
   if (typeof index !== "number" || index < 0) {
     throw new Error("Index must be a non-negative integer");
   }
@@ -263,10 +278,18 @@ export async function deriveReceivingChildKeyPair({xprvHex, network = NETWORK, a
   const pubKey = privKey.toPublicKey();
 
   // Generate address
-  const pubGen = PublicKeyGenerator.fromMasterXPrv(xprvHex, false, accountIndex);
+  const pubGen = PublicKeyGenerator.fromMasterXPrv(
+    xprvHex,
+    false,
+    accountIndex,
+  );
   const addr = pubGen.receiveAddressAsString(network, index);
 
-  return {  privateKey: privKey.toString(), publicKey: pubKey.toString(), address: addr  };
+  return {
+    privateKey: privKey.toString(),
+    publicKey: pubKey.toString(),
+    address: addr,
+  };
 }
 
 /**
@@ -276,8 +299,8 @@ export async function deriveReceivingChildKeyPair({xprvHex, network = NETWORK, a
  * @returns {Promise<string>} Signature as hex string.
  */
 export async function signMessageWithPrivateKeyHex(privateKeyHex, message) {
-  const signature = await signMessage({privateKey: privateKeyHex, message});
-  return signature; 
+  const signature = await signMessage({ privateKey: privateKeyHex, message });
+  return signature;
 }
 
 /**
@@ -287,7 +310,15 @@ export async function signMessageWithPrivateKeyHex(privateKeyHex, message) {
  * @param {string} signatureHex - Signature as hex string.
  * @returns {Promise<boolean>} True if valid, false otherwise.
  */
-export async function verifyMessageWithPublicKeyHex(publicKeyHex, message, signatureHex) {    
-  const isValid = await verifyMessage({publicKey: publicKeyHex, message, signature: signatureHex});
+export async function verifyMessageWithPublicKeyHex(
+  publicKeyHex,
+  message,
+  signatureHex,
+) {
+  const isValid = await verifyMessage({
+    publicKey: publicKeyHex,
+    message,
+    signature: signatureHex,
+  });
   return isValid;
 }

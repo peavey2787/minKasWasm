@@ -1,7 +1,7 @@
 // dh_encryption.js
 import {
   encryptXChaCha20Poly1305,
-  decryptXChaCha20Poly1305
+  decryptXChaCha20Poly1305,
 } from "../kas-wasm/kaspa.js";
 import * as utilities from "../utilities/utilities.js";
 import * as secp from "https://esm.sh/@noble/secp256k1";
@@ -30,7 +30,7 @@ export class DHSession {
       throw new Error("initiateHandshake requires privateKeyHex");
     }
     this.myPrivateKeyHex = privateKeyHex;
-    
+
     // Ensure public key consistency using utilities
     if (publicKeyHex) {
       this.myPublicKeyHex = publicKeyHex;
@@ -40,11 +40,11 @@ export class DHSession {
 
     this.myPrivateKeyBytes = utilities.hexToBytes(privateKeyHex);
     this.myPublicKeyBytes = utilities.hexToBytes(this.myPublicKeyHex);
-    
+
     return {
       type: "DH_INIT",
       publicKey: this.myPublicKeyHex,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
   }
 
@@ -52,21 +52,28 @@ export class DHSession {
    * Respond to handshake: accept peer public key and derive shared secret
    */
   async respondToHandshake(peerPublicKeyHex) {
-    this.peerPublicKeyHex = peerPublicKeyHex;      
+    this.peerPublicKeyHex = peerPublicKeyHex;
     this.peerPublicKeyBytes = utilities.hexToBytes(peerPublicKeyHex);
-    
+
     // Derive shared secret using noble
-    this.sharedSecretBytes = secp.getSharedSecret(this.myPrivateKeyBytes, this.peerPublicKeyBytes, true);
-    
+    this.sharedSecretBytes = secp.getSharedSecret(
+      this.myPrivateKeyBytes,
+      this.peerPublicKeyBytes,
+      true,
+    );
+
     // Derive session key (hash the shared secret)
-    const digest = await window.crypto.subtle.digest("SHA-256", this.sharedSecretBytes);
+    const digest = await window.crypto.subtle.digest(
+      "SHA-256",
+      this.sharedSecretBytes,
+    );
     const sessionKey = new Uint8Array(digest);
     this.sessionKey = sessionKey;
 
     return {
       type: "DH_ACK",
       publicKey: this.myPublicKeyHex,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
   }
 

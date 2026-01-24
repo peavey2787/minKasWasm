@@ -1,9 +1,9 @@
 // scanner-adapter.js
 // Adapter to get Kaspa blocks from the wrapper's block scanner instead of API
 
-import { scannerBlockToVrfBlock, compareBigIntSafe } from './utilities.js';
-import { FINALITY, KASPA_BLOCK_COUNT } from '../constants.js';
-import { logInfo, logError } from '../logs/logger.js';
+import { scannerBlockToVrfBlock, compareBigIntSafe } from "./utilities.js";
+import { FINALITY, KASPA_BLOCK_COUNT } from "../constants.js";
+import { logInfo, logError } from "../logs/logger.js";
 
 /**
  * Collect Kaspa blocks from a running KaspaBlockScanner instance
@@ -12,23 +12,32 @@ import { logInfo, logError } from '../logs/logger.js';
  * @param {number} timeoutMs - Maximum time to wait for blocks (default: 30s)
  * @returns {Promise<Block[]>}
  */
-export async function collectKaspaBlocksFromScanner(scanner, count = KASPA_BLOCK_COUNT, timeoutMs = 30000) {
+export async function collectKaspaBlocksFromScanner(
+  scanner,
+  count = KASPA_BLOCK_COUNT,
+  timeoutMs = 30000,
+) {
   if (!scanner || !scanner.indexer) {
-    throw new Error('Scanner with indexer required');
+    throw new Error("Scanner with indexer required");
   }
 
   const blocks = [];
 
   // First, try to get blocks from the indexer's in-memory or cached blocks
   let indexedBlocks = scanner.indexer.getAllBlocks?.() || [];
-  
+
   // If in-memory isn't enough, try the persistent cache as a safety net
-  if (indexedBlocks.length < count && typeof scanner.indexer.getAllCachedBlocks === 'function') {
+  if (
+    indexedBlocks.length < count &&
+    typeof scanner.indexer.getAllCachedBlocks === "function"
+  ) {
     try {
       const cachedBlocks = await scanner.indexer.getAllCachedBlocks();
       if (Array.isArray(cachedBlocks)) {
         // Merge and deduplicate
-        const seenHashes = new Set(indexedBlocks.map(b => b?.header?.hash || b?.hash));
+        const seenHashes = new Set(
+          indexedBlocks.map((b) => b?.header?.hash || b?.hash),
+        );
         for (const b of cachedBlocks) {
           const h = b?.header?.hash || b?.hash;
           if (h && !seenHashes.has(h)) {
@@ -38,7 +47,7 @@ export async function collectKaspaBlocksFromScanner(scanner, count = KASPA_BLOCK
         }
       }
     } catch (e) {
-      logError('Failed to fetch cached blocks in scanner adapter', e);
+      logError("Failed to fetch cached blocks in scanner adapter", e);
     }
   }
 
@@ -50,7 +59,8 @@ export async function collectKaspaBlocksFromScanner(scanner, count = KASPA_BLOCK
       return compareBigIntSafe(scoreB, scoreA);
     });
 
-    const tipBlueScore = sorted[0]?.header?.blueScore || sorted[0]?.blueScore || 0;
+    const tipBlueScore =
+      sorted[0]?.header?.blueScore || sorted[0]?.blueScore || 0;
 
     for (let i = 0; i < sorted.length; i++) {
       if (blocks.length >= count) break;
@@ -63,7 +73,9 @@ export async function collectKaspaBlocksFromScanner(scanner, count = KASPA_BLOCK
     }
 
     if (blocks.length >= count) {
-      logInfo('Kaspa blocks collected from scanner indexer', { count: blocks.length });
+      logInfo("Kaspa blocks collected from scanner indexer", {
+        count: blocks.length,
+      });
       return blocks.slice(0, count);
     }
   }
@@ -80,25 +92,27 @@ export async function collectKaspaBlocksFromScanner(scanner, count = KASPA_BLOCK
     const timeout = setTimeout(() => {
       cleanup();
       if (collectedBlocks.length > 0) {
-        logInfo('Kaspa blocks collected (partial, timeout)', { count: collectedBlocks.length });
+        logInfo("Kaspa blocks collected (partial, timeout)", {
+          count: collectedBlocks.length,
+        });
         resolve(collectedBlocks);
       } else {
-        reject(new Error('Timeout waiting for Kaspa blocks from scanner'));
+        reject(new Error("Timeout waiting for Kaspa blocks from scanner"));
       }
     }, timeoutMs);
 
     scanner.onBlock = (block, matches) => {
       // Call original handler if it exists
-      if (typeof originalOnBlock === 'function') {
+      if (typeof originalOnBlock === "function") {
         originalOnBlock(block, matches);
       }
 
       const tipBlueScore = block?.header?.blueScore || 0;
       const vrfBlock = scannerBlockToVrfBlock(block, tipBlueScore);
       vrfBlock.isFinal = true; // Live blocks from scanner are considered final
-      
+
       // Avoid duplicates
-      const exists = collectedBlocks.some(b => b.hash === vrfBlock.hash);
+      const exists = collectedBlocks.some((b) => b.hash === vrfBlock.hash);
       if (!exists && vrfBlock.hash) {
         collectedBlocks.push(vrfBlock);
       }
@@ -106,7 +120,9 @@ export async function collectKaspaBlocksFromScanner(scanner, count = KASPA_BLOCK
       if (collectedBlocks.length >= count) {
         clearTimeout(timeout);
         cleanup();
-        logInfo('Kaspa blocks collected from scanner live stream', { count: collectedBlocks.length });
+        logInfo("Kaspa blocks collected from scanner live stream", {
+          count: collectedBlocks.length,
+        });
         resolve(collectedBlocks.slice(0, count));
       }
     };
@@ -125,7 +141,7 @@ export function getIndexedKaspaBlocks(scanner, count = KASPA_BLOCK_COUNT) {
   }
 
   const indexedBlocks = scanner.indexer.getAllBlocks?.() || [];
-  
+
   if (indexedBlocks.length === 0) {
     return [];
   }
@@ -137,7 +153,8 @@ export function getIndexedKaspaBlocks(scanner, count = KASPA_BLOCK_COUNT) {
     return compareBigIntSafe(scoreB, scoreA);
   });
 
-  const tipBlueScore = sorted[0]?.header?.blueScore || sorted[0]?.blueScore || 0;
+  const tipBlueScore =
+    sorted[0]?.header?.blueScore || sorted[0]?.blueScore || 0;
   const blocks = [];
 
   for (let i = 0; i < Math.min(count, sorted.length); i++) {

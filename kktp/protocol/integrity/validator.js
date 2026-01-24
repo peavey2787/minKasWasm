@@ -52,17 +52,20 @@ export class KKTPValidator {
     if (schema.enum && !schema.enum.includes(value)) {
       throw new KKTPValidationError(
         `Value "${value}" not in enum [${schema.enum.join(", ")}]`,
-        path
+        path,
       );
     }
 
     // 4. Check Regex Patterns (Strict Hex checking)
     if (schema.pattern) {
-      const re = schema.pattern instanceof RegExp ? schema.pattern : new RegExp(schema.pattern);
+      const re =
+        schema.pattern instanceof RegExp
+          ? schema.pattern
+          : new RegExp(schema.pattern);
       if (typeof value !== "string" || !re.test(value)) {
         throw new KKTPValidationError(
           `Value "${value}" does not match pattern ${re}`,
-          path
+          path,
         );
       }
     }
@@ -80,11 +83,7 @@ export class KKTPValidator {
 
   _checkType(expected, value, path) {
     const actual =
-      value === null
-        ? "null"
-        : Array.isArray(value)
-        ? "array"
-        : typeof value;
+      value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
 
     if (expected === "number") {
       if (actual !== "number" || !Number.isFinite(value)) {
@@ -96,7 +95,7 @@ export class KKTPValidator {
     if (expected !== actual) {
       throw new KKTPValidationError(
         `Expected type "${expected}" but got "${actual}"`,
-        path
+        path,
       );
     }
   }
@@ -127,8 +126,11 @@ export class KKTPValidator {
       for (const key of keys) {
         if (!(key in props)) {
           // Protocol Exception: Always allow 'meta' at the top level
-          if (isTopLevel && key === "meta") continue; 
-          throw new KKTPValidationError(`Unexpected field "${key}"`, `${path}.${key}`);
+          if (isTopLevel && key === "meta") continue;
+          throw new KKTPValidationError(
+            `Unexpected field "${key}"`,
+            `${path}.${key}`,
+          );
         }
       }
     }
@@ -148,7 +150,15 @@ export class KKTPValidator {
 
 // ---- Ready-to-use Singleton Instances ----
 
-export const discoveryValidator = new KKTPValidator(discoverySchema, { name: "discovery" });
-export const responseValidator = new KKTPValidator(responseSchema, { name: "response" });
-export const sessionEndValidator = new KKTPValidator(sessionEndSchema, { name: "sessionEnd" });
-export const mailboxMessageValidator = new KKTPValidator(mailboxMessageSchema, { name: "message" });
+export const discoveryValidator = new KKTPValidator(discoverySchema, {
+  name: "discovery",
+});
+export const responseValidator = new KKTPValidator(responseSchema, {
+  name: "response",
+});
+export const sessionEndValidator = new KKTPValidator(sessionEndSchema, {
+  name: "sessionEnd",
+});
+export const mailboxMessageValidator = new KKTPValidator(mailboxMessageSchema, {
+  name: "message",
+});

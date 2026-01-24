@@ -1,5 +1,10 @@
-import { fetchBlocks, getBitcoinBlocks, getKaspaBlocks, getQRNG } from './core/fetcher/index.js';
-import core from './core/index.js';
+import {
+  fetchBlocks,
+  getBitcoinBlocks,
+  getKaspaBlocks,
+  getQRNG,
+} from "./core/fetcher/index.js";
+import core from "./core/index.js";
 
 /**
  * Facade for VRF (Verifiable Random Function) operations.
@@ -60,7 +65,7 @@ export class VrfFacade {
     return core.fold(data1, data2, options);
   }
 
-    /**
+  /**
    * Run the full NIST SP 800-22 test suite on a bitstring.
    * @param {string} bits - Binary string
    * @returns {Promise<Object[]>} Test results

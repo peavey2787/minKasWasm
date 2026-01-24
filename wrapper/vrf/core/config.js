@@ -11,10 +11,10 @@ export const CONFIG = {
   KASPA_FINALITY_DAG_DEPTH: 60,
 
   // Cache durations (ms)
-  BTC_CACHE_DURATION: 10 * 60 * 1000, // 10 minutes  
+  BTC_CACHE_DURATION: 10 * 60 * 1000, // 10 minutes
   QRNG_CACHE_DURATION: 60 * 1000, // 1 minute
 
   // API call throttling (ms)
-  BTC_API_THROTTLE: 600000, // 10 minutes between calls  
+  BTC_API_THROTTLE: 600000, // 10 minutes between calls
   QRNG_API_THROTTLE: 60000, // 1 minute between calls
 };

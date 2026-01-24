@@ -9,6 +9,8 @@ export class Block {
     this.blueScore = blueScore;
     this.parents = parents;
     // Mark as final if confirmations or blueScore is present
-    this.isFinal = (typeof confirms === 'number' && confirms >= 0) || (typeof blueScore === 'number');
+    this.isFinal =
+      (typeof confirms === "number" && confirms >= 0) ||
+      typeof blueScore === "number";
   }
 }

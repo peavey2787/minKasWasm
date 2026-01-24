@@ -1,5 +1,5 @@
-import * as walletService from './wallet_service.js';
-import * as storage from './storage.js';
+import * as walletService from "./wallet_service.js";
+import * as storage from "./storage.js";
 
 export class IdentityFacade {
   constructor() {
@@ -17,7 +17,11 @@ export class IdentityFacade {
    */
   async init({ client, networkId, balanceElementId } = {}) {
     // Map 'client' to 'rpcClient' as expected by wallet_service
-    return walletService.init({ rpcClient: client, networkId, balanceElementId });
+    return walletService.init({
+      rpcClient: client,
+      networkId,
+      balanceElementId,
+    });
   }
 
   /**
@@ -82,8 +86,8 @@ export class IdentityFacade {
 
   /**
    * Get the mnemonic for a specific wallet.
-   * @param {string} filename 
-   * @param {string} password 
+   * @param {string} filename
+   * @param {string} password
    * @returns {Promise<string>} Mnemonic phrase.
    */
   async getMnemonic(filename, password) {
@@ -92,7 +96,7 @@ export class IdentityFacade {
 
   /**
    * Delete a wallet from storage.
-   * @param {string} filename 
+   * @param {string} filename
    */
   async deleteWallet(filename) {
     return storage.deleteWalletData(filename);

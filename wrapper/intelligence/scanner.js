@@ -1,6 +1,10 @@
 // scanner.js - Generic Kaspa Block Scanner core logic
-import { stringToHex, hexToString, dehydrateTx } from '../utilities/utilities.js';
-import { KaspaIndexer, MatchMode } from './indexer.js';
+import {
+  stringToHex,
+  hexToString,
+  dehydrateTx,
+} from "../utilities/utilities.js";
+import { KaspaIndexer, MatchMode } from "./indexer.js";
 
 /**
  * Enum for block scanner event names.
@@ -8,7 +12,7 @@ import { KaspaIndexer, MatchMode } from './indexer.js';
  * @enum {string}
  */
 export const BlockScannerEvent = Object.freeze({
-  BLOCK_ADDED: "block-added"
+  BLOCK_ADDED: "block-added",
 });
 
 /**
@@ -20,7 +24,7 @@ export const SearchMode = Object.freeze({
   INCLUDES: "includes",
   STARTS_WITH: "startsWith",
   EXACT: "exact",
-  ENDS_WITH: "endsWith"
+  ENDS_WITH: "endsWith",
 });
 
 /**
@@ -38,7 +42,15 @@ export class KaspaBlockScanner {
    * @param {string[]} [options.addresses=[]] - List of addresses to watch.
    * @param {string} [options.mode=SearchMode.INCLUDES] - Search mode: includes, startsWith, exact, endsWith.
    */
-  constructor(client, { prefixes = [], addresses = [], mode = SearchMode.INCLUDES, indexerOptions = {} } = {}) {
+  constructor(
+    client,
+    {
+      prefixes = [],
+      addresses = [],
+      mode = SearchMode.INCLUDES,
+      indexerOptions = {},
+    } = {},
+  ) {
     this.client = client;
     this.blockSubscription = null;
     this.scanning = false;
@@ -46,17 +58,19 @@ export class KaspaBlockScanner {
 
     // Initialize with provided prefixes
     if (Array.isArray(prefixes)) {
-      prefixes.forEach(p => this.addPrefix(p));
+      prefixes.forEach((p) => this.addPrefix(p));
     } else if (prefixes) {
       this.addPrefix(prefixes);
     }
 
     this.addresses = Array.isArray(addresses) ? addresses : [];
-    this.searchMode = Object.values(SearchMode).includes(mode) ? mode : SearchMode.INCLUDES;
+    this.searchMode = Object.values(SearchMode).includes(mode)
+      ? mode
+      : SearchMode.INCLUDES;
     this.indexer = new KaspaIndexer(indexerOptions);
     // Ensure onIndexerUpdate is set after async initDB
     this.indexer.initDB().then(() => {
-      if (typeof indexerOptions.onIndexerUpdate === 'function') {
+      if (typeof indexerOptions.onIndexerUpdate === "function") {
         this.indexer.onIndexerUpdate = indexerOptions.onIndexerUpdate;
       }
     });
@@ -70,7 +84,7 @@ export class KaspaBlockScanner {
   set prefixes(values) {
     this.#prefixes.clear();
     const arr = Array.isArray(values) ? values : [values];
-    arr.forEach(v => this.addPrefix(v));
+    arr.forEach((v) => this.addPrefix(v));
   }
 
   /** Adds a prefix to the watch list. */
@@ -90,7 +104,10 @@ export class KaspaBlockScanner {
     this.scanning = true;
     this.onBlock = onBlock;
     if (this.blockSubscription) {
-      this.client.removeEventListener(BlockScannerEvent.BLOCK_ADDED, this.blockSubscription);
+      this.client.removeEventListener(
+        BlockScannerEvent.BLOCK_ADDED,
+        this.blockSubscription,
+      );
       this.blockSubscription = null;
     }
     await this.client.subscribeBlockAdded();
@@ -103,7 +120,8 @@ export class KaspaBlockScanner {
 
       // If there's nothing to do, don't iterate txs at all.
       const hasPrefix = !!this.prefix;
-      const hasAddresses = Array.isArray(this.addresses) && this.addresses.length > 0;
+      const hasAddresses =
+        Array.isArray(this.addresses) && this.addresses.length > 0;
       const indexerActive = !!(this.indexer && this.indexer.active);
 
       if (hasPrefix || hasAddresses || indexerActive) {
@@ -115,7 +133,10 @@ export class KaspaBlockScanner {
       }
     };
 
-    this.client.addEventListener(BlockScannerEvent.BLOCK_ADDED, this.blockSubscription);
+    this.client.addEventListener(
+      BlockScannerEvent.BLOCK_ADDED,
+      this.blockSubscription,
+    );
   }
 
   _processBlockTransactions(block, matches) {
@@ -127,7 +148,7 @@ export class KaspaBlockScanner {
           this._indexMatchingTransactionIfNeeded(matchObj);
         }
         this._indexAllTransactionIfNeeded(tx, block);
-        if( tx && typeof tx.free === 'function' ) {
+        if (tx && typeof tx.free === "function") {
           tx.free(); // free WASM tx object
         }
       }
@@ -140,7 +161,13 @@ export class KaspaBlockScanner {
     const isMatch = payloadMatch || addressMatch;
     let matchObj = null;
     if (isMatch) {
-      matchObj = this._buildMatchObject(tx, block, payloadMatch, addressMatch, decodedPayload);
+      matchObj = this._buildMatchObject(
+        tx,
+        block,
+        payloadMatch,
+        addressMatch,
+        decodedPayload,
+      );
     }
     return { matchObj, isMatch };
   }
@@ -150,10 +177,10 @@ export class KaspaBlockScanner {
     let decodedPayload = null;
 
     if (this.#prefixes.length > 0 && tx.payload) {
-      const payloadHex = tx.payload;      
-      
+      const payloadHex = tx.payload;
+
       // Use 'return' inside the switch cases so .some() sees the match
-      payloadMatch = this.#prefixes.some(prefixHex => {
+      payloadMatch = this.#prefixes.some((prefixHex) => {
         switch (this.searchMode) {
           case SearchMode.INCLUDES:
             return payloadHex.includes(prefixHex);
@@ -181,7 +208,8 @@ export class KaspaBlockScanner {
 
   _matchAddress(tx) {
     // If we're not watching addresses, do nothing.
-    if (!Array.isArray(this.addresses) || this.addresses.length === 0) return false;
+    if (!Array.isArray(this.addresses) || this.addresses.length === 0)
+      return false;
 
     let addressMatch = false;
 
@@ -207,27 +235,33 @@ export class KaspaBlockScanner {
     return addressMatch;
   }
 
-  _buildMatchObject(tx, block, payloadMatch, addressMatch, decodedPayload) {    
-    const dehydratedTx = dehydrateTx({tx, block, decodedPayload});
+  _buildMatchObject(tx, block, payloadMatch, addressMatch, decodedPayload) {
+    const dehydratedTx = dehydrateTx({ tx, block, decodedPayload });
     dehydratedTx.payloadMatch = payloadMatch;
-    dehydratedTx.addressMatch = addressMatch;   
+    dehydratedTx.addressMatch = addressMatch;
     return dehydratedTx;
   }
 
-  _indexMatchingTransactionIfNeeded(matchObj) {    
+  _indexMatchingTransactionIfNeeded(matchObj) {
     if (!this.indexer.active) return;
-    if (this.indexer.matchMode === MatchMode.ALL ||
-        this.indexer.matchMode === MatchMode.MATCHING ||
-        (this.indexer.matchMode === MatchMode.CUSTOM && this.indexer.indexAllMatchingTransactions)) {
+    if (
+      this.indexer.matchMode === MatchMode.ALL ||
+      this.indexer.matchMode === MatchMode.MATCHING ||
+      (this.indexer.matchMode === MatchMode.CUSTOM &&
+        this.indexer.indexAllMatchingTransactions)
+    ) {
       this.indexer.addTransaction(matchObj, true);
     }
   }
 
   _indexAllTransactionIfNeeded(tx, block) {
     if (!this.indexer.active) return;
-    if (this.indexer.matchMode === MatchMode.ALL ||
-        this.indexer.matchMode === MatchMode.TRANSACTIONS ||
-        (this.indexer.matchMode === MatchMode.CUSTOM && this.indexer.indexAllTransactions)) {
+    if (
+      this.indexer.matchMode === MatchMode.ALL ||
+      this.indexer.matchMode === MatchMode.TRANSACTIONS ||
+      (this.indexer.matchMode === MatchMode.CUSTOM &&
+        this.indexer.indexAllTransactions)
+    ) {
       const obj = this._buildMatchObject(tx, block, false, false, null);
       this.indexer.addTransaction(obj, false);
     }
@@ -235,9 +269,12 @@ export class KaspaBlockScanner {
 
   _indexBlockIfNeeded(block) {
     if (!this.indexer.active) return;
-    if (this.indexer.matchMode === MatchMode.ALL ||
-        this.indexer.matchMode === MatchMode.BLOCKS ||
-        (this.indexer.matchMode === MatchMode.CUSTOM && this.indexer.indexAllBlocks)) {
+    if (
+      this.indexer.matchMode === MatchMode.ALL ||
+      this.indexer.matchMode === MatchMode.BLOCKS ||
+      (this.indexer.matchMode === MatchMode.CUSTOM &&
+        this.indexer.indexAllBlocks)
+    ) {
       this.indexer.addBlock(block);
     }
   }
@@ -248,7 +285,10 @@ export class KaspaBlockScanner {
   stop() {
     this.scanning = false;
     if (this.blockSubscription) {
-      this.client.removeEventListener(BlockScannerEvent.BLOCK_ADDED, this.blockSubscription);
+      this.client.removeEventListener(
+        BlockScannerEvent.BLOCK_ADDED,
+        this.blockSubscription,
+      );
       this.blockSubscription = null;
     }
     this.onBlock = null;

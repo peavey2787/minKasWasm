@@ -1,25 +1,35 @@
 // kaspa_client.js
-import initKaspa, { RpcClient, Resolver, ConnectStrategy } from '../kas-wasm/kaspa.js'; 
-// Either 1. ensure you put the actual Kaspa WASM SDK in a folder named "kas-wasm" outside of the folder this file is in, or 2. point to where you have it 
+import initKaspa, {
+  RpcClient,
+  Resolver,
+  ConnectStrategy,
+} from "../kas-wasm/kaspa.js";
+// Either 1. ensure you put the actual Kaspa WASM SDK in a folder named "kas-wasm" outside of the folder this file is in, or 2. point to where you have it
 
 let client = null;
 let wasmInitialized = false;
 let currentRpcUrl = null;
 let currentNetworkId = null;
 
-export async function connect(rpcUrl, networkId = "testnet-10", { onDisconnect } = {}) {
+export async function connect(
+  rpcUrl,
+  networkId = "testnet-10",
+  { onDisconnect } = {},
+) {
   // Initialize Kaspa wasm sdk once
   if (!wasmInitialized) {
     await initKaspa();
     wasmInitialized = true;
   }
 
-  console.log(`Connecting to Kaspa node at ${rpcUrl || 'public resolver'} on network ${networkId}...`);
+  console.log(
+    `Connecting to Kaspa node at ${rpcUrl || "public resolver"} on network ${networkId}...`,
+  );
 
   // 1. Shut down existing client
   if (client) {
     try {
-      await client.disconnect();      
+      await client.disconnect();
       client.free(); // Many Rust-based WASM modules need this to release the "Heap"
       client = null; // Garbage Collect the JS reference
     } catch (e) {
@@ -36,18 +46,18 @@ export async function connect(rpcUrl, networkId = "testnet-10", { onDisconnect }
   const options = {
     networkId: networkId,
     resolver: rpcUrl ? undefined : new Resolver(),
-    url: rpcUrl || undefined
+    url: rpcUrl || undefined,
   };
 
   const newClient = new RpcClient(options);
 
-  const connectOptions = { 
+  const connectOptions = {
     blockAsyncConnect: true,
     retryInterval: 2000, // retry every 2s if needed
     strategy: ConnectStrategy.Persistent,
-    timeoutDuration: 10000 // fail after 10s
+    timeoutDuration: 10000, // fail after 10s
   };
-  
+
   // 3. Connect
   try {
     await newClient.connect(connectOptions);
@@ -60,19 +70,23 @@ export async function connect(rpcUrl, networkId = "testnet-10", { onDisconnect }
   client = newClient;
 
   // Subscribe to disconnect event
-  if (client && typeof client.on === 'function') {
-    client.on('disconnect', async () => {
+  if (client && typeof client.on === "function") {
+    client.on("disconnect", async () => {
       console.warn("Disconnected from Kaspa node");
-      if (typeof onDisconnect === 'function') {
+      if (typeof onDisconnect === "function") {
         await onDisconnect();
       }
     });
   }
 
-  if(rpcUrl) {
-    console.log(`Connected to Kaspa node at ${rpcUrl} on network ${currentNetworkId}`);
+  if (rpcUrl) {
+    console.log(
+      `Connected to Kaspa node at ${rpcUrl} on network ${currentNetworkId}`,
+    );
   } else {
-    console.log(`Connected to public Kaspa node via resolver on network ${currentNetworkId}`);
+    console.log(
+      `Connected to public Kaspa node via resolver on network ${currentNetworkId}`,
+    );
   }
 
   return client;

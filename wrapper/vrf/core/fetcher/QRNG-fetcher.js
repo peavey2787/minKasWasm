@@ -7,7 +7,7 @@ export class QRNGProvider {
   }
 
   async fetchRandomness(params = {}) {
-    throw new Error('fetchRandomness() must be implemented by subclass');
+    throw new Error("fetchRandomness() must be implemented by subclass");
   }
 
   async request(url, options = {}) {
@@ -29,7 +29,10 @@ export class QRNGProvider {
 export class ANUQRNG extends QRNGProvider {
   constructor() {
     // Use CORS proxy for browser compatibility
-    super('ANU QRNG', 'https://corsproxy.io/?http://qrng.anu.edu.au/API/jsonI.php');
+    super(
+      "ANU QRNG",
+      "https://corsproxy.io/?http://qrng.anu.edu.au/API/jsonI.php",
+    );
   }
 
   async fetchRandomness(length = 16) {
@@ -42,7 +45,7 @@ export class ANUQRNG extends QRNGProvider {
 // Example provider: qrandom.io
 export class QRandomIO extends QRNGProvider {
   constructor() {
-    super('qrandom.io', 'https://qrng.qrandom.io/api');
+    super("qrandom.io", "https://qrng.qrandom.io/api");
   }
 
   async fetchRandomness(bits = 256) {
@@ -55,14 +58,14 @@ export class QRandomIO extends QRNGProvider {
 // Provider: NIST Beacon
 export class NISTBeacon extends QRNGProvider {
   constructor() {
-    super('NIST Beacon', 'https://beacon.nist.gov/beacon/2.0/pulse/last');
+    super("NIST Beacon", "https://beacon.nist.gov/beacon/2.0/pulse/last");
   }
 
   async fetchRandomness(length = 64) {
     const data = await this.request(this.baseUrl);
     const hex = data?.pulse?.outputValue;
-    if (!hex) throw new Error('NIST Beacon response missing outputValue');
-    
+    if (!hex) throw new Error("NIST Beacon response missing outputValue");
+
     const bytes = [];
     for (let i = 0; i < hex.length; i += 2) {
       bytes.push(parseInt(hex.substr(i, 2), 16));

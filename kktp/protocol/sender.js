@@ -1,6 +1,6 @@
 // kktp-core/sender.js
-import { bytesToHex } from './utils/conversion.js';
-import { constructAAD } from './integrity/aad.js';
+import { bytesToHex } from "./utils/conversion.js";
+import { constructAAD } from "./integrity/aad.js";
 import { XChaCha20Poly1305 } from "https://esm.sh/@noble/ciphers/chacha";
 
 /**
@@ -21,7 +21,7 @@ export class KKTPSender {
    */
   async send(plaintext) {
     this.currentSeq++;
-    
+
     // 1. Generate 192-bit Nonce (Section 4)
     const nonceBytes = crypto.getRandomValues(new Uint8Array(24));
     const nonceHex = bytesToHex(nonceBytes);
@@ -48,22 +48,22 @@ export class KKTPSender {
       direction: this.direction,
       seq: Number(this.currentSeq),
       nonce: nonceHex,
-      ciphertext: ciphertextHex
+      ciphertext: ciphertextHex,
     };
 
     // 6. Embed and Broadcast (Section 6.4)
     // Format: "KKTP:" || mailbox_id_hex || ":" || <canonical JSON>
     // Note: portal.send() handles the Kaspa Transaction wrapping
     const payload = `KKTP:${this.mailboxId}:${JSON.stringify(this._sortKeys(msg))}`;
-    
+
     // Explicitly send to our own address to keep the KAS but publish the data
     const myAddress = this.portal.wallet.address;
 
     return await this.portal.send({
       toAddress: myAddress,
       payload: payload,
-      amount: 1,            
-      priorityFeeKas: 0
+      amount: 1,
+      priorityFeeKas: 0,
     });
   }
 }

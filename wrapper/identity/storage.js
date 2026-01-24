@@ -34,11 +34,14 @@ export async function storeWalletData(walletData, masterPassword) {
   const tx = db.transaction(STORE_NAME, "readwrite");
   const store = tx.objectStore(STORE_NAME);
 
-  const encryptedPayload = encryptMessage(JSON.stringify(walletData), masterPassword);
+  const encryptedPayload = encryptMessage(
+    JSON.stringify(walletData),
+    masterPassword,
+  );
 
   store.put({
     filename: walletData.filename,
-    payload: encryptedPayload
+    payload: encryptedPayload,
   });
 
   return tx.complete;
