@@ -6,16 +6,14 @@ import {
 } from "./core/fetcher/index.js";
 import { hexToBinary, sha256Hash } from "./core/crypto.js";
 import { setLoggerProvider } from "./core/logs/logger.js";
+import { runNistSuite } from "./core/nist.js";
+import { NistVerifier } from "./core/nistVerifier.js";
+import { VRFProof } from "./core/models/vrfProof.js";
+import { Block } from "./core/models/Block.js";
 
 class VrfFacade {
   /**
    * Generates a high-entropy bitstring by folding QRNG, BTC, and Kaspa data.
-   * @param {Object} options
-   * @param {number} options.btcBlocks - Number of Bitcoin blocks to include (1-32)
-   * @param {number} options.kasBlocks - Number of Kaspa blocks to include (1-32)
-   * @param {number} options.iterations - Number of recursive folding rounds (1-32)
-   * @param {string} options.seed - Initial salt/seed for the extraction process
-   * @returns {Promise<Object>} - { finalOutput, evidence }
    */
   async generateFoldedEntropy({
     btcBlocks = 1,
@@ -23,34 +21,21 @@ class VrfFacade {
     iterations = 2,
     seed = "kktp-default-seed",
   } = {}) {
-    const numPositions = 256; // Fixed constant for extraction depth
+    const numPositions = 256;
 
-    // 1. Fetch with error handling
     const [qrngBlock, kBlocks, bBlocks] = await Promise.all([
       getQRNG("nist", 32),
       getKaspaBlocks(kasBlocks),
       getBitcoinBlocks(btcBlocks),
     ]);
 
-    // Safety Check: Ensure NIST data exists before we try to slice it
-    if (!qrngBlock || !qrngBlock.hash || qrngBlock.hash.length < 128) {
-      throw new Error("VRF: NIST QRNG source is invalid or unreachable.");
-    }
+    const [qrng1, qrng2] = Block.fromNistSplit(qrngBlock);
+    const sources = [qrng1, qrng2, ...kBlocks, ...bBlocks];
 
-    // 2. Aggregate and Normalize
-    const sources = [
-      { ...qrngBlock, hash: qrngBlock.hash.substring(0, 64), type: "qrng_1" },
-      { ...qrngBlock, hash: qrngBlock.hash.substring(64, 128), type: "qrng_2" },
-      ...kBlocks,
-      ...bBlocks,
-    ];
-
-    // 3. Convert seed
     const initialBits = /^[0-9a-fA-F]+$/.test(seed)
       ? hexToBinary(seed)
       : hexToBinary(await sha256Hash(seed));
 
-    // 4. Execute Engine
     const result = await recursiveFolding(
       sources,
       initialBits,
@@ -59,30 +44,28 @@ class VrfFacade {
       numPositions,
     );
 
-    // 5. Return result + complete evidence for verification
+    const finalHex = await sha256Hash(result.finalOutput);
+
+    // Build the proof using the ORIGINAL qrngBlock instance
+    const proof = new VRFProof({
+      nist: qrngBlock,
+      kaspa: kBlocks,
+      btc: bBlocks,
+      finalOutput: finalHex,
+      seed: seed,
+      iterations: iterations,
+    });
+
     return {
-      finalOutput: result.finalOutput,
-      evidence: {
-        qrng: qrngBlock,
-        kaspa: kBlocks,
-        btc: bBlocks,
-        config: {
-          iterations,
-          seed,
-          numPositions, // Added for Constants Sync
-        },
-      },
+      finalOutput: finalHex,
+      proof: proof,
     };
   }
 
   /**
-   * PROVE: Generates a VRF proof object for a given seed input.
-   * @param {string} seedInput - Seed or salt for the VRF generation.
-   * @returns {Promise<Object>} - { value, proof }
+   * PROVE: Generates a formalized VRF proof object.
    */
   async prove(seedInput) {
-    // 1. Use our core generator logic to get the value and evidence
-    // This handles the NIST splitting, block normalization, and folding automatically.
     const data = await this.generateFoldedEntropy({
       btcBlocks: 1,
       kasBlocks: 1,
@@ -90,63 +73,98 @@ class VrfFacade {
       seed: seedInput,
     });
 
-    // 2. Map the output to the "Proof" format your application expects
-    return {
-      value: data.finalOutput, // The resulting randomness
-      proof: {
-        seedInput: seedInput,
-        // We spread the evidence into the proof bundle
-        ...data.evidence,
-      },
-    };
+    // We return a formalized proof structure
+    return new VRFProof({
+      nist: data.evidence.nist,
+      kaspa: data.evidence.kaspa,
+      btc: data.evidence.btc,
+      finalOutput: data.finalOutput,
+      seed: seedInput,
+      iterations: data.evidence.config.iterations,
+    });
   }
 
   /**
-   * VERIFY: Validates that a provided value matches the proof bundle.
+   * VERIFY: Validates the value against the proof bundle.
    */
-  async verify(value, proof) {
-    // 1. Authenticity Check: Is the NIST data real?
-    // In production, this calls a helper that checks the pulse signatureValue
-    // against the NIST Beacon 2.0 Public Key.
-    const isNistAuthentic = await this.isValidNistSignature(proof.qrng);
-    if (!isNistAuthentic) {
-      console.error("VRF Verification Failed: NIST Signature is invalid.");
-      return false;
+  async verify(valueOrResult, optionalProof) {
+    let value, proof;
+
+    // HANDLE PARAMETER OVERLOAD
+    if (
+      arguments.length === 1 &&
+      valueOrResult.finalOutput &&
+      valueOrResult.proof
+    ) {
+      // If user called: vrf.verify(foldedResult)
+      value = valueOrResult.finalOutput;
+      proof = valueOrResult.proof;
+    } else {
+      // If user called: vrf.verify(value, proof)
+      value = valueOrResult;
+      proof = optionalProof;
     }
 
-    // 2. Reconstruct sources (Exact mirror of generation)
-    const nistHash = proof.qrng.hash || proof.qrng.outputValue;
+    if (!proof) {
+      throw new Error("Verification Failed: No proof object provided.");
+    }
+
+    // 1. Run NIST signature check
+    const isNistValid = await this.isValidNistSignature(proof);
+    if (!isNistValid) {
+      throw new Error(
+        "VRF Verification Failed: NIST Signature missing or invalid.",
+      );
+    }
+
+    // 2. Reconstruct sources (using NIST hash from qrng evidence)
+    const nistHash = proof.evidence?.nist?.outputValue || proof.qrng?.hash;
+    if (!nistHash) throw new Error("Missing NIST entropy for reconstruction.");
+
     const entropySources = [
-      { hash: nistHash.substring(0, 64), isFinal: true },
-      { hash: nistHash.substring(64, 128), isFinal: true },
-      ...proof.kaspa.map((b) => ({ hash: b.hash, isFinal: true })),
-      ...proof.btc.map((b) => ({ hash: b.hash, isFinal: true })),
+      { hash: nistHash.substring(0, 64) },
+      { hash: nistHash.substring(64, 128) },
+      ...proof.kaspa.map((b) => ({ hash: b.hash })),
+      ...proof.btc.map((b) => ({ hash: b.hash })),
     ];
 
-    // 3. Reconstruct starting state
     const initialBits = /^[0-9a-fA-F]+$/.test(proof.config.seed)
       ? hexToBinary(proof.config.seed)
       : hexToBinary(await sha256Hash(proof.config.seed));
 
-    // 4. Re-run engine using synchronized constants
     const result = await recursiveFolding(
       entropySources,
       initialBits,
       "sha256",
       proof.config.iterations,
-      proof.config.numPositions || 256, // Fallback to 256
+      proof.config.numPositions || 256,
     );
 
     return result.finalOutput === value;
   }
 
   /**
-   * Helper to verify NIST Signature authenticity
+   * Verify NIST Signature authenticity
    */
-  async isValidNistSignature(qrngBlock) {
-    // This is where you implement RSA-SHA256 signature verification.
-    // For now, we verify the pulse exists and has a signature string.
-    return !!(qrngBlock.metadata?.signature || qrngBlock.signature);
+  async isValidNistSignature(proof) {
+    // Ensure we drill into evidence.nist
+    let nistBlock = proof.evidence?.nist;
+
+    // Handle the "Array" edge case from the QRNG split
+    if (Array.isArray(nistBlock)) {
+      nistBlock = nistBlock[0];
+    }
+
+    if (!nistBlock) {
+      console.error(
+        "VRF Facade: NIST evidence missing from proof object",
+        proof,
+      );
+      return false;
+    }
+
+    // Send the clean block to the verifier
+    return await NistVerifier.verifyPulse(nistBlock);
   }
 
   /**
@@ -167,15 +185,29 @@ class VrfFacade {
   async basicNIST(bits) {
     const allResults = await this.fullNIST(bits);
 
-    // Filter for the "Big Four" fundamental tests
-    const basicTests = [
+    // The "Big Four" fundamental tests
+    const basicTestNames = [
       "frequencyMonobitTest",
       "blockFrequencyTest",
       "runsTest",
       "longestRunOfOnesTest",
+      // Adding common human-readable variations just in case
+      "Frequency (Monobit)",
+      "Block Frequency",
+      "Runs",
+      "Longest Run of Ones",
     ];
 
-    return allResults.filter((r) => basicTests.includes(r.testName));
+    const filtered = allResults.filter((r) => {
+      // Check if the name matches our list (case-insensitive and trimmed)
+      return basicTestNames.some(
+        (name) =>
+          r.testName?.toLowerCase().includes(name.toLowerCase()) ||
+          name.toLowerCase().includes(r.testName?.toLowerCase()),
+      );
+    });
+
+    return filtered;
   }
 
   /**

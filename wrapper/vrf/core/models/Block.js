@@ -9,26 +9,51 @@ export class Block {
     blueScore,
     parents,
     signature,
-    pulseIndex
+    pulseIndex,
+    seedValue,
+    previousOutputValue,
+    certificateId
   }) {
     this.hash = hash;
     this.height = height;
     this.time = time;
-    this.source = source;
+    this.source = source || "nist";
     this.confirms = confirms;
     this.blueScore = blueScore;
     this.parents = parents;
 
     // Safety check for finality
     this.isFinal =
-      source === "nist" || // NIST is always final
-      (typeof confirms === "number" && confirms >= 6) || // BTC finality
+      this.source === "nist" ||
+      (typeof confirms === "number" && confirms >= 6) ||
       (typeof blueScore === "number");
 
-    // Store NIST metadata if it exists
-    this.metadata = {
-      signature: signature || null,
-      pulseIndex: pulseIndex || null
+    // NIST Metadata persistence
+    this.signature = signature;
+    this.pulseIndex = pulseIndex;
+    this.seedValue = seedValue;
+    this.previousOutputValue = previousOutputValue;
+    this.certificateId = certificateId;
+  }
+
+  /**
+   * Helper: Splits a single 128-char NIST hash into two 64-char blocks
+   * while persisting all cryptographic evidence required for audit.
+   */
+  static fromNistSplit(qrngBlock) {
+    const metadata = {
+      time: qrngBlock.time,
+      source: "nist",
+      pulseIndex: qrngBlock.pulseIndex,
+      signature: qrngBlock.signature,
+      seedValue: qrngBlock.seedValue,
+      previousOutputValue: qrngBlock.previousOutputValue,
+      certificateId: qrngBlock.certificateId
     };
+
+    return [
+      new Block({ ...metadata, hash: qrngBlock.hash.substring(0, 64) }),
+      new Block({ ...metadata, hash: qrngBlock.hash.substring(64, 128) })
+    ];
   }
 }

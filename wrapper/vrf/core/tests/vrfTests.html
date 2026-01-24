@@ -2,198 +2,187 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>KKTP VRF Engine Test Dashboard</title>
+    <title>KKTP VRF Production Audit</title>
     <style>
       body {
         font-family: "Courier New", monospace;
-        background: #1a1a1a;
+        background: #0a0a0a;
         color: #00ff00;
         padding: 20px;
+        line-height: 1.2;
+      }
+      .panel {
+        border: 1px solid #00ff00;
+        padding: 15px;
+        background: #000;
+        margin-bottom: 20px;
       }
       .grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 20px;
       }
-      .panel {
-        border: 1px solid #00ff00;
-        padding: 15px;
-        border-radius: 5px;
-        background: #000;
-      }
-      .controls {
-        margin-bottom: 20px;
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-      }
       button {
         background: #00ff00;
         color: #000;
         border: none;
-        padding: 10px 20px;
+        padding: 12px 24px;
         cursor: pointer;
         font-weight: bold;
+        text-transform: uppercase;
       }
-      button:hover {
-        background: #00cc00;
+      button:disabled {
+        background: #222;
+        color: #444;
       }
-      input {
-        background: #000;
+      .data-box {
+        background: #111;
+        border: 1px solid #333;
+        padding: 10px;
+        font-size: 11px;
+        color: #888;
+        word-break: break-all;
+        white-space: normal;
+        margin-top: 5px;
+        margin-bottom: 10px;
+      }
+      .label {
         color: #00ff00;
-        border: 1px solid #00ff00;
-        padding: 8px;
-        width: 100px;
-      }
-      #log-output {
-        height: 400px;
-        overflow-y: scroll;
+        font-weight: bold;
         font-size: 12px;
-        white-space: pre-wrap;
-        border-top: 1px solid #333;
+        display: block;
         margin-top: 10px;
-      }
-      .stat-line {
-        margin: 5px 0;
-        border-bottom: 1px solid #222;
-        padding-bottom: 5px;
       }
       .passed {
         color: #00ff00;
+        font-weight: bold;
       }
       .failed {
         color: #ff0000;
+        font-weight: bold;
       }
-      .header {
-        text-align: center;
-        border-bottom: 2px solid #00ff00;
-        margin-bottom: 20px;
-        padding-bottom: 10px;
+      hr {
+        border: 0;
+        border-top: 1px solid #333;
+        margin: 15px 0;
+      }
+      .field-tag {
+        color: #0af;
+        font-weight: bold;
       }
     </style>
   </head>
   <body>
-    <div class="header">
-      <h1>KKTP VERIFIABLE RANDOM FUNCTION DASHBOARD</h1>
-    </div>
-
-    <div class="controls panel">
-      <div>
-        <label>BTC Blocks:</label>
-        <input type="number" id="btcBlocks" value="1" min="1" max="10" />
-      </div>
-      <div>
-        <label>KAS Blocks:</label>
-        <input type="number" id="kasBlocks" value="1" min="1" max="10" />
-      </div>
-      <div>
-        <label>Iterations:</label>
-        <input type="number" id="iterations" value="2" min="1" max="5" />
-      </div>
-      <button id="runTest">GENERATE VRF PROOF</button>
-      <button id="runNist" style="background: #0088ff">RUN NIST SUITE</button>
+    <div class="panel">
+      <h2 style="margin: 0; padding-bottom: 10px">KKTP VRF PRODUCTION AUDIT</h2>
+      <button id="runGenerate">Execute Gen</button>
+      <button id="runVerify" disabled>Run Audit</button>
     </div>
 
     <div class="grid">
       <div class="panel">
-        <h3>Internal Logs (Extractor & Folding)</h3>
-        <div id="log-output"></div>
+        <h3>[1] PROVER OUTPUT (Evidence)</h3>
+        <div id="gen-status">Awaiting Execution...</div>
+        <div id="output-display"></div>
       </div>
 
       <div class="panel">
-        <h3>Resulting Proof & Verification</h3>
-        <div id="result-output">
-          <p>Waiting for generation...</p>
-        </div>
-        <hr />
-        <h3>NIST Test Results</h3>
-        <div id="nist-output"></div>
+        <h3>[2] VERIFIER AUDIT (Math)</h3>
+        <div id="audit-status">Awaiting Proof...</div>
+        <div id="audit-results"></div>
       </div>
     </div>
 
     <script type="module">
       import vrf from "../../vrfFacade.js";
 
-      const logEl = document.getElementById("log-output");
-      const resultEl = document.getElementById("result-output");
-      const nistEl = document.getElementById("nist-output");
+      const outputDisplay = document.getElementById("output-display");
+      const auditResults = document.getElementById("audit-results");
+      const verifyBtn = document.getElementById("runVerify");
 
-      // 1. Custom Dashboard Logger
-      const dashboardLogger = {
-        log: (msg, meta) => {
-          const div = document.createElement("div");
-          div.className = "stat-line";
-          div.innerHTML = `${msg} <span style="color: #888">${JSON.stringify(meta)}</span>`;
-          logEl.appendChild(div);
-          logEl.scrollTop = logEl.scrollHeight;
-        },
-        error: (msg, meta) => {
-          const div = document.createElement("div");
-          div.className = "stat-line failed";
-          div.innerHTML = `${msg} ${JSON.stringify(meta)}`;
-          logEl.appendChild(div);
-        },
-      };
+      let currentProof = null;
+      let foldedResult = null;
 
-      // Inject the logger into the VRF Facade
-      vrf.setLogger(dashboardLogger);
-
-      let lastGeneratedBits = "";
-
-      // 2. Generate Action
-      document.getElementById("runTest").onclick = async () => {
-        logEl.innerHTML = ""; // Clear logs
-        resultEl.innerHTML = "Fetching entropy sources...";
-
+      document.getElementById("runGenerate").onclick = async () => {
+        document.getElementById("gen-status").innerHTML = "Generating...";
         try {
-          const options = {
-            btcBlocks: parseInt(document.getElementById("btcBlocks").value),
-            kasBlocks: parseInt(document.getElementById("kasBlocks").value),
-            iterations: parseInt(document.getElementById("iterations").value),
-            seed: "test-session-" + Date.now(),
-          };
+          const result = await vrf.generateFoldedEntropy({
+            btcBlocks: 1,
+            kasBlocks: 1,
+            iterations: 2,
+          });
+          foldedResult = result;
 
-          const start = performance.now();
-          const data = await vrf.generateFoldedEntropy(options);
-          const end = performance.now();
+          // Ensure we handle cases where nist evidence might be an array or nested
+          currentProof = result.proof;
+          let n = currentProof.evidence.nist;
+          if (Array.isArray(n)) n = n[0];
 
-          lastGeneratedBits = data.finalOutput;
+          // THE FULL RECONSTRUCTION PAYLOAD (NIST Spec 2.0)
+          const messageParts = [
+            "2.0",
+            "60000",
+            n.time,
+            n.seedValue,
+            n.previousOutputValue,
+            n.certificateId,
+            n.pulseIndex,
+          ];
 
-          // Test Verification immediately
-          const isValid = await vrf.verify(data.finalOutput, data.evidence);
+          const reconstructionString = messageParts.join("");
 
-          resultEl.innerHTML = `
-                    <div class="stat-line"><strong>Time:</strong> ${(end - start).toFixed(2)}ms</div>
-                    <div class="stat-line"><strong>Verified:</strong> <span class="${isValid ? "passed" : "failed"}">${isValid ? "YES" : "NO"}</span></div>
-                    <div class="stat-line"><strong>BTC Height:</strong> ${data.evidence.btc[0].height}</div>
-                    <div class="stat-line"><strong>KAS Score:</strong> ${data.evidence.kaspa[0].blueScore}</div>
-                    <div class="stat-line"><strong>Output:</strong> ${data.finalOutput.substring(0, 64)}...</div>
-                `;
-        } catch (err) {
-          dashboardLogger.error(err.message);
+          outputDisplay.innerHTML = `
+                <span class="label">FINAL ENTROPY</span>
+                <div class="data-box">${result.finalOutput}</div>
+                <hr>
+                <span class="label">NIST RECONSTRUCTION FIELDS</span>
+                <div class="data-box">
+                    <span class="field-tag">Version:</span> 2.0<br>
+                    <span class="field-tag">Freq:</span> 60000<br>
+                    <span class="field-tag">Time:</span> ${n.time}<br>
+                    <span class="field-tag">Seed:</span> ${n.seedValue}<br>
+                    <span class="field-tag">Prev:</span> ${n.previousOutputValue}<br>
+                    <span class="field-tag">CID:</span>  ${n.certificateId}<br>
+                    <span class="field-tag">Idx:</span>  ${n.pulseIndex}
+                </div>
+                <span class="label">FULL SIGNED STRING (HEX-CONCAT)</span>
+                <div class="data-box" style="color: #0af;">${reconstructionString}</div>
+                <span class="label">NIST RSA SIGNATURE</span>
+                <div class="data-box">${n.signature}</div>
+            `;
+
+          verifyBtn.disabled = false;
+          document.getElementById("gen-status").innerHTML = "<span class='passed'>READY</span>";
+        } catch (e) {
+          document.getElementById("gen-status").innerHTML = "<span class='failed'>GEN ERROR</span>";
+          console.error(e);
         }
       };
 
-      // 3. NIST Action
-      document.getElementById("runNist").onclick = async () => {
-        if (!lastGeneratedBits) return alert("Generate entropy first!");
-        nistEl.innerHTML = "Running tests (this may take a few seconds)...";
-
+      verifyBtn.onclick = async () => {
+        document.getElementById("audit-status").innerHTML = "Auditing...";
         try {
-          const results = await vrf.basicNIST(lastGeneratedBits);
-          nistEl.innerHTML = results
-            .map(
-              (r) => `
-                    <div class="stat-line">
-                        ${r.testName}:
-                        <span class="${r.passed ? "passed" : "failed"}">${r.passed ? "PASS" : "FAIL"}</span>
-                        (p: ${r.pValue?.toFixed(4)})
-                    </div>
-                `,
-            )
-            .join("");
-        } catch (err) {
-          nistEl.innerHTML = `<span class="failed">Error: ${err.message}</span>`;
+          // SCRAPE & REBUILD: Re-assembling the nist block to guarantee it isn't undefined
+          let nistSource = currentProof.evidence.nist;
+          if (Array.isArray(nistSource)) nistSource = nistSource[0];
+
+          const isValid = await vrf.verify(
+            foldedResult
+          );
+
+          document.getElementById("audit-status").innerHTML = isValid
+            ? "<span class='passed'>AUDIT PASSED ✓</span>"
+            : "<span class='failed'>AUDIT FAILED ✗</span>";
+
+          auditResults.innerHTML = `
+                <div class="data-box">
+                    <strong>Result:</strong> ${isValid ? "Cryptographically Valid" : "Signature Mismatch"}<br>
+                    <strong>Mechanism:</strong> RSA-SHA256 (NIST Beacon v2.0 Protocol)
+                </div>
+            `;
+        } catch (e) {
+          document.getElementById("audit-status").innerHTML = `<span class='failed'>ERROR: ${e.message}</span>`;
+          console.error("Audit Error Details:", e);
         }
       };
     </script>
