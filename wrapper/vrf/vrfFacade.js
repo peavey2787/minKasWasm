@@ -114,6 +114,14 @@ export class VRFFacade {
       throw new Error("Verification Failed: No proof object provided.");
     }
 
+    const normalizeHex = (value) =>
+      String(value || "").replace(/[^0-9a-fA-F]/g, "");
+    const normalizeHash64 = (value) => {
+      const clean = normalizeHex(value);
+      if (clean.length < 64) return null;
+      return clean.substring(0, 64);
+    };
+
     // 1. Run NIST signature check
     const isNistValid = await this.isValidNistSignature(proof);
     if (!isNistValid) {
@@ -123,26 +131,69 @@ export class VRFFacade {
     }
 
     // 2. Reconstruct sources (using NIST hash from qrng evidence)
-    const nistHash = proof.evidence?.nist?.outputValue || proof.qrng?.hash;
+    let nistEvidence = proof.evidence?.nist;
+    if (Array.isArray(nistEvidence)) {
+      nistEvidence = nistEvidence[0];
+    }
+      const rawNistHash =
+        nistEvidence?.outputValue ||
+        nistEvidence?.hash ||
+        proof.qrng?.hash;
+      const cleanNistHash = normalizeHex(rawNistHash);
+      const nistHash =
+        cleanNistHash.length >= 128 ? cleanNistHash.substring(0, 128) : null;
     if (!nistHash) throw new Error("Missing NIST entropy for reconstruction.");
 
+      const kaspaBlocks = Array.isArray(proof.kaspa)
+        ? proof.kaspa
+        : Array.isArray(proof.evidence?.kaspa)
+          ? proof.evidence.kaspa
+          : [];
+      const btcBlocks = Array.isArray(proof.btc)
+        ? proof.btc
+        : Array.isArray(proof.evidence?.btc)
+          ? proof.evidence.btc
+          : [];
+
+    const makeFinalBlock = (hash, source) =>
+      new Block({
+        hash,
+        source,
+        confirms: source === "nist" ? 1 : undefined,
+      });
+
     const entropySources = [
-      { hash: nistHash.substring(0, 64) },
-      { hash: nistHash.substring(64, 128) },
-      ...proof.kaspa.map((b) => ({ hash: b.hash })),
-      ...proof.btc.map((b) => ({ hash: b.hash })),
+      makeFinalBlock(nistHash.substring(0, 64), "nist"),
+      makeFinalBlock(nistHash.substring(64, 128), "nist"),
+      ...kaspaBlocks
+        .map((b) => normalizeHash64(b?.hash))
+        .filter(Boolean)
+        .map((h) => makeFinalBlock(h, "kaspa")),
+      ...btcBlocks
+        .map((b) => normalizeHash64(b?.hash))
+        .filter(Boolean)
+        .map((h) => makeFinalBlock(h, "btc")),
     ];
 
-    const initialBits = /^[0-9a-fA-F]+$/.test(proof.config.seed)
-      ? hexToBinary(proof.config.seed)
-      : hexToBinary(await sha256Hash(proof.config.seed));
+    const seedValue =
+      proof.config?.seed ??
+      proof.seed ??
+      proof.evidence?.seed ??
+      proof.qrng?.seedValue;
+    if (!seedValue) {
+      throw new Error("Missing VRF seed for reconstruction.");
+    }
+
+    const initialBits = /^[0-9a-fA-F]+$/.test(seedValue)
+      ? hexToBinary(seedValue)
+      : hexToBinary(await sha256Hash(seedValue));
 
     const result = await recursiveFolding(
       entropySources,
       initialBits,
       "sha256",
-      proof.config.iterations,
-      proof.config.numPositions || 256,
+      proof.config?.iterations ?? 2,
+      proof.config?.numPositions || 256,
     );
 
     return result.finalOutput === value;
