@@ -366,12 +366,12 @@ async function _createNewWallet({
 
   // 7. Store XPrv and optionally mnemonic securely in IndexedDB
   if (storeMnemonic) {
-    storeWalletData(
+    await storeWalletData(
       { filename, mnemonic: mnemonicPhrase, xprv: xPrvString },
       password,
     );
   } else {
-    storeWalletData({ filename, xprv: xPrvString }, password);
+    await storeWalletData({ filename, xprv: xPrvString }, password);
   }
 
   // 8. Connect and start wallet
