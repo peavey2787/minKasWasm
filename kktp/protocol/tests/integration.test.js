@@ -3,11 +3,20 @@ import { kaspaPortal } from "../../../wrapper/kaspaPortal.js";
 
 const TEST_WALLET_PASSWORD = "integration-test-password";
 
+// Ensure WASM is initialized before any portal usage
+let _portalInitDone = false;
+async function ensurePortalReady() {
+  if (_portalInitDone) return;
+  await kaspaPortal.init();
+  _portalInitDone = true;
+}
+
 /**
  * Helper: Creates real, signed discovery and response anchors
  * utilizing the Portal and Protocol facades.
  */
 async function createAnchors() {
+  await ensurePortalReady();
   await kaspaPortal.connect({ networkId: "testnet-10" });
 
   await kaspaPortal.identity.createOrOpenWallet({
