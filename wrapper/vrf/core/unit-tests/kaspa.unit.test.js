@@ -1,9 +1,11 @@
 // kaspa.unit.test.js
 // Enterprise-grade unit tests for core/fetcher/kaspa.js
-import { strict as assert } from "assert";
 import { getKaspaBlocks } from "../fetcher/kaspa.js";
 
-(async function runKaspaUnitTests() {
+export async function runTests() {
+  let passed = true;
+  let details = [];
+
   // 1. Throws on invalid count
   let threw = false;
   try {
@@ -11,21 +13,26 @@ import { getKaspaBlocks } from "../fetcher/kaspa.js";
   } catch (e) {
     threw = true;
   }
-  assert.ok(threw, "getKaspaBlocks throws on invalid count");
-
-  // 2. Returns array of blocks (mocked API)
-  // NOTE: For true integration, mock fetch or use a test endpoint
-  // Here we just check that the function returns an array or throws
-  try {
-    const blocks = await getKaspaBlocks(1);
-    assert.ok(Array.isArray(blocks), "getKaspaBlocks returns array");
-  } catch (e) {
-    // Acceptable if API is unreachable
-    assert.ok(
-      e instanceof Error,
-      "getKaspaBlocks throws error if API unreachable",
-    );
+  if (!threw) {
+    passed = false;
+    details.push("getKaspaBlocks does not throw on invalid count");
   }
 
-  console.log("All kaspa.js unit tests passed.");
-})();
+  // 2. Returns array of blocks (mocked API)
+  try {
+    const blocks = await getKaspaBlocks(1);
+    if (!Array.isArray(blocks)) {
+      passed = false;
+      details.push("getKaspaBlocks does not return array");
+    }
+  } catch (e) {
+    // Acceptable if API is unreachable
+    if (!(e instanceof Error)) {
+      passed = false;
+      details.push("getKaspaBlocks throws non-Error when API unreachable");
+    }
+  }
+
+  if (passed) details.push("All kaspa.js unit tests passed.");
+  return { passed, details: details.join("\n") };
+}

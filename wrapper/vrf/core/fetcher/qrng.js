@@ -2,10 +2,15 @@ import { getQrngCache, setQrngCache } from "./cache.js";
 import { Block } from "../models/Block.js";
 import { NISTBeacon } from "./QRNG-fetcher.js";
 import { logInfo, logError } from "../logs/logger.js";
+import { CONFIG } from "../config.js";
 
 const nistProvider = new NISTBeacon();
 
 export async function getQRNG(providerName = "nist", length = 32) {
+  if (!length || length <= 0) {
+    throw new Error("Invalid QRNG length");
+  }
+
   const cache = getQrngCache();
   if (cache?.result?.hash && (Date.now() - cache.timestamp < CONFIG.QRNG_CACHE_DURATION)) {
     return cache.result;
