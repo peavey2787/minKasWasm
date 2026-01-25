@@ -3,7 +3,7 @@ import { TransportFacade } from "./transport/transportFacade.js";
 import { IdentityFacade } from "./identity/identityFacade.js";
 import { IntelligenceFacade } from "./intelligence/intelligenceFacade.js";
 import { CryptoFacade } from "./crypto/cryptoFacade.js";
-import { VrfFacade } from "./vrf/vrfFacade.js";
+import { VRFFacade } from "./vrf/vrfFacade.js";
 import { SearchMode } from "./intelligence/scanner.js";
 import {
   IndexerEventType,
@@ -36,7 +36,7 @@ export class KaspaPortal {
     this.transport = new TransportFacade();
     this.identity = new IdentityFacade();
     this.crypto = new CryptoFacade();
-    this.vrf = new VrfFacade();
+    this.vrf = new VRFFacade(false);
 
     // Initialize Intelligence with a null client initially.
     // This allows users to attach event listeners (e.g. portal.intelligence.onNewBlock)
@@ -131,7 +131,7 @@ export class KaspaPortal {
    * * @param {Object} options - { password, mnemonic, filename, storeMnemonic }
    * @returns {Promise<{address: string, mnemonic?: string}>}
    */
-  async openOrCreateWallet(options) {
+  async createOrOpenWallet(options) {
     if (!this._isReady) {
       throw new Error(
         "KaspaPortal: You must call connect() before opening a wallet.",
@@ -146,7 +146,7 @@ export class KaspaPortal {
    * @param {Object} options - { toAddress, amount, payload, priorityFeeKas }
    */
   async send(options) {
-    return this.identity.send(options);
+    return await this.identity.send(options);
   }
 
   /**
@@ -154,7 +154,7 @@ export class KaspaPortal {
    * @returns {Promise<bigint>}
    */
   async getBalance() {
-    return this.identity.getSpendableBalance();
+    return await this.identity.getSpendableBalance();
   }
 
   // --- Intelligence Proxy Methods ---
@@ -254,7 +254,7 @@ export class KaspaPortal {
    * @param {number} index - The session or user index.
    */
   async generateIdentityKeys(index) {
-    if (!this.identity.wallet.walletInitialized) {
+    if (!this.identity.wallet?.walletInitialized) {
       throw new Error("KaspaPortal: Wallet must be initialized.");
     }
 
@@ -276,7 +276,7 @@ export class KaspaPortal {
    * @returns {Promise<DHSession>} An initialized DHSession object.
    */
   async startSession(index) {
-    if (!this.identity.wallet.walletInitialized) {
+    if (!this.identity.wallet?.walletInitialized) {
       throw new Error("KaspaPortal: Wallet must be initialized before starting a session.");
     }
     const { dh } = await this.generateIdentityKeys(index);
@@ -289,7 +289,7 @@ export class KaspaPortal {
    * @returns {Promise<string>} The signature.
    */
   async signAnchor(anchor) {
-    if (!this.identity.wallet.walletInitialized) {
+    if (!this.identity.wallet?.walletInitialized) {
       throw new Error("KaspaPortal: Wallet must be initialized.");
     }
     const { sig } = await this.generateIdentityKeys(0);

@@ -2,84 +2,44 @@ import { KKTPStateMachine, KKTP_STATES } from "../stateMachine.js";
 import { kaspaPortal } from "../../../wrapper/kaspaPortal.js";
 
 const TEST_WALLET_PASSWORD = "integration-test-password";
-let sharedPortal = null;
-
-/**
- * Helper: Initializes a real portal with a fresh wallet
- */
-async function getSharedPortal() {
-  if (sharedPortal) return sharedPortal;
-  sharedPortal = kaspaPortal;
-
-  // Mock VRF for protocol handshake flow
-  sharedPortal.vrf.verify = async () => true;
-
-  // 1. Connect (Initializes WASM and Transport)
-  await sharedPortal.connect(null, "testnet-10");
-
-  // 2. Clean slate for Identity
-  const wallets = await sharedPortal.identity.allWallets;
-  for (const w of wallets) {
-    await sharedPortal.identity.deleteWallet(w.filename);
-  }
-
-  // 3. Create active wallet
-  await sharedPortal.openOrCreateWallet({ password: TEST_WALLET_PASSWORD });
-  return sharedPortal;
-}
 
 /**
  * Helper: Creates real, signed discovery and response anchors
  * utilizing the Portal and Protocol facades.
  */
-async function createAnchors(portal) {
-  const sid = "a".repeat(64);
+  async function createAnchors() {
+    await kaspaPortal.connect(null, "testnet-10");
 
-  const initiatorKeys = await portal.generateIdentityKeys(0);
-  const responderKeys = await portal.generateIdentityKeys(1);
+    await kaspaPortal.identity.createOrOpenWallet(
+      { password: TEST_WALLET_PASSWORD }
+    );
 
-  // 1. Create Discovery with explicit version in meta
-  const discovery = await portal.kktpProtocol.createDiscoveryAnchor(
-    sid,
-    initiatorKeys.sig.publicKey,
-    initiatorKeys.dh.publicKey,
-    {
+    // Required meta fields for KKTP anchors
+    const meta = {
+      game: "integration-test",
       version: "1.0.0",
-      game: "integration-test"
-    }
-  );
+      expected_uptime_seconds: 3600, // or whatever is appropriate for your test
+    };
 
-  // Manually add mock VRF values (usually handled by high-level portal methods)
-  discovery.vrf_value = "00".repeat(32);
-  discovery.vrf_proof = "00".repeat(32);
+    // Pass meta to the factory methods
+    const { discovery, dhPrivateKey: initiatorDhPriv } =
+      await kaspaPortal.kktpProtocol.createDiscoveryAnchor(meta);
 
-  // 2. Sign Discovery using the Portal's signAnchor (which funnels to Protocol)
-  discovery.sig = await portal.signAnchor(discovery);
+    const { response, dhPrivateKey: responderDhPriv } =
+      await kaspaPortal.kktpProtocol.createResponseAnchor({ ...discovery, meta });
 
-  // 3. Create Response via Protocol Facade
-  const response = await portal.kktpProtocol.createResponseAnchor(
-    discovery,
-    responderKeys.sig.publicKey,
-    responderKeys.dh.publicKey
-  );
-
-  // 4. Sign Response
-  // Note: portal.signAnchor handles the 'sig_resp' key switch internally via anchor.type
-  response.sig_resp = await portal.signAnchor(response);
-
-  return { discovery, response };
-}
+    return { discovery, response, initiatorDhPriv, responderDhPriv };
+  }
 
 /**
  * 1. End-to-End Session Establishment
  */
 export async function testSessionEstablishment() {
-  const portal = await getSharedPortal();
-  const { discovery, response } = await createAnchors(portal);
 
-  // Use the portal's sub-facades to initialize SM
-  const initiator = new KKTPStateMachine(portal, true, 0);
-  const responder = new KKTPStateMachine(portal, false, 1);
+  const { discovery, response } = await createAnchors();
+
+  const initiator = new KKTPStateMachine(true, 0);
+  const responder = new KKTPStateMachine(false, 1);
 
   await initiator.connect(discovery, response);
   await responder.connect(discovery, response);
@@ -95,17 +55,16 @@ export async function testSessionEstablishment() {
  * 2. Message Send/Receive (Encryption/Decryption Test)
  */
 export async function testMessageSendReceive() {
-  const portal = await getSharedPortal();
-  const { discovery, response } = await createAnchors(portal);
+  const { discovery, response } = await createAnchors();
 
-  const initiator = new KKTPStateMachine(portal, true, 0);
-  const responder = new KKTPStateMachine(portal, false, 1);
+  const initiator = new KKTPStateMachine(true, 0);
+  const responder = new KKTPStateMachine(false, 1);
 
   await initiator.connect(discovery, response);
   await responder.connect(discovery, response);
 
   const plaintext = "Secret Handshake";
-  const msg = initiator.sendMessage(plaintext); // This uses portal.crypto internally
+  const msg = initiator.sendMessage(plaintext);
   const received = responder.receiveMessage(msg);
 
   if (!received.includes(plaintext)) throw new Error("Decryption failed or message lost");
@@ -116,11 +75,10 @@ export async function testMessageSendReceive() {
  */
 
 export async function testOutOfOrderDelivery() {
-  const portal = await getSharedPortal();
-  const { discovery, response } = await createAnchors(portal);
+  const { discovery, response } = await createAnchors();
 
-  const initiator = new KKTPStateMachine(portal, true, 0);
-  const responder = new KKTPStateMachine(portal, false, 1);
+  const initiator = new KKTPStateMachine(true, 0);
+  const responder = new KKTPStateMachine(false, 1);
 
   await initiator.connect(discovery, response);
   await responder.connect(discovery, response);
@@ -147,11 +105,10 @@ export async function testOutOfOrderDelivery() {
  */
 
 export async function testAdversarialBufferOverflow() {
-  const portal = await getSharedPortal();
-  const { discovery, response } = await createAnchors(portal);
+  const { discovery, response } = await createAnchors();
 
-  const initiator = new KKTPStateMachine(portal, true, 0);
-  const responder = new KKTPStateMachine(portal, false, 1);
+  const initiator = new KKTPStateMachine(true, 0);
+  const responder = new KKTPStateMachine(false, 1);
 
   await initiator.connect(discovery, response);
   await responder.connect(discovery, response);

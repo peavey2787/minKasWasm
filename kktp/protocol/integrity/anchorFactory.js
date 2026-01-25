@@ -1,14 +1,14 @@
 import { bytesToHex } from "../utils/conversions.js";
 import { constructAAD } from "./aad.js";
-import { XChaCha20Poly1305 } from "https://esm.sh/@noble/ciphers/chacha";
-import { kaspaPortal } from "../../portal/kaspaPortal.js";
+import { xchacha20poly1305 } from "https://esm.sh/@noble/ciphers/chacha";
+import { kaspaPortal } from "../../../wrapper/kaspaPortal.js";
 
 export class AnchorFactory {
   /**
    * Section 6.1: Discovery Anchor
    */
   async createDiscovery(gameName, version = "1.0.0") {
-    const sid = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
+    const sid = bytesToHex(window.crypto.getRandomValues(new Uint8Array(16)));
 
     // Direct singleton use
     const keys = await kaspaPortal.generateIdentityKeys(0);
@@ -80,7 +80,7 @@ export class AnchorFactory {
     const nonce = crypto.getRandomValues(new Uint8Array(24));
     const aad = constructAAD(mailboxId, direction, seq);
 
-    const chacha = new XChaCha20Poly1305(sessionKey, nonce);
+    const chacha = new xchacha20poly1305(sessionKey, nonce);
     const ciphertext = chacha.encrypt(new TextEncoder().encode(plaintext), aad);
 
     return {
@@ -97,7 +97,7 @@ export class AnchorFactory {
   /**
    * Section 8.1 / 5.5: Session End Anchor
    */
-  async createSessionEnd(sid, reason = "Session terminated by user") {
+  async createSessionEndAnchor(sid, reason = "Session terminated by user") {
     const keys = await kaspaPortal.generateIdentityKeys(0);
 
     const sessionEnd = {

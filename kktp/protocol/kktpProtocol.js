@@ -6,91 +6,75 @@ import {
   sessionEndValidator,
 } from "./integrity/validator.js";
 import { canonicalize, prepareForSigning } from "./integrity/canonical.js";
-import { pack } from "./messenger.js";
 import { KKTP_STATES } from "./stateMachine.js";
+import { AnchorFactory } from "./integrity/anchorFactory.js";
 
 export class KKTPProtocol {
-  constructor(portal, stateMachine) {
-    this.portal = portal;
+  constructor(stateMachine) {
     this.sm = stateMachine;
+    this.anchorFactory = new AnchorFactory();
   }
 
   /**
-   * PHASE 1: Create a Discovery Anchor (Initiator)
-   * Creates the initial "handshake intent" JSON.
+   * PHASE 1: Create a Discovery Anchor
+   * Delegates to factory for complex construction/VRF/Versioning.
    */
-  async createDiscoveryAnchor(sid, pubSig, pubDh, metadata = {}) {
-    const anchor = {
-      type: "discovery",
-      version: 1,
-      sid,
-      pub_sig: pubSig,
-      pub_dh: pubDh,
-      meta: metadata,
-    };
-    discoveryValidator.validate(anchor);
-    // Save this anchor! The Initiator needs it to verify the future Response.
-    this.sm.kktp.discoveryAnchor = anchor;
-    return anchor;
+  async createDiscoveryAnchor(gameName, version = "1.0.0") {
+    // Factory handles SID, VRF, and the nested meta.version
+    const { discovery, dhPrivateKey } = await this.anchorFactory.createDiscovery(gameName, version);
+
+    discoveryValidator.validate(discovery);
+
+    // Store for the Initiator's state
+    this.sm.kktp.discoveryAnchor = discovery;
+    this.sm.kktp.myDhPriv = dhPrivateKey;
+
+    return discovery;
   }
 
   /**
-   * PHASE 2: Create a Response Anchor (Responder)
-   * Creates the response to a discovery anchor.
+   * PHASE 2: Create a Response Anchor
    */
-  async createResponseAnchor(discovery, pubSigResp, pubDhResp, metadata = {}) {
-    const anchor = {
-      type: "response",
-      version: 1,
-      sid: discovery.sid,
-      pub_sig_resp: pubSigResp,
-      pub_dh_resp: pubDhResp,
-      meta: metadata,
-    };
-    responseValidator.validate(anchor);
-    // The responder can connect IMMEDIATELY because they
-    // already have both the discovery (passed in) and the response (just created).
-    await this.sm.connect(discovery, anchor);
-    return anchor;
+  async createResponseAnchor(discovery) {
+    const { response, dhPrivateKey } = await this.anchorFactory.createResponse(discovery);
+
+    responseValidator.validate(response);
+
+    this.sm.kktp.myDhPriv = dhPrivateKey;
+
+    // Trigger State Machine connection immediately for Responder
+    await this.sm.connect(discovery, response);
+
+    return response;
   }
 
   /**
    * PHASE 3: Communicate
-   * Wraps application data into a KKTP 'msg' anchor.
+   * (Keep your existing pack/messenger logic or move to factory)
    */
   async createMessageAnchor(plaintext) {
     if (this.sm.state !== KKTP_STATES.ACTIVE) {
       throw new Error("Cannot send message: Session not established.");
     }
     const direction = this.sm.isInitiator ? "AtoB" : "BtoA";
-    return pack(this.sm.kktp, plaintext, direction);
+
+    // Using factory for consistency
+    return await this.anchorFactory.createMessage(
+      this.sm.kktp.mailboxId,
+      direction,
+      this.sm.kktp.nextSeq(), // Ensure SM tracks sequence
+      plaintext,
+      this.sm.kktp.sessionKey
+    );
   }
 
   /**
-   * PHASE 4: Terminate (Spec-Compliant Version)
-   * Follows Section 5.5 and 7.4 of the KKTP Specification.
+   * PHASE 4: Terminate
    */
-  async createEndAnchor(reason = "finished", keyIndex = 0) {
-    // 1. Construct the base object according to Section 5.5
-    const anchor = {
-      type: "session_end",
-      version: 1,
-      sid: this.sm.kktp.sid,
-      pub_sig: this.sm.kktp.myPubSig, // We need to store our identity pubkey in the SM
-      reason: reason,
-    };
+  async createEndAnchor(reason = "finished") {
+    const anchor = await this.anchorFactory.createSessionEnd(this.sm.kktp.sid, reason);
 
-    // 2. Canonicalize and Sign (Section 5.1 & 7.9)
-    // We omit 'sig' from the signing input as per Section 5.1
-    const body = canonicalize(prepareForSigning(anchor, { omitKeys: ["sig"] }));
-
-    // Use the portal to sign with the user's private key
-    anchor.sig = await this.portal.crypto.signMessage(body, keyIndex);
-
-    // 3. Final Validation against your Schema
     sessionEndValidator.validate(anchor);
-
-    // 4. State Transition (Section 6.8)
     this.sm.state = KKTP_STATES.CLOSED;
 
     return anchor;

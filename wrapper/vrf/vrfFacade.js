@@ -11,7 +11,15 @@ import { NistVerifier } from "./core/nistVerifier.js";
 import { VRFProof } from "./core/models/vrfProof.js";
 import { Block } from "./core/models/Block.js";
 
-class VrfFacade {
+export class VRFFacade {
+
+  /**
+   * @param {boolean|object} logger - true for console, false for silent, or a custom logger object
+   */
+  constructor(logger = false) {
+    setLoggerProvider(logger);
+  }
+
   /**
    * Generates a high-entropy bitstring by folding QRNG, BTC, and Kaspa data.
    */
@@ -67,21 +75,12 @@ class VrfFacade {
    */
   async prove(seedInput) {
     const data = await this.generateFoldedEntropy({
-      btcBlocks: 1,
-      kasBlocks: 1,
+      btcBlocks: 6,
+      kasBlocks: 12,
       iterations: 2,
       seed: seedInput,
     });
-
-    // We return a formalized proof structure
-    return new VRFProof({
-      nist: data.evidence.nist,
-      kaspa: data.evidence.kaspa,
-      btc: data.evidence.btc,
-      finalOutput: data.finalOutput,
-      seed: seedInput,
-      iterations: data.evidence.config.iterations,
-    });
+    return data.proof;
   }
 
   /**
@@ -218,5 +217,3 @@ class VrfFacade {
     setLoggerProvider(logger);
   }
 }
-
-export default new VrfFacade();

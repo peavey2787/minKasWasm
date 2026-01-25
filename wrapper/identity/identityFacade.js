@@ -17,7 +17,7 @@ export class IdentityFacade {
    */
   async init({ client, networkId, balanceElementId } = {}) {
     // Map 'client' to 'rpcClient' as expected by wallet_service
-    return walletService.init({
+    return await walletService.init({
       rpcClient: client,
       networkId,
       balanceElementId,
@@ -34,14 +34,14 @@ export class IdentityFacade {
    * @returns {Promise<{address: string, mnemonic: string}>}
    */
   async createOrOpenWallet(options) {
-    return walletService.createWallet(options);
+    return await walletService.createWallet(options);
   }
 
   /** Close the active wallet.
    * @returns {Promise<void>}
    */
   async closeWallet() {
-    return walletService.closeWallet();
+    return await walletService.closeWallet();
   }
 
   /** Set the active account by index.
@@ -49,14 +49,14 @@ export class IdentityFacade {
    * @returns {Promise<void>}
    */
   async setActiveAccount(index) {
-    return walletService.activateAccount(index);
+    return await walletService.activateAccount(index);
   }
 
   /** Generate a new receive address for the current wallet.
    * @returns {Promise<string>} New address.
    */
   async generateNewAddress() {
-    return walletService.generateNewAddress();
+    return await walletService.generateNewAddress();
   }
 
   /** Estimate transaction fee.
@@ -67,7 +67,7 @@ export class IdentityFacade {
    * @returns {Promise<number>} Estimated fee in KAS.
    */
   async estimateTransactionFee(amount, toAddress, payload, priorityFeeKas) {
-    return walletService.estimateTransactionFee(
+    return await walletService.estimateTransactionFee(
       amount,
       toAddress,
       payload,
@@ -86,7 +86,7 @@ export class IdentityFacade {
    * @returns {Promise<Object>} Transaction result.
    */
   async send(options) {
-    return walletService.send(options);
+    return await walletService.send(options);
   }
 
   /**
@@ -94,7 +94,35 @@ export class IdentityFacade {
    * @param {string} filename
    */
   async deleteWallet(filename) {
-    return storage.deleteWalletData(filename);
+    return await storage.deleteWalletData(filename);
+  }
+
+  /** Get the extended private key (XPrv) of the active wallet.
+   * @returns {Promise<string>} XPrv as hex string.
+   */
+  async getXprv() {
+    return await walletService.getXprv();
+  }
+
+  /**
+   * Access the mnemonic of the active wallet.
+   */
+  async getMnemonic() {
+    return await walletService.getMnemonic();
+  }
+
+  /**
+   * Access the spendable balance of the active wallet.
+   */
+  async getSpendableBalance() {
+    return await walletService.getSpendableBalance();
+  }
+
+  /**
+   * Access the active wallet instance if exposed by the service.
+   */
+  async getAllWallets() {
+    return await walletService.getAllWallets();
   }
 
   /**
@@ -110,30 +138,5 @@ export class IdentityFacade {
    */
   get walletSecret() {
     return walletService.getWalletSecret();
-  }
-
-  /**
-   * Access the mnemonic of the active wallet.
-   */
-  get mnemonic() {
-    return walletService.getMnemonic();
-  }
-
-  async getXprv() {
-    return walletService.getXprv();
-  }
-
-  /**
-   * Access the active wallet instance if exposed by the service.
-   */
-  get allWallets() {
-    return walletService.getAllWallets();
-  }
-
-  /**
-   * Access the spendable balance of the active wallet.
-   */
-  get spendableBalance() {
-    return walletService.getSpendableBalance();
   }
 }

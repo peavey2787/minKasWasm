@@ -7,8 +7,7 @@ import { XChaCha20Poly1305 } from "https://esm.sh/@noble/ciphers/chacha";
  * KKTP Sender: Handles Section 6.6 Encrypted Messaging
  */
 export class KKTPSender {
-  constructor(portal, session, mailboxId, direction) {
-    this.portal = portal;
+  constructor(session, mailboxId, direction) {
     this.session = session;
     this.mailboxId = mailboxId;
     this.direction = direction; // "AtoB" or "BtoA"
@@ -23,7 +22,7 @@ export class KKTPSender {
     this.currentSeq++;
 
     // 1. Generate 192-bit Nonce (Section 4)
-    const nonceBytes = crypto.getRandomValues(new Uint8Array(24));
+    const nonceBytes = window.crypto.getRandomValues(new Uint8Array(24));
     const nonceHex = bytesToHex(nonceBytes);
 
     // 2. Derive Session Key (from Session object)

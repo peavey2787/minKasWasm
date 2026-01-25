@@ -16,6 +16,32 @@ export function canonicalize(value) {
   throw new Error("Unsupported type in canonical JSON");
 }
 
+/**
+ * Prepares a KKTP anchor for signing by omitting the signature field
+ * and the non-signed metadata.
+ */
+export function prepareForSigning(
+  obj,
+  { omitKeys = [], excludeMeta = true } = {},
+) {
+  const clean = toPlainJson(obj);
+
+  function walk(v) {
+    if (v === null || typeof v !== "object") return v;
+    if (Array.isArray(v)) return v.map(walk);
+
+    const out = {};
+    for (const k of Object.keys(v)) {
+      if (omitKeys.includes(k)) continue;
+      if (excludeMeta && k === "meta") continue;
+      const child = walk(v[k]);
+      if (child !== undefined) out[k] = child;
+    }
+    return out;
+  }
+  return walk(clean);
+}
+
 function serializeNumber(n) {
   if (!Number.isFinite(n)) throw new Error("Non-finite numbers not allowed");
   let s = n.toString();
@@ -107,30 +133,4 @@ export function toPlainJson(value) {
     if (child !== undefined) out[key] = child;
   }
   return out;
-}
-
-/**
- * Prepares a KKTP anchor for signing by omitting the signature field
- * and the non-signed metadata.
- */
-export function prepareForSigning(
-  obj,
-  { omitKeys = [], excludeMeta = true } = {},
-) {
-  const clean = toPlainJson(obj);
-
-  function walk(v) {
-    if (v === null || typeof v !== "object") return v;
-    if (Array.isArray(v)) return v.map(walk);
-
-    const out = {};
-    for (const k of Object.keys(v)) {
-      if (omitKeys.includes(k)) continue;
-      if (excludeMeta && k === "meta") continue;
-      const child = walk(v[k]);
-      if (child !== undefined) out[k] = child;
-    }
-    return out;
-  }
-  return walk(clean);
 }

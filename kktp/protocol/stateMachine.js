@@ -10,8 +10,7 @@ export const KKTP_STATES = {
 };
 
 export class KKTPStateMachine {
-  constructor(portal, isInitiator = true, keyIndex = 0) {
-    this.portal = portal;
+  constructor(isInitiator = true, keyIndex = 0) {
     this.isInitiator = isInitiator;
     this.keyIndex = keyIndex;
     this.state = KKTP_STATES.INIT;
@@ -39,7 +38,6 @@ export class KKTPStateMachine {
   async connect(discovery, response) {
     try {
       const { session, mailboxId } = await establishSession(
-        this.portal,
         discovery,
         response,
         this.keyIndex,

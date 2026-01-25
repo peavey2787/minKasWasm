@@ -2,6 +2,11 @@
 
 let currentProvider = console;
 
+const noopLogger = {
+  log: () => {},
+  error: () => {},
+};
+
 /**
  * Internal helper to ensure metadata/objects don't render as [object Object]
  */
@@ -11,10 +16,14 @@ const formatMeta = (meta) => {
 };
 
 export function setLoggerProvider(provider) {
-  if (provider && typeof provider.log === 'function' && typeof provider.error === 'function') {
+  if (provider === true) {
+    currentProvider = console;
+  } else if (provider === false) {
+    currentProvider = noopLogger;
+  } else if (provider && typeof provider.log === 'function' && typeof provider.error === 'function') {
     currentProvider = provider;
   } else {
-    throw new Error("Invalid logger provider: must implement .log() and .error()");
+    throw new Error("Invalid logger provider: must implement .log() and .error(), or pass true/false.");
   }
 }
 
