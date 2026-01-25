@@ -19,6 +19,9 @@ export class CryptoFacade {
    * Create DH Session.
    */
   createDHSession(privateKey, publicKey) {
+    if(!privateKey && !publicKey) {
+      throw new Error("Cannot create DH session without private key and public key");
+    }
     const session = new DHSession();
     if (privateKey) {
       session.initiateHandshake(privateKey, publicKey);
@@ -32,7 +35,6 @@ export class CryptoFacade {
   async generateIdentityKeys(xprvHex, index) {
     const sigRaw = await deriveChildKeyPair({ xprvHex, branch: 0, index });
     const dhRaw = await deriveChildKeyPair({ xprvHex, branch: 100, index });
-
     return {
       sig: { privateKey: sigRaw.privateKey, publicKey: sigRaw.publicKey },
       dh: { privateKey: dhRaw.privateKey, publicKey: dhRaw.publicKey },

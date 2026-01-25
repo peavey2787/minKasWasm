@@ -13,7 +13,7 @@ import { hkdf } from "https://esm.sh/@noble/hashes@1.3.0/hkdf";
  * Follows KKTP Spec Sections 6.1, 6.2, 6.3, and 7.3.
  */
 export async function establishSession(
-  portal,
+  kaspaPortal,
   discovery,
   response,
   keyIndex = 0,
@@ -30,8 +30,8 @@ export async function establishSession(
   );
 
   const [isDValid, isRValid] = await Promise.all([
-    portal.crypto.verifyMessage(discovery.pub_sig, discBody, discovery.sig),
-    portal.crypto.verifyMessage(
+    kaspaPortal.crypto.verifyMessage(discovery.pub_sig, discBody, discovery.sig),
+    kaspaPortal.crypto.verifyMessage(
       response.pub_sig_resp,
       respBody,
       response.sig_resp,
@@ -45,7 +45,7 @@ export async function establishSession(
   // Initiator Binding: H(pub_sig || pub_dh || sid)
   const initiatorVrfInput =
     discovery.pub_sig + discovery.pub_dh + discovery.sid;
-  const isInitiatorVrfValid = await portal.vrf.verify(
+  const isInitiatorVrfValid = await kaspaPortal.vrf.verify(
     discovery.vrf_value,
     discovery.vrf_proof,
     initiatorVrfInput,
@@ -59,7 +59,7 @@ export async function establishSession(
     response.pub_dh_resp +
     discovery.sid;
 
-  const isResponderVrfValid = await portal.vrf.verify(
+  const isResponderVrfValid = await kaspaPortal.vrf.verify(
     response.vrf_value,
     response.vrf_proof,
     responderVrfInput,
@@ -70,7 +70,7 @@ export async function establishSession(
   }
 
   // 3. DH Shared Secret Derivation
-  const session = await portal.startSession(keyIndex);
+  const session = await kaspaPortal.startSession(keyIndex);
 
   // Check if we are the initiator (discovery) or responder (response)
   const peerDH =

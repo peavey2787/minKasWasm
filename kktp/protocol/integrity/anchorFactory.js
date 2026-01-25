@@ -7,33 +7,31 @@ export class AnchorFactory {
   /**
    * Section 6.1: Discovery Anchor
    */
-  async createDiscovery(gameName, version = "1.0.0") {
+  async createDiscovery({gameName, version = "1.0.0", upTime = 3600} = {}) {
     const sid = bytesToHex(window.crypto.getRandomValues(new Uint8Array(16)));
-
-    // Direct singleton use
     const keys = await kaspaPortal.generateIdentityKeys(0);
-    const dhSession = await kaspaPortal.crypto.createDHSession();
-
+    const dhSession = await kaspaPortal.crypto.createDHSession(
+      keys.dh.privateKey,
+      keys.dh.publicKey,
+    );
     const vrfInput = keys.sig.publicKey + dhSession.publicKey + sid;
     const vrfData = await kaspaPortal.vrf.prove(vrfInput);
-
     const discovery = {
       type: "discovery",
       version: 1,
       sid: sid,
       pub_sig: keys.sig.publicKey,
-      pub_dh: dhSession.publicKey,
+      pub_dh: keys.dh.publicKey,
       vrf_value: vrfData.value,
       vrf_proof: vrfData.proof,
       meta: {
         game: gameName,
-        version: version, // Nested inside meta for validator
-        expected_uptime_seconds: 3600,
+        version,
+        expected_uptime_seconds: upTime,
       },
     };
-
     discovery.sig = await kaspaPortal.signAnchor(discovery);
-    return { discovery, dhPrivateKey: dhSession.privateKey };
+    return { discovery, dhPrivateKey: keys.dh.privateKey };
   }
 
   /**
@@ -54,8 +52,8 @@ export class AnchorFactory {
       vrf_value: null,
       vrf_proof: null,
       meta: {
-        version: discovery.meta.version
-      }
+        version: discovery.meta.version,
+      },
     };
 
     const vrfInput =
@@ -77,7 +75,7 @@ export class AnchorFactory {
    * Section 6.5: Message Object
    */
   async createMessage(mailboxId, direction, seq, plaintext, sessionKey) {
-    const nonce = crypto.getRandomValues(new Uint8Array(24));
+    const nonce = window.crypto.getRandomValues(new Uint8Array(24));
     const aad = constructAAD(mailboxId, direction, seq);
 
     const chacha = new xchacha20poly1305(sessionKey, nonce);

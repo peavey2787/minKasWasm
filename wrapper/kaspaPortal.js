@@ -11,6 +11,7 @@ import {
   EvictionReason,
   IndexerStore,
 } from "./intelligence/indexer.js";
+import { KKTPStateMachine } from "../kktp/protocol/stateMachine.js";
 
 // Re-export common enums for convenience
 export {
@@ -32,7 +33,8 @@ export class KaspaPortal {
    */
   constructor(options = {}) {
     this._isReady = false;
-    this.kktpProtocol = new KKTPProtocol();
+    const sm = new KKTPStateMachine(this, true, 0);
+    this.kktpProtocol = new KKTPProtocol(sm);
     this.transport = new TransportFacade();
     this.identity = new IdentityFacade();
     this.crypto = new CryptoFacade();
@@ -257,16 +259,13 @@ export class KaspaPortal {
     if (!this.identity.wallet?.walletInitialized) {
       throw new Error("KaspaPortal: Wallet must be initialized.");
     }
-
     // 1. Await the actual string from the facade
     const xprv = await this.identity.getXprv();
 
     // 2. Safety Check: If xprv is an object or undefined, WASM will crash
     if (typeof xprv !== 'string') {
-      console.error("CRITICAL: xprv is not a string!", xprv);
       throw new Error(`Expected xprv string, got ${typeof xprv}`);
     }
-
     return await this.crypto.generateIdentityKeys(xprv, index);
   }
 
@@ -319,6 +318,10 @@ export class KaspaPortal {
 
   // --- VRF Proxy Methods ---
 
+  async prove(seedInput){
+    return await this.vrf.prove(seedInput);
+  }
+
   /**
    * Fetch randomness blocks from various sources (delegates to VRF).
    * @param {string} source - 'bitcoin', 'kaspa', 'qrng', 'hybrid'
@@ -326,7 +329,7 @@ export class KaspaPortal {
    * @returns {Promise<Object>}
    */
   async fetchBlocks(source, n) {
-    return this.vrf.fetchBlocks(source, n);
+    return await this.vrf.fetchBlocks(source, n);
   }
 
   /**
@@ -335,7 +338,7 @@ export class KaspaPortal {
    * @returns {Promise<Array>}
    */
   async getBitcoinBlocks(n) {
-    return this.vrf.getBitcoinBlocks(n);
+    return await this.vrf.getBitcoinBlocks(n);
   }
 
   /**
@@ -345,7 +348,7 @@ export class KaspaPortal {
    * @returns {Promise<Array>}
    */
   async getQRNG(provider, length) {
-    return this.vrf.getQRNG(provider, length);
+    return await this.vrf.getQRNG(provider, length);
   }
 
   /**
@@ -356,7 +359,7 @@ export class KaspaPortal {
    * @returns {Promise<string>} Folded result
    */
   async fold(data1, data2, options) {
-    return this.vrf.fold(data1, data2, options);
+    return await this.vrf.fold(data1, data2, options);
   }
 
   /**
@@ -365,7 +368,7 @@ export class KaspaPortal {
    * @returns {Promise<Object[]>} Test results
    */
   async fullNIST(bits) {
-    return this.vrf.fullNIST(bits);
+    return await this.vrf.fullNIST(bits);
   }
 
   /**
@@ -374,7 +377,7 @@ export class KaspaPortal {
    * @returns {Promise<Object[]>} Test results
    */
   async basicNIST(bits) {
-    return this.vrf.basicNIST(bits);
+    return await this.vrf.basicNIST(bits);
   }
 
   /**
@@ -382,7 +385,7 @@ export class KaspaPortal {
    * @returns {Promise<string>} Folded result
    */
   async generateFullRandomness() {
-    return this.vrf.generateFullRandomness();
+    return await this.vrf.generateFullRandomness();
   }
 
   /**
@@ -390,7 +393,7 @@ export class KaspaPortal {
    * @returns {Promise<string>} Folded result
    */
   async generatePartialRandomness() {
-    return this.vrf.generatePartialRandomness();
+    return await this.vrf.generatePartialRandomness();
   }
 }
 

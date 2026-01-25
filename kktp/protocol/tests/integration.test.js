@@ -16,9 +16,9 @@ const TEST_WALLET_PASSWORD = "integration-test-password";
 
     // Required meta fields for KKTP anchors
     const meta = {
-      game: "integration-test",
+      gameName: "integration-test",
       version: "1.0.0",
-      expected_uptime_seconds: 3600, // or whatever is appropriate for your test
+      upTime: 3600, // or whatever is appropriate for your test
     };
 
     // Pass meta to the factory methods

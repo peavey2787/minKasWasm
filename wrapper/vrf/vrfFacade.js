@@ -73,11 +73,11 @@ export class VRFFacade {
   /**
    * PROVE: Generates a formalized VRF proof object.
    */
-  async prove(seedInput) {
+  async prove({seedInput, btcBlocks = 6, kasBlocks = 12, iterations = 2}) {
     const data = await this.generateFoldedEntropy({
-      btcBlocks: 6,
-      kasBlocks: 12,
-      iterations: 2,
+      btcBlocks,
+      kasBlocks,
+      iterations,
       seed: seedInput,
     });
     return data.proof;

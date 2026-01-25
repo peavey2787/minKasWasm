@@ -57,13 +57,6 @@ export class TransportFacade {
     return utxoManager.selectUtxosLargestFirst(entries, options);
   }
 
-  /**
-   * Convert KAS amount string to Sompi bigint.
-   */
-  kasToSompi(amountKas) {
-    return utxoManager.kasToSompi(amountKas);
-  }
-
   // --- Transaction Building & Submission ---
 
   /**

@@ -8,6 +8,7 @@ import {
 import { canonicalize, prepareForSigning } from "./integrity/canonical.js";
 import { KKTP_STATES } from "./stateMachine.js";
 import { AnchorFactory } from "./integrity/anchorFactory.js";
+import { kaspaPortal } from "../../wrapper/kaspaPortal.js";
 
 export class KKTPProtocol {
   constructor(stateMachine) {
@@ -19,9 +20,9 @@ export class KKTPProtocol {
    * PHASE 1: Create a Discovery Anchor
    * Delegates to factory for complex construction/VRF/Versioning.
    */
-  async createDiscoveryAnchor(gameName, version = "1.0.0") {
+  async createDiscoveryAnchor({ gameName, version = "1.0.0", upTime = 3600 } = {}) {
     // Factory handles SID, VRF, and the nested meta.version
-    const { discovery, dhPrivateKey } = await this.anchorFactory.createDiscovery(gameName, version);
+    const { discovery, dhPrivateKey } = await this.anchorFactory.createDiscovery({ gameName, version, upTime });
 
     discoveryValidator.validate(discovery);
 
@@ -151,6 +152,6 @@ export class KKTPProtocol {
     );
 
     // The protocol calls the crypto layer for the raw signature
-    return await this.portal.crypto.signMessage(privateKeyHex, body);
+    return await kaspaPortal.crypto.signMessage(privateKeyHex, body);
   }
 }
