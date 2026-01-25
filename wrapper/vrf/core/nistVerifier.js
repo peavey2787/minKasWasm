@@ -54,6 +54,12 @@ function hexToBytes(hex) {
   return bytes;
 }
 
+function bytesToHex(bytes) {
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 function u32be(value) {
   const v = Number(value || 0) >>> 0;
   return new Uint8Array([
@@ -105,8 +111,13 @@ function buildSignedData(pulse) {
 
   const listValues = Array.isArray(pulse.listValues) ? pulse.listValues : [];
   const listValueChunks = [];
-  for (const item of listValues) {
-    const valueBytes = hexToBytes(item?.value || "");
+  if (listValues.length > 0) {
+    for (const item of listValues) {
+      const valueBytes = hexToBytes(item?.value || "");
+      listValueChunks.push(u32be(valueBytes.length), valueBytes);
+    }
+  } else if (pulse.previousOutputValue) {
+    const valueBytes = hexToBytes(pulse.previousOutputValue);
     listValueChunks.push(u32be(valueBytes.length), valueBytes);
   }
 
@@ -373,6 +384,24 @@ export const NistVerifier = {
       const signature = new Uint8Array(
         sigHex.match(/.{1,2}/g).map((b) => parseInt(b, 16)),
       );
+
+      const expectedOutput = String(
+        pulse.outputValue || pulse.hash || "",
+      ).replace(/[^0-9a-fA-F]/g, "");
+      if (expectedOutput) {
+        const digestInput = concatBytes([message, signature]);
+        const digest = await crypto.subtle.digest("SHA-512", digestInput);
+        const digestHex = bytesToHex(new Uint8Array(digest));
+        if (digestHex !== expectedOutput.toLowerCase()) {
+          console.error("NistVerifier: outputValue mismatch", {
+            expected: expectedOutput.toLowerCase(),
+            computed: digestHex,
+            messageLength: message.length,
+            signatureLength: signature.length,
+          });
+          return false;
+        }
+      }
 
       return await crypto.subtle.verify(
         { name: "RSASSA-PKCS1-v1_5" },
