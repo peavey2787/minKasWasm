@@ -20,6 +20,37 @@ const IN_MEMORY_RENDER_THROTTLE_MS = 250;
 let cachedRenderTimer = null;
 const CACHED_RENDER_THROTTLE_MS = 350;
 
+let cachedFlushRefreshTimer = null;
+let cachedTtlRefreshTimer = null;
+
+function startCachedAutoRefresh(indexer) {
+  stopCachedAutoRefresh();
+
+  const flushMs = Math.max(500, indexer?.flushInterval || 5000);
+  const ttlMs = Math.max(1000, indexer?.ttlMs || 600000);
+
+  cachedFlushRefreshTimer = setInterval(
+    () => scheduleCachedSnapshotRender(),
+    flushMs,
+  );
+
+  cachedTtlRefreshTimer = setInterval(
+    () => scheduleCachedSnapshotRender(),
+    ttlMs,
+  );
+}
+
+function stopCachedAutoRefresh() {
+  if (cachedFlushRefreshTimer) {
+    clearInterval(cachedFlushRefreshTimer);
+    cachedFlushRefreshTimer = null;
+  }
+  if (cachedTtlRefreshTimer) {
+    clearInterval(cachedTtlRefreshTimer);
+    cachedTtlRefreshTimer = null;
+  }
+}
+
 function renderInMemoryLiveSnapshot() {
   if (
     !kaspaPortal ||
@@ -261,6 +292,8 @@ export async function handleStartIndexerClick() {
     renderUI.restartFlushCountdown(
       kaspaPortal.intelligence.indexer.flushInterval,
     );
+    startCachedAutoRefresh(idx);
+    scheduleCachedSnapshotRender();
   } catch (err) {
     console.error("Failed to start indexer:", err);
   }
@@ -272,6 +305,7 @@ export function handleStopIndexerClick() {
   const countdownDiv = elements.getIndexerCountdownDiv();
   countdownDiv.textContent = "";
   kaspaPortal.intelligence.indexer.stop();
+  stopCachedAutoRefresh();
 }
 
 export function handleMatchModeChange() {
@@ -327,7 +361,7 @@ export function handleCreateWalletClick() {
   setTimeout(async () => {
     if (!kaspaPortal || !kaspaPortal.client)
       return alert("Connect to a node first!");
-    const { address } = await kaspaPortal.identity.createWallet({
+    const { address } = await kaspaPortal.createOrOpenWallet({
       password: "1234",
     });
     walletInitialized = true;
