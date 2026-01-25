@@ -71,20 +71,12 @@ function renderInMemoryLiveSnapshot() {
 
 function isInMemoryPanelOpen() {
   const content = elements.getInMemorySections();
-  return (
-    !!content &&
-    content.style.display !== "none" &&
-    content.style.display !== ""
-  );
+  return !!content && content.style.display !== "none";
 }
 
 function isCachedPanelOpen() {
   const content = elements.getCachedSections();
-  return (
-    !!content &&
-    content.style.display !== "none" &&
-    content.style.display !== ""
-  );
+  return !!content && content.style.display !== "none";
 }
 
 function scheduleInMemoryLiveSnapshot() {
@@ -166,7 +158,9 @@ export async function handleConnectClick() {
           if (
             evt.type === "transaction-cached" ||
             evt.type === "matching-transaction-cached" ||
-            evt.type === "block-cached"
+            evt.type === "block-cached" ||
+            evt.type === "flush-completed" ||
+            evt.type === "evict-cycle-completed"
           ) {
             scheduleCachedSnapshotRender();
           }
@@ -197,7 +191,9 @@ export async function handleConnectClick() {
           if (
             evt.type === "transaction-cached" ||
             evt.type === "matching-transaction-cached" ||
-            evt.type === "block-cached"
+            evt.type === "block-cached" ||
+            evt.type === "flush-completed" ||
+            evt.type === "evict-cycle-completed"
           ) {
             scheduleCachedSnapshotRender();
           }
@@ -283,17 +279,16 @@ export async function handleStartIndexerClick() {
     !kaspaPortal.intelligence.indexer
   )
     return;
-  console.log("Starting indexer...");
   try {
     const idx = kaspaPortal.intelligence.indexer;
-    idx.start();
-    console.log("Indexer started.");
+    await idx.initDB();
+    await idx.start();
     renderUI.restartCountdown(kaspaPortal.intelligence.indexer.ttlMs);
     renderUI.restartFlushCountdown(
       kaspaPortal.intelligence.indexer.flushInterval,
     );
     startCachedAutoRefresh(idx);
-    scheduleCachedSnapshotRender();
+    await renderUI.renderAllIndexerSections(idx);
   } catch (err) {
     console.error("Failed to start indexer:", err);
   }

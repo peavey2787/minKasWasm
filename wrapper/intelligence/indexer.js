@@ -8,6 +8,8 @@ export const IndexerEventType = Object.freeze({
   MATCHING_TRANSACTION_CACHED: "matching-transaction-cached",
   BLOCK_CACHED: "block-cached",
   EVICT: "evict",
+  FLUSH_COMPLETED: "flush-completed",
+  EVICT_CYCLE_COMPLETED: "evict-cycle-completed",
 });
 
 export const MatchMode = Object.freeze({
@@ -508,6 +510,14 @@ export class KaspaIndexer {
 
       // 4. Enforce maxSize immediately after flush (production-safe cap)
       await this._enforceMaxSizeAfterFlush();
+
+      // Signal flush cycle completion for UI refresh
+      if (typeof this.onIndexerUpdate === "function") {
+        this.onIndexerUpdate({
+          type: IndexerEventType.FLUSH_COMPLETED,
+          data: { ts: Date.now() },
+        });
+      }
     })();
 
     try {
@@ -604,6 +614,14 @@ export class KaspaIndexer {
             now,
           );
         }
+      }
+
+      // Signal eviction cycle completion for UI refresh
+      if (typeof this.onIndexerUpdate === "function") {
+        this.onIndexerUpdate({
+          type: IndexerEventType.EVICT_CYCLE_COMPLETED,
+          data: { ts: Date.now() },
+        });
       }
     })();
 
