@@ -11,7 +11,10 @@ export class AnchorFactory {
     const sid = bytesToHex(window.crypto.getRandomValues(new Uint8Array(16)));
 
     const vrfInput = sig.publicKey + dh.publicKey + sid;
-    const vrfData = await kaspaPortal.vrf.prove({ seedInput: vrfInput });
+    const vrfData = await kaspaPortal.prove({ seedInput: vrfInput });
+
+    const proofJson = JSON.stringify(vrfData.proof);
+    const proofHex = bytesToHex(new TextEncoder().encode(proofJson));
 
     return {
       type: "discovery",
@@ -19,8 +22,8 @@ export class AnchorFactory {
       sid: sid,
       pub_sig: sig.publicKey,
       pub_dh: dh.publicKey,
-      vrf_value: bytesToHex(vrfData.finalOutput),
-      vrf_proof: bytesToHex(vrfData.proof),
+      vrf_value: vrfData.finalOutput, // already hex
+      vrf_proof: proofHex,
       meta: {
         game: meta.game,
         version: meta.version || "1.0.0",
@@ -55,11 +58,13 @@ export class AnchorFactory {
       response.pub_dh_resp +
       discovery.sid;
 
-    const vrfData = await kaspaPortal.vrf.prove({ seedInput: vrfInput });
+    const vrfData = await kaspaPortal.prove({ seedInput: vrfInput });
 
-    // FIX APPLIED HERE:
-    response.vrf_value = bytesToHex(vrfData.finalOutput);
-    response.vrf_proof = bytesToHex(vrfData.proof);
+    const proofJson = JSON.stringify(vrfData.proof);
+    const proofHex = bytesToHex(new TextEncoder().encode(proofJson));
+
+    response.vrf_value = vrfData.finalOutput; // already hex
+    response.vrf_proof = proofHex;
 
     return response;
   }

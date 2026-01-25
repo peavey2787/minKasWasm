@@ -31,7 +31,11 @@ export async function establishSession(
   );
 
   const [isDValid, isRValid] = await Promise.all([
-    kaspaPortal.crypto.verifyMessage(discovery.pub_sig, discBody, discovery.sig),
+    kaspaPortal.crypto.verifyMessage(
+      discovery.pub_sig,
+      discBody,
+      discovery.sig,
+    ),
     kaspaPortal.crypto.verifyMessage(
       response.pub_sig_resp,
       respBody,
@@ -43,27 +47,14 @@ export async function establishSession(
     throw new Error("Handshake Failed: Invalid Signatures");
 
   // 2. VRF Binding Verification
-  // Initiator Binding: H(pub_sig || pub_dh || sid)
-  const initiatorVrfInput =
-    discovery.pub_sig + discovery.pub_dh + discovery.sid;
-  const isInitiatorVrfValid = await kaspaPortal.vrf.verify(
+  const isInitiatorVrfValid = await kaspaPortal.verify(
     discovery.vrf_value,
     discovery.vrf_proof,
-    initiatorVrfInput,
   );
 
-  // Responder Binding: H(pub_sig_A || pub_dh_A || pub_sig_B || pub_dh_B || sid)
-  const responderVrfInput =
-    response.initiator_pub_sig +
-    response.initiator_pub_dh +
-    response.pub_sig_resp +
-    response.pub_dh_resp +
-    discovery.sid;
-
-  const isResponderVrfValid = await kaspaPortal.vrf.verify(
+  const isResponderVrfValid = await kaspaPortal.verify(
     response.vrf_value,
     response.vrf_proof,
-    responderVrfInput,
   );
 
   if (!isInitiatorVrfValid || !isResponderVrfValid) {

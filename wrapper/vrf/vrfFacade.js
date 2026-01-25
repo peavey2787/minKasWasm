@@ -10,9 +10,9 @@ import { runNistSuite } from "./core/nist.js";
 import { NistVerifier } from "./core/nistVerifier.js";
 import { VRFProof } from "./core/models/vrfProof.js";
 import { Block } from "./core/models/Block.js";
+import { hexToUtf8 } from "../../kktp/protocol/utils/conversions.js";
 
 export class VRFFacade {
-
   /**
    * @param {boolean|object} logger - true for console, false for silent, or a custom logger object
    */
@@ -73,7 +73,7 @@ export class VRFFacade {
   /**
    * PROVE: Generates a formalized VRF proof object.
    */
-  async prove({seedInput, btcBlocks = 6, kasBlocks = 12, iterations = 2}) {
+  async prove({ seedInput, btcBlocks = 6, kasBlocks = 12, iterations = 2 }) {
     const data = await this.generateFoldedEntropy({
       btcBlocks,
       kasBlocks,
@@ -102,6 +102,12 @@ export class VRFFacade {
       // If user called: vrf.verify(value, proof)
       value = valueOrResult;
       proof = optionalProof;
+    }
+
+    // Accept hex-encoded JSON proof
+    if (typeof proof === "string") {
+      const json = hexToUtf8(proof);
+      proof = JSON.parse(json);
     }
 
     if (!proof) {

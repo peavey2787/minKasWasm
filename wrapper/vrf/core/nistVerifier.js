@@ -5,13 +5,30 @@ const NIST_JWK = {
   n: "wvC8V3Nb6i8tC_x4Khs0aSDSyvXpGS9Ny3tjkG9b4q4dPdrKzgzl611sbo0PZvob3VQM8MYyY7Y07-PSu76uR_qjAiE-0bz5qjrgtqzXA1JIN0cCP7t7SML9xCn5S45NIauEUxJVFZ6E83GNjAgk_Ctra4MCD73UC74qx8kP-idR6BwkQYSgoPTzgkpiFBvXkAo4TIociiExaEOYP208ZgcXHphB2gb_TKKlA3r9aTYUIZcpT23MTEmV6913T8ODC-CyRNSZ0OvIO0uXzNpOHGzsd_AnT5C6T-9aMWx-4IjeRgl3zwuP9cnNMbJUJQ2qfGiQA2_4Cr19oHN-XiBQIgsX2RmPuVRUAGpQrqzTF5z-OvGutgaA6ZL0SUyN9KnRO0KkVqb1lWaclCEEiIJTXjC9tCo1xF0wGZyeHrbWI4TqKKgnKC__NejclCak-li1HW02Vttjav4PhlcnSI0f_uW6ljjOG0TQdJiqWLN-jTZEZQ2CmMLRJQLfj_brti4J-IFZEjDF3CwK8daf-n36he7J1PAwRCWNsKExIyGzQTyWGfJ9VTz9ljtY5-zz-hA5PTUaPVOzUzHyl97227kPf4KaJQYMwa2Uf67zmzCv3NZtVACo2pVJvYwFZhjG8RThgY60KJZHcJnuhwG0CHBrHpArryLrdeMWEePd-7-aCWu88KQ",
   e: "AQAB",
   alg: "PS512",
-  ext: true
+  ext: true,
+  key_ops: ["verify"],
+  use: "sig",
 };
+
+function cleanB64Url(s) {
+  return String(s || "").replace(/[^A-Za-z0-9_-]/g, "");
+}
 
 export const NistVerifier = {
   async getPublicKey() {
     try {
-      // JWK import is the most stable way to handle NIST's specific RSA-PSS keys
+      console.log("NistVerifier: secureContext =", window.isSecureContext);
+      console.log("NistVerifier: crypto.subtle =", !!crypto?.subtle);
+      console.log("NistVerifier: n length =", NIST_JWK.n?.length);
+      console.log("NistVerifier: e length =", NIST_JWK.e?.length);
+      console.log(
+        "NistVerifier: n valid b64url =",
+        /^[A-Za-z0-9_-]+$/.test(NIST_JWK.n || ""),
+      );
+      console.log(
+        "NistVerifier: e valid b64url =",
+        /^[A-Za-z0-9_-]+$/.test(NIST_JWK.e || ""),
+      );
       return await crypto.subtle.importKey(
         "jwk",
         NIST_JWK,
@@ -21,7 +38,26 @@ export const NistVerifier = {
       );
     } catch (err) {
       console.error("NistVerifier: JWK Import Failed:", err);
-      throw err;
+      // Retry with a minimal JWK (some browsers reject 'alg' or extra fields)
+      const minimalJwk = {
+        kty: "RSA",
+        n: cleanB64Url(NIST_JWK.n),
+        e: cleanB64Url(NIST_JWK.e),
+        ext: true,
+        key_ops: ["verify"],
+      };
+      try {
+        return await crypto.subtle.importKey(
+          "jwk",
+          minimalJwk,
+          { name: "RSA-PSS", hash: "SHA-512" },
+          false,
+          ["verify"],
+        );
+      } catch (err2) {
+        console.error("NistVerifier: JWK Import Failed:", err2);
+        throw err2;
+      }
     }
   },
 

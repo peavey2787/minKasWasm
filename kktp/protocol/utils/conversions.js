@@ -20,3 +20,18 @@ export function bytesToHex(bytes) {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
+
+/**
+ * Convert a hex string to a UTF-8 string.
+ * @param {string} hex
+ * @returns {string}
+ */
+export function hexToUtf8(hex) {
+  if (typeof hex !== "string" || hex.length === 0) return "";
+  if (hex.length % 2 !== 0) throw new Error("Invalid hex string length");
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+  }
+  return new TextDecoder().decode(bytes);
+}
