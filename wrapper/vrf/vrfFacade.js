@@ -217,3 +217,5 @@ export class VRFFacade {
     setLoggerProvider(logger);
   }
 }
+
+export default new VRFFacade();

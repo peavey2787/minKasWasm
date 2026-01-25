@@ -4,18 +4,17 @@ import initKaspa, {
   Resolver,
   ConnectStrategy,
 } from "../kas-wasm/kaspa.js";
-// Either 1. ensure you put the actual Kaspa WASM SDK in a folder named "kas-wasm" outside of the folder this file is in, or 2. point to where you have it
 
 let client = null;
 let wasmInitialized = false;
 let currentRpcUrl = null;
 let currentNetworkId = null;
 
-export async function connect(
+export async function connect({
   rpcUrl,
   networkId = "testnet-10",
-  { onDisconnect } = {},
-) {
+  onDisconnect,
+} = {}) {
   // Initialize Kaspa wasm sdk once
   if (!wasmInitialized) {
     await initKaspa();

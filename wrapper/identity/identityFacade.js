@@ -14,13 +14,16 @@ export class IdentityFacade {
    * @param {Object} options.client - The Kaspa RPC client.
    * @param {string} [options.networkId] - Network ID (e.g. 'testnet-10').
    * @param {string} [options.balanceElementId] - Optional DOM ID for auto-updating balance.
+   * @param {function} [options.onBalanceChange] - Optional callback for balance changes.
+   * @returns {Promise<void>}
    */
-  async init({ client, networkId, balanceElementId } = {}) {
+  async init({ client, networkId, balanceElementId, onBalanceChange } = {}) {
     // Map 'client' to 'rpcClient' as expected by wallet_service
     return await walletService.init({
       rpcClient: client,
       networkId,
       balanceElementId,
+      onBalanceChange
     });
   }
 
@@ -131,6 +134,11 @@ export class IdentityFacade {
    */
   get wallet() {
     return walletService.getWalletContext();
+  }
+
+  /** Access the receiving address of the active wallet. */
+  get address() {
+    return walletService.getReceivingAddress();
   }
 
   /**

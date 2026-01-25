@@ -19,6 +19,7 @@ let accountId = null;
 let filename = DEFAULT_FILENAME;
 let currentNetworkId = null;
 let currentAccountIndex = 0;
+let currentReceivingAddress = null;
 let log = () => {};
 // State flags
 let walletOpened = false;
@@ -38,8 +39,14 @@ export function getWalletContext() {
     filename,
     currentNetworkId,
     currentAccountIndex,
-    log,
+    currentReceivingAddress,
+    log
   };
+}
+
+/** Get the current receiving address for the active account */
+export function getReceivingAddress() {
+  return currentReceivingAddress;
 }
 
 /** Get the current wallet secret (password)
@@ -424,6 +431,7 @@ export async function activateAccount(accountIndex = 0) {
   const address = accounts.accountDescriptors[accountIndex].receiveAddress;
   await wallet.accountsActivate({ accountId });
   log("Account activated. Receiving address:", address);
+  currentReceivingAddress = address;
   return address;
 }
 

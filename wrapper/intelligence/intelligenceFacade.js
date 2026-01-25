@@ -24,7 +24,7 @@ export class IntelligenceFacade {
     // We pass the indexerOptions straight through as the scanner expects.
     this.scanner = new KaspaBlockScanner(client, {
       ...scannerOptions,
-      indexerOptions: { ...indexerOptions, onIndexerUpdate },
+      indexerOptions: { ...indexerOptions, onIndexerUpdate }
     });
 
     // Expose the indexer for direct queries (getMetrics, getAllCachedBlocks, etc.)
@@ -125,8 +125,11 @@ export class IntelligenceFacade {
   }
 
   /**
-   * Sync from a specific point.
-   * Feeds the indexer, which triggers the 'IN_MEMORY' and 'CACHED' events.
+   * Synchronizes the indexer from a specific block hash to the present.
+   * @param {string} startHash - The starting block hash.
+   * @param {function} logFn - Optional logging function.
+   * @param {Object} options - { maxSeconds, minTimestamp }
+   * @returns {Promise<void>}
    */
   async syncFrom(
     startHash,
@@ -146,6 +149,14 @@ export class IntelligenceFacade {
     });
   }
 
+  /**
+   * Scan forward from a specific block to find payloads matching criteria.
+   * @param {string} startHash - The starting block hash.
+   * @param {string} searchText - Text to search for in payloads.
+   * @param {string} mode - Match mode: contains, startsWith, exact, endsWith.
+   * @param {Object} options - { maxSeconds, minTimestamp, logFn }
+   * @returns {Array} Array of { block, tx } matches.
+   */
   async findPayload(
     startHash,
     searchText,
@@ -163,6 +174,13 @@ export class IntelligenceFacade {
     });
   }
 
+  /**
+   * Historical scan backwards from a specific block.
+   * @param {string} startHash - The starting block hash.
+   * @param {function} matchFn - Function(block, tx) that returns true for matches.
+   * @param {Object} options - { maxSeconds, maxDepth, logFn }
+   * @returns {Array} Array of { block, tx } matches.
+   */
   async findHistorical(
     startHash,
     matchFn,
@@ -176,6 +194,71 @@ export class IntelligenceFacade {
       maxDepth,
       logFn,
     });
+  }
+
+  /**
+   * Add an address to the watch list
+   * @param {string} address - Kaspa address to watch
+   */
+  addAddress(address) {
+    this.scanner?.addAddress(address);
+  }
+
+  /** Remove an address from the watch list
+   * @param {string} address - Kaspa address to remove
+   */
+  removeAddress(address) {
+    this.scanner?.removeAddress(address);
+  }
+
+  /** Set the list of addresses to watch
+   * @param {Array<string>|string} addresses - Array of addresses or single address
+   */
+  setAddresses(addresses) {
+    if (!this.scanner) return;
+    // Remove all current addresses
+    if (Array.isArray(this.scanner.addresses)) {
+      for (const addr of [...this.scanner.addresses]) {
+        this.scanner.removeAddress(addr);
+      }
+    }
+    // Add new addresses
+    const addrs = Array.isArray(addresses) ? addresses : [addresses];
+    for (const addr of addrs) {
+      this.scanner.addAddress(addr);
+    }
+  }
+
+  /** Add a payload prefix to the watch list
+   * @param {string} prefix - Payload prefix to add
+   */
+  addPrefix(prefix) {
+    this.scanner?.addPrefix(prefix);
+  }
+
+  /** Remove a payload prefix from the watch list
+   * @param {string} prefix - Payload prefix to remove
+   */
+  removePrefix(prefix) {
+    this.scanner?.removePrefix(prefix);
+  }
+
+  /** Set the list of payload prefixes to watch
+   * @param {Array<string>|string} prefixes - Array of prefixes or single prefix
+   */
+  setPrefixes(prefixes) {
+    if (!this.scanner) return;
+    // Remove all current prefixes
+    if (Array.isArray(this.scanner.prefixes)) {
+      for (const prefix of [...this.scanner.prefixes]) {
+        this.scanner.removePrefix(prefix);
+      }
+    }
+    // Add new prefixes
+    const pfxs = Array.isArray(prefixes) ? prefixes : [prefixes];
+    for (const prefix of pfxs) {
+      this.scanner.addPrefix(prefix);
+    }
   }
 
   shutdown() {

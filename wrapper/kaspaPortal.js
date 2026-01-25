@@ -40,15 +40,7 @@ export class KaspaPortal {
     this.crypto = new CryptoFacade();
     this.vrf = new VRFFacade(false);
 
-    // Initialize Intelligence with a null client initially.
-    // This allows users to attach event listeners (e.g. portal.intelligence.onNewBlock)
-    // before the connection is established. The client is injected in connect().
-    const intelligenceOpts = options.intelligence || {};
-    this.intelligence = new IntelligenceFacade(
-      null,
-      intelligenceOpts.scanner || {},
-      intelligenceOpts.indexer || {},
-    );
+    this.intelligence = null; // Initialized on connect()
   }
 
   /**
@@ -61,28 +53,37 @@ export class KaspaPortal {
    * @param {string} [options.balanceElementId] - DOM ID for auto-updating balance (Identity).
    * @param {boolean} [options.startIntelligence=true] - Whether to automatically start the Intelligence scanner/indexer.
    */
-  async connect(
+  async connect({
     rpcUrl,
     networkId = "testnet-10",
-    { onDisconnect, balanceElementId, startIntelligence = true } = {},
-  ) {
-
+    onDisconnect,
+    balanceElementId,
+    onBalanceChange,
+    startIntelligence = true,
+    scannerOptions = {},
+    indexerOptions = {}
+  } = {}) {
     // 1. Connect Transport
-    await this.transport.connect(rpcUrl, networkId, { onDisconnect });
+    await this.transport.connect({
+      rpcUrl,
+      networkId,
+      onDisconnect
+    });
 
     // 2. Initialize Identity
     await this.identity.init({
       client: this.transport.client,
       networkId,
       balanceElementId,
+      onBalanceChange,
     });
 
     // 3. Inject Client into Intelligence
-    // Since we instantiated it with null, we now provide the active client.
-    this.intelligence.client = this.transport.client;
-    if (this.intelligence.scanner) {
-      this.intelligence.scanner.client = this.transport.client;
-    }
+    this.intelligence = new IntelligenceFacade(
+      this.transport.client,
+      scannerOptions,
+      indexerOptions
+    );
 
     // 4. Start Intelligence (optional)
     if (startIntelligence) {
@@ -161,14 +162,46 @@ export class KaspaPortal {
 
   // --- Intelligence Proxy Methods ---
 
-  /**
-   * Dynamically updates the payload prefix the scanner is looking for.
-   * @param {string} prefix - The new prefix (e.g., "KKTP:mailbox_id:").
+  /** Add an address to the watch list
+   * @param {string} address - Kaspa address to watch
    */
-  setScannerPrefix(prefix) {
-    if (this.intelligence && this.intelligence.scanner) {
-      this.intelligence.scanner.prefix = prefix;
-    }
+  addAddress(address) {
+    this.intelligence?.addAddress(address);
+  }
+
+  /** Remove an address from the watch list
+   * @param {string} address - Kaspa address to remove
+   */
+  removeAddress(address) {
+    this.intelligence?.removeAddress(address);
+  }
+
+  /** Set the list of addresses to watch
+   * @param {Array<string>|string} addresses - Array of addresses or single address
+   */
+  setAddresses(addresses) {
+    this.intelligence?.setAddresses(addresses);
+  }
+
+  /** Add a payload prefix to the watch list
+   * @param {string} prefix - Payload prefix to add
+   */
+  addPrefix(prefix) {
+    this.intelligence?.addPrefix(prefix);
+  }
+
+  /** Remove a payload prefix from the watch list
+   * @param {string} prefix - Payload prefix to remove
+   */
+  removePrefix(prefix) {
+    this.intelligence?.removePrefix(prefix);
+  }
+
+  /** Set the list of payload prefixes to watch
+   * @param {Array<string>|string} prefixes - Array of prefixes or single prefix
+   */
+  setPrefixes(prefixes) {
+    this.intelligence?.setPrefixes(prefixes);
   }
 
   /**
@@ -263,7 +296,7 @@ export class KaspaPortal {
     const xprv = await this.identity.getXprv();
 
     // 2. Safety Check: If xprv is an object or undefined, WASM will crash
-    if (typeof xprv !== 'string') {
+    if (typeof xprv !== "string") {
       throw new Error(`Expected xprv string, got ${typeof xprv}`);
     }
     return await this.crypto.generateIdentityKeys(xprv, index);
@@ -276,7 +309,9 @@ export class KaspaPortal {
    */
   async startSession(index, privateKey) {
     if (!this.identity.wallet?.walletInitialized) {
-      throw new Error("KaspaPortal: Wallet must be initialized before starting a session.");
+      throw new Error(
+        "KaspaPortal: Wallet must be initialized before starting a session.",
+      );
     }
     if (privateKey) {
       return this.crypto.createDHSession(privateKey);
@@ -321,7 +356,7 @@ export class KaspaPortal {
 
   // --- VRF Proxy Methods ---
 
-  async prove(seedInput){
+  async prove(seedInput) {
     return await this.vrf.prove(seedInput);
   }
 

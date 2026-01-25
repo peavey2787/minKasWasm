@@ -49,12 +49,15 @@ export class KaspaBlockScanner {
       addresses = [],
       mode = SearchMode.INCLUDES,
       indexerOptions = {},
+      onMatch = null,
+      onBlock = null,
     } = {},
   ) {
     this.client = client;
     this.blockSubscription = null;
     this.scanning = false;
-    this.onBlock = null; // callback(block, matches)
+    this.onBlock = onBlock; // callback(block, matches)
+    this.onMatch = onMatch; // callback(block, matches)
 
     // Initialize with provided prefixes
     if (Array.isArray(prefixes)) {
@@ -98,11 +101,25 @@ export class KaspaBlockScanner {
     this.#prefixes.delete(stringToHex(prefix));
   }
 
+  /** Adds an address to the watch list if not already present. */
+  addAddress(address) {
+    if (!this.addresses.includes(address)) {
+      this.addresses.push(address);
+    }
+  }
+
+  /** Removes an address from the watch list. */
+  removeAddress(address) {
+    this.addresses = this.addresses.filter((a) => a !== address);
+  }
+
   // --- Modularized scanning logic ---
   async start(onBlock) {
     if (!this.client) throw new Error("Kaspa client required");
     this.scanning = true;
-    this.onBlock = onBlock;
+    if (onBlock && typeof onBlock === "function") {
+      this.onBlock = onBlock;
+    }
     if (this.blockSubscription) {
       this.client.removeEventListener(
         BlockScannerEvent.BLOCK_ADDED,
@@ -128,8 +145,8 @@ export class KaspaBlockScanner {
         this._processBlockTransactions(block, matches);
       }
 
-      if (block && typeof onBlock === "function") {
-        onBlock(block, matches);
+      if (block && typeof this.onBlock === "function") {
+        this.onBlock(block, matches);
       }
     };
 
@@ -146,6 +163,9 @@ export class KaspaBlockScanner {
         if (isMatch) {
           matches.push(matchObj);
           this._indexMatchingTransactionIfNeeded(matchObj);
+          if (this.onMatch && typeof this.onMatch === "function") {
+            this.onMatch(block, matchObj);
+          }
         }
         this._indexAllTransactionIfNeeded(tx, block);
         if (tx && typeof tx.free === "function") {
@@ -212,16 +232,22 @@ export class KaspaBlockScanner {
       return false;
 
     let addressMatch = false;
-
     if (Array.isArray(tx.outputs)) {
       for (const out of tx.outputs) {
-        if (out.address && this.addresses.includes(out.address)) {
+        const addr = out.verboseData?.scriptPublicKeyAddress;
+        if (addr && this.addresses.includes(addr)) {
           addressMatch = true;
           break;
         }
       }
     }
 
+    /* Currently I have no idea how to get the from address since:
+       -the verboseData in input is always undefined
+       -and the previousOutpoint is just index an txid
+       -and there is no "get transaction by id" kind of
+       method in the WASM SDK
+    */
     if (!addressMatch && Array.isArray(tx.inputs)) {
       for (const input of tx.inputs) {
         const senderAddress = input.previousOutpointAddress;
