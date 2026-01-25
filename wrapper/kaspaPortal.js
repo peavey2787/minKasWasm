@@ -17,7 +17,13 @@ import initKaspa from "./kas-wasm/kaspa.js";
 let wasmInitialized = false;
 
 // Re-export common enums for convenience
-export { SearchMode, IndexerEventType, MatchMode, EvictionReason, IndexerStore };
+export {
+  SearchMode,
+  IndexerEventType,
+  MatchMode,
+  EvictionReason,
+  IndexerStore,
+};
 
 /**
  * KaspaPortal: The Master Facade.
@@ -463,8 +469,27 @@ export class KaspaPortal {
 
   // --- VRF Proxy Methods ---
 
-  async prove(seedInput) {
-    return await this.vrf.prove(seedInput);
+  /** PROVE: Generates a VRF proof bundle (delegates to VRF).
+   * @param {Object} options - { seedInput, btcBlocks, kasBlocks, iterations }
+   * @returns {Promise<Object>} VRF proof object
+   */
+  async prove({ seedInput, btcBlocks = 6, kasBlocks = 12, iterations = 2 }) {
+    return await this.vrf.prove({
+      seedInput,
+      btcBlocks,
+      kasBlocks,
+      iterations,
+    });
+  }
+
+  /**
+   * VERIFY: Validates the value against the proof bundle (delegates to VRF).
+   * @param {string|Object} valueOrResult - The value or VRF result object.
+   * @param {Object} [optionalProof] - The VRF proof object (if not included in valueOrResult).
+   * @returns {Promise<boolean>} True if valid, false otherwise.
+   */
+  async verify(valueOrResult, optionalProof) {
+    return await this.vrf.verify(valueOrResult, optionalProof);
   }
 
   /**
@@ -523,6 +548,14 @@ export class KaspaPortal {
    */
   async basicNIST(bits) {
     return await this.vrf.basicNIST(bits);
+  }
+
+  /** Verify VRF proof authenticity (delegates to VRF).
+   * @param {Object} proof - VRF proof object
+   * @returns {Promise<boolean>} True if valid, false otherwise
+   */
+  async isValidNistSignature(proof) {
+    return await this.vrf.isValidNistSignature(proof);
   }
 
   /**
