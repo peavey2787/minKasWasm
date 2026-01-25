@@ -1,4 +1,4 @@
-import { getQrngCache, setQrngCache } from "./cache-persist.js";
+import { getQrngCache, setQrngCache } from "./cache.js";
 import { Block } from "../models/Block.js";
 import { NISTBeacon } from "./QRNG-fetcher.js";
 import { logInfo, logError } from "../logs/logger.js";
@@ -7,7 +7,7 @@ const nistProvider = new NISTBeacon();
 
 export async function getQRNG(providerName = "nist", length = 32) {
   const cache = getQrngCache();
-  if (cache?.result?.hash && (Date.now() - cache.timestamp < 60000)) {
+  if (cache?.result?.hash && (Date.now() - cache.timestamp < CONFIG.QRNG_CACHE_DURATION)) {
     return cache.result;
   }
 

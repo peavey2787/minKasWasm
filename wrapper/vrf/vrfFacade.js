@@ -80,7 +80,7 @@ export class VRFFacade {
       iterations,
       seed: seedInput,
     });
-    return data.proof;
+    return data;
   }
 
   /**

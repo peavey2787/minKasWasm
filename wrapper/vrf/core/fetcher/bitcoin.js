@@ -3,7 +3,7 @@
 import { FINALITY, BTC_BLOCK_COUNT } from "../constants.js";
 import { CONFIG } from "../config.js";
 import { Block } from "../models/Block.js";
-import { getBtcBlockCache, setBtcBlockCache } from "./cache-persist.js";
+import { getBtcBlockCache, setBtcBlockCache } from "./cache.js";
 import { logInfo, logError } from "../logs/logger.js";
 
 let lastBtcApiCall = 0; // In-memory throttle for BTC API

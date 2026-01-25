@@ -7,48 +7,40 @@ export class AnchorFactory {
   /**
    * Section 6.1: Discovery Anchor
    */
-  async createDiscovery({gameName, version = "1.0.0", upTime = 3600} = {}) {
+  async createDiscovery({ meta, sig, dh }) {
     const sid = bytesToHex(window.crypto.getRandomValues(new Uint8Array(16)));
-    const keys = await kaspaPortal.generateIdentityKeys(0);
-    const dhSession = await kaspaPortal.crypto.createDHSession(
-      keys.dh.privateKey,
-      keys.dh.publicKey,
-    );
-    const vrfInput = keys.sig.publicKey + dhSession.publicKey + sid;
-    const vrfData = await kaspaPortal.vrf.prove(vrfInput);
-    const discovery = {
+
+    const vrfInput = sig.publicKey + dh.publicKey + sid;
+    const vrfData = await kaspaPortal.vrf.prove({ seedInput: vrfInput });
+
+    return {
       type: "discovery",
       version: 1,
       sid: sid,
-      pub_sig: keys.sig.publicKey,
-      pub_dh: keys.dh.publicKey,
-      vrf_value: vrfData.value,
-      vrf_proof: vrfData.proof,
+      pub_sig: sig.publicKey,
+      pub_dh: dh.publicKey,
+      vrf_value: bytesToHex(vrfData.finalOutput),
+      vrf_proof: bytesToHex(vrfData.proof),
       meta: {
-        game: gameName,
-        version,
-        expected_uptime_seconds: upTime,
+        game: meta.game,
+        version: meta.version || "1.0.0",
+        expected_uptime_seconds: meta.upTime || 3600,
       },
     };
-    discovery.sig = await kaspaPortal.signAnchor(discovery);
-    return { discovery, dhPrivateKey: keys.dh.privateKey };
   }
 
   /**
    * Section 6.2: Response Anchor
    */
-  async createResponse(discovery) {
-    const keys = await kaspaPortal.generateIdentityKeys(1);
-    const dhSession = await kaspaPortal.crypto.createDHSession();
-
+  async createResponse(discovery, { sig, dh }) {
     const response = {
       type: "response",
       version: 1,
       sid: discovery.sid,
       initiator_pub_sig: discovery.pub_sig,
       initiator_pub_dh: discovery.pub_dh,
-      pub_sig_resp: keys.sig.publicKey,
-      pub_dh_resp: dhSession.publicKey,
+      pub_sig_resp: sig.publicKey,
+      pub_dh_resp: dh.publicKey,
       vrf_value: null,
       vrf_proof: null,
       meta: {
@@ -63,12 +55,13 @@ export class AnchorFactory {
       response.pub_dh_resp +
       discovery.sid;
 
-    const vrfData = await kaspaPortal.vrf.prove(vrfInput);
-    response.vrf_value = vrfData.value;
-    response.vrf_proof = vrfData.proof;
+    const vrfData = await kaspaPortal.vrf.prove({ seedInput: vrfInput });
 
-    response.sig_resp = await kaspaPortal.signAnchor(response);
-    return { response, dhPrivateKey: dhSession.privateKey };
+    // FIX APPLIED HERE:
+    response.vrf_value = bytesToHex(vrfData.finalOutput);
+    response.vrf_proof = bytesToHex(vrfData.proof);
+
+    return response;
   }
 
   /**
@@ -78,7 +71,8 @@ export class AnchorFactory {
     const nonce = window.crypto.getRandomValues(new Uint8Array(24));
     const aad = constructAAD(mailboxId, direction, seq);
 
-    const chacha = new xchacha20poly1305(sessionKey, nonce);
+    // NO 'new' keyword here
+    const chacha = xchacha20poly1305(sessionKey, nonce);
     const ciphertext = chacha.encrypt(new TextEncoder().encode(plaintext), aad);
 
     return {

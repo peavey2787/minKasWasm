@@ -12,7 +12,7 @@ export class Block {
     pulseIndex,
     seedValue,
     previousOutputValue,
-    certificateId
+    certificateId,
   }) {
     this.hash = hash;
     this.height = height;
@@ -26,7 +26,7 @@ export class Block {
     this.isFinal =
       this.source === "nist" ||
       (typeof confirms === "number" && confirms >= 6) ||
-      (typeof blueScore === "number");
+      typeof blueScore === "number";
 
     // NIST Metadata persistence
     this.signature = signature;
@@ -48,12 +48,12 @@ export class Block {
       signature: qrngBlock.signature,
       seedValue: qrngBlock.seedValue,
       previousOutputValue: qrngBlock.previousOutputValue,
-      certificateId: qrngBlock.certificateId
+      certificateId: qrngBlock.certificateId,
     };
 
     return [
       new Block({ ...metadata, hash: qrngBlock.hash.substring(0, 64) }),
-      new Block({ ...metadata, hash: qrngBlock.hash.substring(64, 128) })
+      new Block({ ...metadata, hash: qrngBlock.hash.substring(64, 128) }),
     ];
   }
 }

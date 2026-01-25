@@ -43,6 +43,7 @@ export class KKTPStateMachine {
         discovery,
         response,
         this.keyIndex,
+        this.kktp.myDhPriv,
       );
 
       this.kktp.session = session;

@@ -20,33 +20,43 @@ export class KKTPProtocol {
    * PHASE 1: Create a Discovery Anchor
    * Delegates to factory for complex construction/VRF/Versioning.
    */
-  async createDiscoveryAnchor({ gameName, version = "1.0.0", upTime = 3600 } = {}) {
-    // Factory handles SID, VRF, and the nested meta.version
-    const { discovery, dhPrivateKey } = await this.anchorFactory.createDiscovery({ gameName, version, upTime });
-
+  async createDiscoveryAnchor(meta) {
+    const keys = await kaspaPortal.generateIdentityKeys(0);
+    this.sm.kktp.myDhPriv = keys.dh.privateKey;
+    const discovery = await this.anchorFactory.createDiscovery({
+      meta,
+      sig: keys.sig,
+      dh: keys.dh,
+    });
+    discovery.sig = await this.signAnchor(discovery, keys.sig.privateKey);
     discoveryValidator.validate(discovery);
 
     // Store for the Initiator's state
     this.sm.kktp.discoveryAnchor = discovery;
-    this.sm.kktp.myDhPriv = dhPrivateKey;
+    this.sm.kktp.myDhPriv = keys.dh.privateKey;
 
-    return discovery;
+    return { discovery, dhPrivateKey: keys.dh.privateKey };
   }
 
   /**
    * PHASE 2: Create a Response Anchor
    */
   async createResponseAnchor(discovery) {
-    const { response, dhPrivateKey } = await this.anchorFactory.createResponse(discovery);
-
+    const keys = await kaspaPortal.generateIdentityKeys(1);
+    this.sm.kktp.myDhPriv = keys.dh.privateKey;
+    const response = await this.anchorFactory.createResponse(discovery, {
+      sig: keys.sig,
+      dh: keys.dh,
+    });
+    response.sig_resp = await this.signAnchor(response, keys.sig.privateKey);
     responseValidator.validate(response);
 
-    this.sm.kktp.myDhPriv = dhPrivateKey;
+    this.sm.kktp.myDhPriv = keys.dh.privateKey;
 
     // Trigger State Machine connection immediately for Responder
     await this.sm.connect(discovery, response);
 
-    return response;
+    return { response, dhPrivateKey: keys.dh.privateKey };
   }
 
   /**

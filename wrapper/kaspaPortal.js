@@ -274,9 +274,12 @@ export class KaspaPortal {
    * @param {number} index - Child index for key derivation.
    * @returns {Promise<DHSession>} An initialized DHSession object.
    */
-  async startSession(index) {
+  async startSession(index, privateKey) {
     if (!this.identity.wallet?.walletInitialized) {
       throw new Error("KaspaPortal: Wallet must be initialized before starting a session.");
+    }
+    if (privateKey) {
+      return this.crypto.createDHSession(privateKey);
     }
     const { dh } = await this.generateIdentityKeys(index);
     return this.crypto.createDHSession(dh.privateKey, dh.publicKey);

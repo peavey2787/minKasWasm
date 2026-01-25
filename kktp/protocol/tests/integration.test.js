@@ -16,7 +16,7 @@ const TEST_WALLET_PASSWORD = "integration-test-password";
 
     // Required meta fields for KKTP anchors
     const meta = {
-      gameName: "integration-test",
+      game: "integration-test",
       version: "1.0.0",
       upTime: 3600, // or whatever is appropriate for your test
     };
@@ -26,7 +26,7 @@ const TEST_WALLET_PASSWORD = "integration-test-password";
       await kaspaPortal.kktpProtocol.createDiscoveryAnchor(meta);
 
     const { response, dhPrivateKey: responderDhPriv } =
-      await kaspaPortal.kktpProtocol.createResponseAnchor({ ...discovery, meta });
+      await kaspaPortal.kktpProtocol.createResponseAnchor(discovery);
 
     return { discovery, response, initiatorDhPriv, responderDhPriv };
   }
@@ -35,16 +35,22 @@ const TEST_WALLET_PASSWORD = "integration-test-password";
  * 1. End-to-End Session Establishment
  */
 export async function testSessionEstablishment() {
+  const { discovery, response, initiatorDhPriv, responderDhPriv } =
+    await createAnchors();
 
-  const { discovery, response } = await createAnchors();
+  const initiator = new KKTPStateMachine(kaspaPortal, true, 0);
+  const responder = new KKTPStateMachine(kaspaPortal, false, 1);
 
-  const initiator = new KKTPStateMachine(true, 0);
-  const responder = new KKTPStateMachine(false, 1);
+  initiator.kktp.myDhPriv = initiatorDhPriv;
+  responder.kktp.myDhPriv = responderDhPriv;
 
   await initiator.connect(discovery, response);
   await responder.connect(discovery, response);
 
-  if (initiator.state !== KKTP_STATES.ACTIVE || responder.state !== KKTP_STATES.ACTIVE)
+  if (
+    initiator.state !== KKTP_STATES.ACTIVE ||
+    responder.state !== KKTP_STATES.ACTIVE
+  )
     throw new Error("Session failed to reach ACTIVE state");
 
   if (initiator.kktp.mailboxId !== responder.kktp.mailboxId)
@@ -55,10 +61,14 @@ export async function testSessionEstablishment() {
  * 2. Message Send/Receive (Encryption/Decryption Test)
  */
 export async function testMessageSendReceive() {
-  const { discovery, response } = await createAnchors();
+  const { discovery, response, initiatorDhPriv, responderDhPriv } =
+    await createAnchors();
 
-  const initiator = new KKTPStateMachine(true, 0);
-  const responder = new KKTPStateMachine(false, 1);
+  const initiator = new KKTPStateMachine(kaspaPortal, true, 0);
+  const responder = new KKTPStateMachine(kaspaPortal, false, 1);
+
+  initiator.kktp.myDhPriv = initiatorDhPriv;
+  responder.kktp.myDhPriv = responderDhPriv;
 
   await initiator.connect(discovery, response);
   await responder.connect(discovery, response);
@@ -67,7 +77,8 @@ export async function testMessageSendReceive() {
   const msg = initiator.sendMessage(plaintext);
   const received = responder.receiveMessage(msg);
 
-  if (!received.includes(plaintext)) throw new Error("Decryption failed or message lost");
+  if (!received.includes(plaintext))
+    throw new Error("Decryption failed or message lost");
 }
 
 /**
@@ -75,10 +86,14 @@ export async function testMessageSendReceive() {
  */
 
 export async function testOutOfOrderDelivery() {
-  const { discovery, response } = await createAnchors();
+  const { discovery, response, initiatorDhPriv, responderDhPriv } =
+    await createAnchors();
 
-  const initiator = new KKTPStateMachine(true, 0);
-  const responder = new KKTPStateMachine(false, 1);
+  const initiator = new KKTPStateMachine(kaspaPortal, true, 0);
+  const responder = new KKTPStateMachine(kaspaPortal, false, 1);
+
+  initiator.kktp.myDhPriv = initiatorDhPriv;
+  responder.kktp.myDhPriv = responderDhPriv;
 
   await initiator.connect(discovery, response);
   await responder.connect(discovery, response);
@@ -105,10 +120,14 @@ export async function testOutOfOrderDelivery() {
  */
 
 export async function testAdversarialBufferOverflow() {
-  const { discovery, response } = await createAnchors();
+  const { discovery, response, initiatorDhPriv, responderDhPriv } =
+    await createAnchors();
 
-  const initiator = new KKTPStateMachine(true, 0);
-  const responder = new KKTPStateMachine(false, 1);
+  const initiator = new KKTPStateMachine(kaspaPortal, true, 0);
+  const responder = new KKTPStateMachine(kaspaPortal, false, 1);
+
+  initiator.kktp.myDhPriv = initiatorDhPriv;
+  responder.kktp.myDhPriv = responderDhPriv;
 
   await initiator.connect(discovery, response);
   await responder.connect(discovery, response);

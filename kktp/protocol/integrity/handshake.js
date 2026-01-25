@@ -17,6 +17,7 @@ export async function establishSession(
   discovery,
   response,
   keyIndex = 0,
+  dhPrivateKey = null,
 ) {
   // 1. Schema & Signature Validation
   discoveryValidator.validate(discovery);
@@ -70,15 +71,15 @@ export async function establishSession(
   }
 
   // 3. DH Shared Secret Derivation
-  const session = await kaspaPortal.startSession(keyIndex);
+  const session = await kaspaPortal.startSession(keyIndex, dhPrivateKey);
 
   // Check if we are the initiator (discovery) or responder (response)
   const peerDH =
-    discovery.pub_dh === session.myPublicKeyHex
+    discovery.pub_dh === bytesToHex(session.publicKey)
       ? response.pub_dh_resp
       : discovery.pub_dh;
 
-  const rawSharedSecret = await session.deriveSharedSecret(peerDH);
+  const rawSharedSecret = session.deriveSharedSecret(hexToBytes(peerDH));
 
   // 4. Session Key Derivation
   const pubSigA = hexToBytes(discovery.pub_sig);
