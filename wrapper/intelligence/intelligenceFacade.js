@@ -6,6 +6,9 @@ import {
 import { KaspaBlockScanner } from "./scanner.js";
 import { IndexerEventType, EvictionReason } from "./indexer.js";
 
+// Re-export indexer enums
+export { IndexerEventType, MatchMode, EvictionReason, IndexerStore };
+
 export class IntelligenceFacade {
   /**
    * @param {Object} client - Kaspa RPC client
@@ -24,7 +27,7 @@ export class IntelligenceFacade {
     // We pass the indexerOptions straight through as the scanner expects.
     this.scanner = new KaspaBlockScanner(client, {
       ...scannerOptions,
-      indexerOptions: { ...indexerOptions, onIndexerUpdate }
+      indexerOptions: { ...indexerOptions, onIndexerUpdate },
     });
 
     // Expose the indexer for direct queries (getMetrics, getAllCachedBlocks, etc.)
@@ -126,6 +129,44 @@ export class IntelligenceFacade {
     // Start the scanner. We don't need a separate callback here because
     // the user is listening via the indexer's onIndexerUpdate events.
     await this.scanner.start();
+  }
+
+  getIndexerTimings() {
+    return {
+      ttlMs: this.indexer?.ttlMs ?? null,
+      flushInterval: this.indexer?.flushInterval ?? null,
+    };
+  }
+
+  async startIndexer() {
+    await this.init();
+    this.indexer.start();
+    return this.getIndexerTimings();
+  }
+
+  stopIndexer() {
+    this.indexer.stop();
+  }
+
+  async getCachedSnapshot() {
+    const [allTxs, matchingTxs, blocks] = await Promise.all([
+      this.indexer.getAllCachedTransactions(),
+      this.indexer.getAllCachedMatchingTransactions(),
+      this.indexer.getAllCachedBlocks(),
+    ]);
+    return { allTxs, matchingTxs, blocks };
+  }
+
+  getInMemorySnapshot() {
+    return {
+      allTxs: this.indexer.getAllTransactions(),
+      matchingTxs: this.indexer.getAllMatchingTransactions(),
+      blocks: this.indexer.getAllBlocks(),
+    };
+  }
+
+  async clearIndexerStore(storeName) {
+    return this.indexer.clearStore(storeName);
   }
 
   /**

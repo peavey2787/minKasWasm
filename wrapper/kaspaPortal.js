@@ -4,26 +4,10 @@ import { IdentityFacade } from "./identity/identityFacade.js";
 import { IntelligenceFacade } from "./intelligence/intelligenceFacade.js";
 import { CryptoFacade } from "./crypto/cryptoFacade.js";
 import { VRFFacade } from "./vrf/vrfFacade.js";
-import { SearchMode } from "./intelligence/scanner.js";
-import {
-  IndexerEventType,
-  MatchMode,
-  EvictionReason,
-  IndexerStore,
-} from "./intelligence/indexer.js";
 import { KKTPStateMachine } from "../kktp/protocol/stateMachine.js";
-import initKaspa from "./kas-wasm/kaspa.js"
+import initKaspa from "./kas-wasm/kaspa.js";
 
 let wasmInitialized = false;
-
-// Re-export common enums for convenience
-export {
-  SearchMode,
-  IndexerEventType,
-  MatchMode,
-  EvictionReason,
-  IndexerStore,
-};
 
 /**
  * KaspaPortal: The Master Facade.
@@ -34,7 +18,7 @@ export class KaspaPortal {
    * @param {Object} [options] - Configuration options.
    * @param {Object} [options.intelligence] - Options for IntelligenceFacade { scanner: {}, indexer: {} }.
    */
-  constructor(options = {}) {
+  constructor() {
     this._isReady = false;
     this._connectedPromise = null;
 
@@ -75,45 +59,43 @@ export class KaspaPortal {
     onBalanceChange,
     startIntelligence = true,
     scannerOptions = {},
-    indexerOptions = {}
+    indexerOptions = {},
   } = {}) {
-
     if (this._isReady) return this.transport.client;
     if (this._connectPromise) return this._connectPromise;
 
     this._connectPromise = (async () => {
+      // 1. Connect Transport
+      await this.transport.connect({
+        rpcUrl,
+        networkId,
+        onDisconnect,
+      });
 
-    // 1. Connect Transport
-    await this.transport.connect({
-      rpcUrl,
-      networkId,
-      onDisconnect
-    });
+      // 2. Initialize Identity
+      await this.identity.init({
+        client: this.transport.client,
+        networkId,
+        balanceElementId,
+        onBalanceChange,
+      });
 
-    // 2. Initialize Identity
-    await this.identity.init({
-      client: this.transport.client,
-      networkId,
-      balanceElementId,
-      onBalanceChange,
-    });
+      // 3. Inject Client into Intelligence
+      this.intelligence = new IntelligenceFacade(
+        this.transport.client,
+        scannerOptions,
+        indexerOptions,
+      );
 
-    // 3. Inject Client into Intelligence
-    this.intelligence = new IntelligenceFacade(
-      this.transport.client,
-      scannerOptions,
-      indexerOptions
-    );
+      await this.intelligence.init();
 
-    await this.intelligence.init();
+      // 4. Start Intelligence (optional)
+      if (startIntelligence) {
+        await this.intelligence.start();
+      }
 
-    // 4. Start Intelligence (optional)
-    if (startIntelligence) {
-      await this.intelligence.start();
-    }
-
-    this._isReady = true;
-    return this.transport.client;
+      this._isReady = true;
+      return this.transport.client;
     })();
 
     try {
@@ -139,6 +121,13 @@ export class KaspaPortal {
    */
   get isReady() {
     return this._isReady;
+  }
+
+  /**
+   * Access the indexer facade directly (read-only convenience).
+   */
+  get indexer() {
+    return this.intelligence?.indexer || null;
   }
 
   /**
@@ -191,6 +180,8 @@ export class KaspaPortal {
 
   // --- Intelligence Proxy Methods ---
 
+  // Scanner Methods
+
   /** Add an address to the watch list
    * @param {string} address - Kaspa address to watch
    */
@@ -231,6 +222,92 @@ export class KaspaPortal {
    */
   setPrefixes(prefixes) {
     this.intelligence?.setPrefixes(prefixes);
+  }
+
+  /** Set scanner search mode */
+  setSearchMode(mode) {
+    if (this.intelligence?.scanner) {
+      this.intelligence.scanner.searchMode = mode;
+    }
+  }
+
+  /** Start the live block scanner */
+  async startScanner(onBlock) {
+    return this.intelligence?.scanner?.start(onBlock);
+  }
+
+  /** Stop the live block scanner */
+  stopScanner() {
+    this.intelligence?.scanner?.stop();
+  }
+
+  // Indexer Methods
+
+  _ensureIntelligence() {
+    if (!this.intelligence) {
+      throw new Error(
+        "KaspaPortal: Intelligence not initialized. Call connect().",
+      );
+    }
+  }
+
+  getIndexerTimings() {
+    this._ensureIntelligence();
+    return this.intelligence.getIndexerTimings();
+  }
+
+  async startIndexer() {
+    this._ensureIntelligence();
+    return await this.intelligence.startIndexer();
+  }
+
+  stopIndexer() {
+    this._ensureIntelligence();
+    this.intelligence.stopIndexer();
+  }
+
+  async getCachedSnapshot() {
+    this._ensureIntelligence();
+    return await this.intelligence.getCachedSnapshot();
+  }
+
+  getInMemorySnapshot() {
+    this._ensureIntelligence();
+    return this.intelligence.getInMemorySnapshot();
+  }
+
+  async clearIndexerStore(storeName) {
+    this._ensureIntelligence();
+    return await this.intelligence.clearIndexerStore(storeName);
+  }
+
+  /**
+   * Sync indexer from a specific block hash to present.
+   */
+  async syncFrom(startHash, logFn = null, options = {}) {
+    this._ensureIntelligence();
+    return await this.intelligence.syncFrom(startHash, logFn, options);
+  }
+
+  /**
+   * Scan forward from a block for payload matches.
+   */
+  async findPayload(startHash, searchText, mode = "contains", options = {}) {
+    this._ensureIntelligence();
+    return await this.intelligence.findPayload(
+      startHash,
+      searchText,
+      mode,
+      options,
+    );
+  }
+
+  /**
+   * Historical scan backward from a block.
+   */
+  async findHistorical(startHash, matchFn, options = {}) {
+    this._ensureIntelligence();
+    return await this.intelligence.findHistorical(startHash, matchFn, options);
   }
 
   /**

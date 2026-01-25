@@ -52,20 +52,16 @@ function stopCachedAutoRefresh() {
 }
 
 function renderInMemoryLiveSnapshot() {
-  if (
-    !kaspaPortal ||
-    !kaspaPortal.intelligence ||
-    !kaspaPortal.intelligence.indexer
-  )
+  if (!kaspaPortal || !kaspaPortal.indexer)
     return;
   renderUI.renderInMemoryAllTransactionsSection(
-    kaspaPortal.intelligence.indexer.getAllTransactions(),
+    kaspaPortal.indexer.getAllTransactions(),
   );
   renderUI.renderInMemoryMatchingTransactionsSection(
-    kaspaPortal.intelligence.indexer.getAllMatchingTransactions(),
+    kaspaPortal.indexer.getAllMatchingTransactions(),
   );
   renderUI.renderInMemoryBlocksSection(
-    kaspaPortal.intelligence.indexer.getAllBlocks(),
+    kaspaPortal.indexer.getAllBlocks(),
   );
 }
 
@@ -93,17 +89,13 @@ function scheduleInMemoryLiveSnapshot() {
 function scheduleCachedSnapshotRender() {
   // Don’t do IndexedDB reads + DOM work when the user can’t see it.
   if (!isCachedPanelOpen()) return;
-  if (
-    !kaspaPortal ||
-    !kaspaPortal.intelligence ||
-    !kaspaPortal.intelligence.indexer
-  )
+  if (!kaspaPortal || !kaspaPortal.indexer)
     return;
 
   if (cachedRenderTimer) return;
   cachedRenderTimer = setTimeout(async () => {
     cachedRenderTimer = null;
-    await renderUI.renderAllIndexerSections(kaspaPortal.intelligence.indexer);
+    await renderUI.renderAllIndexerSections(kaspaPortal.indexer);
   }, CACHED_RENDER_THROTTLE_MS);
 }
 
@@ -223,7 +215,7 @@ export async function handleConnectClick() {
 
     statusDiv.textContent = "Connected";
 
-    renderUI.renderAllIndexerSections(kaspaPortal.intelligence.indexer);
+    renderUI.renderAllIndexerSections(kaspaPortal.indexer);
     scheduleInMemoryLiveSnapshot();
   } catch (err) {
     console.error("Connection error:", err);
@@ -246,11 +238,11 @@ export async function handleStartStopClick() {
     elements.getMatchesContainer().innerHTML = "";
     // Set search options
     const searchText = elements.getSearchInput().value.trim();
-    kaspaPortal.intelligence.scanner.addPrefix(searchText);
-    kaspaPortal.intelligence.scanner.addresses = [];
-    kaspaPortal.intelligence.scanner.searchMode = SearchMode.INCLUDES;
+    kaspaPortal.setPrefixes(searchText ? [searchText] : []);
+    kaspaPortal.setAddresses([]);
+    kaspaPortal.setSearchMode(SearchMode.INCLUDES);
 
-    await kaspaPortal.intelligence.scanner.start((block, matches) => {
+    await kaspaPortal.startScanner((block, matches) => {
       // UI: show block in iframe
       renderUI.addBlockToUI(block, null, null);
 
@@ -264,7 +256,7 @@ export async function handleStartStopClick() {
     startStopBtn.textContent = "Stop";
     statusDiv.textContent = "Scanning...";
   } else {
-    kaspaPortal.intelligence.scanner.stop();
+    kaspaPortal.stopScanner();
     scanning = false;
     startStopBtn.textContent = "Start";
     statusDiv.textContent = "Stopped.";
@@ -273,20 +265,14 @@ export async function handleStartStopClick() {
 }
 
 export async function handleStartIndexerClick() {
-  if (
-    !kaspaPortal ||
-    !kaspaPortal.intelligence ||
-    !kaspaPortal.intelligence.indexer
-  )
+  if (!kaspaPortal || !kaspaPortal.indexer)
     return;
   try {
-    const idx = kaspaPortal.intelligence.indexer;
-    await idx.initDB();
-    await idx.start();
-    renderUI.restartCountdown(kaspaPortal.intelligence.indexer.ttlMs);
-    renderUI.restartFlushCountdown(
-      kaspaPortal.intelligence.indexer.flushInterval,
-    );
+    const idx = kaspaPortal.indexer;
+    await kaspaPortal.initIndexer();
+    kaspaPortal.startIndexer();
+    renderUI.restartCountdown(idx.ttlMs);
+    renderUI.restartFlushCountdown(idx.flushInterval);
     startCachedAutoRefresh(idx);
     await renderUI.renderAllIndexerSections(idx);
   } catch (err) {
@@ -299,7 +285,7 @@ export function handleStopIndexerClick() {
   renderUI.stopFlushCountdown();
   const countdownDiv = elements.getIndexerCountdownDiv();
   countdownDiv.textContent = "";
-  kaspaPortal.intelligence.indexer.stop();
+  kaspaPortal.stopIndexer();
   stopCachedAutoRefresh();
 }
 
@@ -314,37 +300,23 @@ export function handleMatchModeChange() {
 }
 
 export async function handleClearMatchingTxsClick() {
-  if (
-    !kaspaPortal ||
-    !kaspaPortal.intelligence ||
-    !kaspaPortal.intelligence.indexer
-  )
+  if (!kaspaPortal || !kaspaPortal.indexer)
     return;
-  await kaspaPortal.intelligence.indexer.clearStore(
-    IndexerStore.MATCHING_TRANSACTIONS,
-  );
+  await kaspaPortal.clearIndexerStore(IndexerStore.MATCHING_TRANSACTIONS);
   renderUI.clearAllCachedSections();
 }
 
 export async function handleClearAllTxsClick() {
-  if (
-    !kaspaPortal ||
-    !kaspaPortal.intelligence ||
-    !kaspaPortal.intelligence.indexer
-  )
+  if (!kaspaPortal || !kaspaPortal.indexer)
     return;
-  await kaspaPortal.intelligence.indexer.clearStore(IndexerStore.TRANSACTIONS);
+  await kaspaPortal.clearIndexerStore(IndexerStore.TRANSACTIONS);
   renderUI.clearAllCachedSections();
 }
 
 export async function handleClearBlocksClick() {
-  if (
-    !kaspaPortal ||
-    !kaspaPortal.intelligence ||
-    !kaspaPortal.intelligence.indexer
-  )
+  if (!kaspaPortal || !kaspaPortal.indexer)
     return;
-  await kaspaPortal.intelligence.indexer.clearStore(IndexerStore.BLOCKS);
+  await kaspaPortal.clearIndexerStore(IndexerStore.BLOCKS);
   renderUI.clearAllCachedSections();
 }
 
