@@ -43,6 +43,9 @@ export class KaspaIndexer {
     cacheMisses: 0,
   };
 
+  // Default cap for cursor-based queries to avoid loading massive datasets into memory
+  _defaultQueryLimit = 1000;
+
   // In-memory rolling cache for deduplication
   _txidCacheSet = new Set();
   _txidCacheQueue = [];
@@ -685,7 +688,10 @@ export class KaspaIndexer {
    * @returns {Promise<Object[]>} - Array of all transactions.
    */
   async getAllCachedMatchingTransactions() {
-    return this._queryStore(IndexerStore.MATCHING_TRANSACTIONS, (txs) => txs);
+    return this._getRecentFromStore(
+      IndexerStore.MATCHING_TRANSACTIONS,
+      this._defaultQueryLimit,
+    );
   }
 
   /**
@@ -693,7 +699,10 @@ export class KaspaIndexer {
    * @returns {Promise<Object[]>} - Array of all blocks.
    */
   async getAllCachedTransactions() {
-    return this._queryStore(IndexerStore.TRANSACTIONS, (txs) => txs);
+    return this._getRecentFromStore(
+      IndexerStore.TRANSACTIONS,
+      this._defaultQueryLimit,
+    );
   }
 
   /**
@@ -701,7 +710,7 @@ export class KaspaIndexer {
    * @returns {Promise<Object[]>} - Array of all blocks.
    */
   async getAllCachedBlocks() {
-    return this._queryStore(IndexerStore.BLOCKS, (blocks) => blocks);
+    return this._getRecentFromStore(IndexerStore.BLOCKS, this._defaultQueryLimit);
   }
 
   /**
@@ -749,17 +758,60 @@ export class KaspaIndexer {
    * @param {number|null} [recentSeconds=null] - If provided, only transactions within this many seconds from now are returned.
    * @returns {Promise<Object[]>} - Array of matching transactions.
    */
-  async getCachedTransactionsForAddress(address, recentSeconds = null) {
+  async getCachedTransactionsForAddress(
+    address,
+    recentSeconds = null,
+    limit = this._defaultQueryLimit,
+  ) {
+    await this._dbReady;
+
     const now = Date.now();
-    return this._queryStore(IndexerStore.MATCHING_TRANSACTIONS, (txs) => {
-      let matches = txs.filter(
-        (tx) => tx.sender === address || tx.receiver === address,
-      );
-      if (recentSeconds) {
-        const cutoff = now - recentSeconds * 1000;
-        matches = matches.filter((tx) => tx.timestamp >= cutoff);
+    const cutoff = recentSeconds ? now - recentSeconds * 1000 : null;
+    const max = limit == null ? this._defaultQueryLimit : limit;
+
+    return new Promise((resolve) => {
+      const out = [];
+      try {
+        const tx = this.db.transaction(
+          IndexerStore.MATCHING_TRANSACTIONS,
+          "readonly",
+        );
+        const store = tx.objectStore(IndexerStore.MATCHING_TRANSACTIONS);
+        const index = store.index("timestamp");
+        const req = index.openCursor(null, "prev"); // newest -> oldest
+
+        req.onsuccess = (e) => {
+          const cursor = e.target.result;
+          if (!cursor) {
+            resolve(out);
+            return;
+          }
+
+          const entry = cursor.value;
+
+          // Because we traverse newest -> oldest, stop once we cross the cutoff.
+          if (cutoff && entry.timestamp < cutoff) {
+            resolve(out);
+            return;
+          }
+
+          if (entry.sender === address || entry.receiver === address) {
+            out.push(entry);
+            if (out.length >= max) {
+              resolve(out);
+              return;
+            }
+          }
+
+          cursor.continue();
+        };
+
+        req.onerror = () => resolve(out);
+        tx.onabort = () => resolve(out);
+        tx.onerror = () => resolve(out);
+      } catch {
+        resolve(out);
       }
-      return matches.sort((a, b) => b.timestamp - a.timestamp);
     });
   }
 
@@ -799,7 +851,6 @@ export class KaspaIndexer {
     const loadRecentKeysByTimestamp = async (storeName, max) => {
       return new Promise((resolve) => {
         try {
-          console.log(`Preloading recent txids from store: ${storeName}`);
           const txReq = this.db.transaction(storeName, "readonly");
           const store = txReq.objectStore(storeName);
 

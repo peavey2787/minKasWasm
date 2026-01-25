@@ -36,14 +36,17 @@ export class KaspaPortal {
    */
   constructor(options = {}) {
     this._isReady = false;
+    this._connectedPromise = null;
+
+    // Initialize sub-facades
     const sm = new KKTPStateMachine(this, true, 0);
     this.kktpProtocol = new KKTPProtocol(sm);
     this.transport = new TransportFacade();
     this.identity = new IdentityFacade();
     this.crypto = new CryptoFacade();
     this.vrf = new VRFFacade(false);
-
-    this.intelligence = null; // Initialized on connect()
+    // Initialized on connect()
+    this.intelligence = null;
   }
 
   async init() {
@@ -74,6 +77,12 @@ export class KaspaPortal {
     scannerOptions = {},
     indexerOptions = {}
   } = {}) {
+
+    if (this._isReady) return this.transport.client;
+    if (this._connectPromise) return this._connectPromise;
+
+    this._connectPromise = (async () => {
+
     // 1. Connect Transport
     await this.transport.connect({
       rpcUrl,
@@ -105,6 +114,13 @@ export class KaspaPortal {
 
     this._isReady = true;
     return this.transport.client;
+    })();
+
+    try {
+      return await this._connectPromise;
+    } finally {
+      this._connectPromise = null;
+    }
   }
 
   /**
