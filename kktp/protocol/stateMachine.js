@@ -38,12 +38,19 @@ export class KKTPStateMachine {
    */
   async connect(discovery, response) {
     try {
+
+      const dhPriv = this.kktp?.myDhPriv;
+      if (!dhPriv) {
+        throw new Error("Missing DH private key for session establishment.");
+      }
+
       const { session, mailboxId } = await establishSession(
         this.kaspaPortal,
         discovery,
         response,
         this.keyIndex,
-        this.kktp.myDhPriv,
+        dhPriv,
+        this.isInitiator
       );
 
       this.kktp.session = session;

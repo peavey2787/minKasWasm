@@ -19,7 +19,11 @@ export function pack(kktpState, plaintext, direction, seq) {
 
   // 3. Encrypt using XChaCha20-Poly1305 (Section 4)
   // The session wrapper must handle the actual AEAD primitive
-  const ciphertext = session.encrypt(plaintext, nonceBytes, aad);
+  const key = session.getSessionKey();
+  const chacha = new XChaCha20Poly1305(key, nonceBytes);
+  const plaintextBytes = new TextEncoder().encode(plaintext);
+  const ciphertext = chacha.encrypt(plaintextBytes, aad);
+
 
   // 4. Return the standard JSON structure (Section 5.4)
   return {
@@ -54,9 +58,10 @@ export function unpack(kktpState, msg) {
   // 4. Section 6.6: Decryption Hardening
   // Verify authentication tag + decrypt in one step (AEAD)
   try {
-    const plaintext = session.decrypt(ciphertextBytes, nonceBytes, aad);
-    if (!plaintext) throw new Error("Authentication failed");
-    return plaintext;
+    const key = session.getSessionKey();
+    const chacha = new XChaCha20Poly1305(key, nonceBytes);
+    const plaintextBytes = chacha.decrypt(ciphertextBytes, aad);
+    return new TextDecoder().decode(plaintextBytes);
   } catch (e) {
     // Section 7.5: Decryption failures are protocol violations
     throw new Error(`KKTP Integrity Violation: ${e.message}`);

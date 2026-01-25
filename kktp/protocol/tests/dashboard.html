@@ -35,7 +35,8 @@
       resultsDiv.innerHTML += `<div>Running all integration tests...</div>`;
       const results = await runAllIntegrationTests();
       for (const r of results) {
-        resultsDiv.innerHTML += `<div class='test-result ${r.status === 'PASS' ? 'pass' : 'fail'}'>${r.name}: ${r.status}${r.error ? `<br><pre>${r.error}</pre>` : ''}</div>`;
+        const errorText = r.error ? (r.error.stack || r.error.toString()) : '';
+        resultsDiv.innerHTML += `<div class='test-result ${r.status === 'PASS' ? 'pass' : 'fail'}'>${r.name}: ${r.status}${errorText ? `<br><pre>${errorText}</pre>` : ''}</div>`;
       }
     };
     document.getElementById('btn-test-1').onclick = async () => runSingle(testSessionEstablishment);
@@ -49,7 +50,8 @@
         await fn();
         resultsDiv.innerHTML += `<div class='test-result pass'>${fn.name}: PASS</div>`;
       } catch (e) {
-        resultsDiv.innerHTML += `<div class='test-result fail'>${fn.name}: FAIL<br><pre>${e}</pre></div>`;
+        const errorText = e?.stack || e?.toString() || String(e);
+        resultsDiv.innerHTML += `<div class='test-result fail'>${fn.name}: FAIL<br><pre>${errorText}</pre></div>`;
       }
     }
   </script>
