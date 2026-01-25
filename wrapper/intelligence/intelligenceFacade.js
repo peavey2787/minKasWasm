@@ -110,6 +110,10 @@ export class IntelligenceFacade {
     return this;
   }
 
+  async init() {
+    await this.indexer.initDB();
+  }
+
   /**
    * Starts the system.
    * The scanner will listen to the network, feed the indexer,

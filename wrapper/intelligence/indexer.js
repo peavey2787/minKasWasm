@@ -796,28 +796,60 @@ export class KaspaIndexer {
    * (Internal) Preload recent txids into in-memory cache for deduplication.
    */
   async _preloadTxidCache() {
-    const preloadStore = async (storeName) => {
+    const loadRecentKeysByTimestamp = async (storeName, max) => {
       return new Promise((resolve) => {
         try {
+          console.log(`Preloading recent txids from store: ${storeName}`);
           const txReq = this.db.transaction(storeName, "readonly");
           const store = txReq.objectStore(storeName);
-          const req = store.getAllKeys();
-          req.onsuccess = () => resolve(req.result || []);
-          req.onerror = () => resolve([]);
+
+          // Prefer timestamp index if present (it is created in initDB)
+          const index = store.index("timestamp");
+          const keys = [];
+
+          const cursorReq = index.openCursor(null, "prev"); // newest -> oldest
+          cursorReq.onsuccess = (e) => {
+            const cursor = e.target.result;
+            if (!cursor || keys.length >= max) {
+              resolve(keys);
+              return;
+            }
+            // primaryKey is the object store key (txid)
+            keys.push(cursor.primaryKey);
+            cursor.continue();
+          };
+          cursorReq.onerror = () => resolve(keys);
+
+          txReq.onerror = () => resolve(keys);
+          txReq.onabort = () => resolve(keys);
         } catch (err) {
-          if (err.name === "NotFoundError") {
-            resolve([]);
-          } else {
-            console.error(`Error preloading store ${storeName}:`, err);
-            resolve([]);
-          }
+          // Store/index might not exist yet
+          resolve([]);
         }
       });
     };
-    const allTxids = await preloadStore(IndexerStore.TRANSACTIONS);
-    const recentTxids = allTxids.slice(-this._txidCacheMax);
-    this._txidCacheSet = new Set(recentTxids);
-    this._txidCacheQueue = [...recentTxids];
+
+    // Pull recent txids from both stores to avoid duplicates across modes
+    const [recentAll, recentMatching] = await Promise.all([
+      loadRecentKeysByTimestamp(IndexerStore.TRANSACTIONS, this._txidCacheMax),
+      loadRecentKeysByTimestamp(
+        IndexerStore.MATCHING_TRANSACTIONS,
+        this._txidCacheMax,
+      ),
+    ]);
+
+    const combined = [...recentAll, ...recentMatching];
+
+    // Keep insertion order, cap to _txidCacheMax
+    this._txidCacheSet = new Set();
+    this._txidCacheQueue = [];
+
+    for (const key of combined) {
+      if (!key || this._txidCacheSet.has(key)) continue;
+      this._txidCacheSet.add(key);
+      this._txidCacheQueue.push(key);
+      if (this._txidCacheQueue.length >= this._txidCacheMax) break;
+    }
   }
 
   /**
@@ -851,6 +883,41 @@ export class KaspaIndexer {
           reject(tx.error || new Error("IndexedDB transaction error"));
       } catch (err) {
         reject(err);
+      }
+    });
+  }
+
+  /**
+   * (Internal) Read most-recent items using the "timestamp" index without loading the whole store.
+   */
+  async _getRecentFromStore(storeName, limit = this._defaultQueryLimit) {
+    await this._dbReady;
+
+    return new Promise((resolve) => {
+      const out = [];
+      try {
+        const tx = this.db.transaction(storeName, "readonly");
+        const store = tx.objectStore(storeName);
+
+        // Requires the timestamp index (you create it in initDB)
+        const index = store.index("timestamp");
+        const req = index.openCursor(null, "prev"); // newest -> oldest
+
+        req.onsuccess = (e) => {
+          const cursor = e.target.result;
+          if (!cursor || out.length >= limit) {
+            resolve(out);
+            return;
+          }
+          out.push(cursor.value);
+          cursor.continue();
+        };
+        req.onerror = () => resolve(out);
+
+        tx.onabort = () => resolve(out);
+        tx.onerror = () => resolve(out);
+      } catch {
+        resolve(out);
       }
     });
   }

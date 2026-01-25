@@ -142,6 +142,22 @@ export function dehydrateTx({ tx, block, decodedPayload }) {
   return txData;
 }
 
+/** Dehydrate a block object into a lightweight summary.
+ * @param {Object} block - The block object.
+ * @return {Object} Dehydrated block summary.
+ */
+export function dehydrateBlock(block) {
+  if (!block) return null;
+
+  // Explicitly pull primitives.
+  return {
+    hash: String(block.header?.hash || block.hash || ""),
+    timestamp: Number(block.header?.timestamp || block.timestamp || 0),
+    blueScore: Number(block.header?.blueScore || 0),
+    daaScore: Number(block.header?.daaScore || 0),
+  };
+}
+
 /**
  * Get the compressed public key bytes from a private key hex string.
  * @param {string} prvKeyHex - Private key as hex string.

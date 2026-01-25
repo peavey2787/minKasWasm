@@ -12,6 +12,9 @@ import {
   IndexerStore,
 } from "./intelligence/indexer.js";
 import { KKTPStateMachine } from "../kktp/protocol/stateMachine.js";
+import initKaspa from "./kas-wasm/kaspa.js"
+
+let wasmInitialized = false;
 
 // Re-export common enums for convenience
 export {
@@ -41,6 +44,14 @@ export class KaspaPortal {
     this.vrf = new VRFFacade(false);
 
     this.intelligence = null; // Initialized on connect()
+  }
+
+  async init() {
+    // Initialize Kaspa wasm sdk once
+    if (!wasmInitialized) {
+      await initKaspa();
+      wasmInitialized = true;
+    }
   }
 
   /**
@@ -84,6 +95,8 @@ export class KaspaPortal {
       scannerOptions,
       indexerOptions
     );
+
+    await this.intelligence.init();
 
     // 4. Start Intelligence (optional)
     if (startIntelligence) {

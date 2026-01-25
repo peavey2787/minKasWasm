@@ -3,6 +3,7 @@ import {
   stringToHex,
   hexToString,
   dehydrateTx,
+  dehydrateBlock,
 } from "../utilities/utilities.js";
 import { KaspaIndexer, MatchMode } from "./indexer.js";
 
@@ -133,17 +134,12 @@ export class KaspaBlockScanner {
       const block = event.data.block;
       const matches = [];
 
+      // Index blocks (but never store the full block w/ tx array).
       this._indexBlockIfNeeded(block);
 
-      // If there's nothing to do, don't iterate txs at all.
-      const hasPrefix = !!this.prefix;
-      const hasAddresses =
-        Array.isArray(this.addresses) && this.addresses.length > 0;
-      const indexerActive = !!(this.indexer && this.indexer.active);
-
-      if (hasPrefix || hasAddresses || indexerActive) {
-        this._processBlockTransactions(block, matches);
-      }
+      // CRITICAL: Always iterate and free tx WASM objects.
+      // Even if we aren't matching/indexing, we must release tx objects to prevent WASM memory growth.
+      this._processBlockTransactions(block, matches);
 
       if (block && typeof this.onBlock === "function") {
         this.onBlock(block, matches);
@@ -157,17 +153,33 @@ export class KaspaBlockScanner {
   }
 
   _processBlockTransactions(block, matches) {
-    if (block && Array.isArray(block.transactions)) {
-      for (const tx of block.transactions) {
-        const { matchObj, isMatch } = this._analyzeTransaction(tx, block);
-        if (isMatch) {
-          matches.push(matchObj);
-          this._indexMatchingTransactionIfNeeded(matchObj);
-          if (this.onMatch && typeof this.onMatch === "function") {
-            this.onMatch(block, matchObj);
+    const txs = block?.transactions;
+    if (!Array.isArray(txs) || txs.length === 0) return;
+
+    const hasPrefix = this.#prefixes.size > 0;
+    const hasAddresses = Array.isArray(this.addresses) && this.addresses.length > 0;
+    const shouldMatch = hasPrefix || hasAddresses;
+    const indexerActive = !!this.indexer?.active;
+
+    for (const tx of txs) {
+      try {
+        // Matching is only meaningful if we have prefixes and/or addresses.
+        if (shouldMatch) {
+          const { matchObj, isMatch } = this._analyzeTransaction(tx, block);
+          if (isMatch) {
+            matches.push(matchObj);
+            this._indexMatchingTransactionIfNeeded(matchObj);
+            if (this.onMatch && typeof this.onMatch === "function") {
+              this.onMatch(block, matchObj);
+            }
           }
         }
-        this._indexAllTransactionIfNeeded(tx, block);
+
+        // Indexing "all transactions" is independent of matching.
+        if (indexerActive) {
+          this._indexAllTransactionIfNeeded(tx, block);
+        }
+      } finally {
         if (tx && typeof tx.free === "function") {
           tx.free(); // free WASM tx object
         }
@@ -196,24 +208,28 @@ export class KaspaBlockScanner {
     let payloadMatch = false;
     let decodedPayload = null;
 
-    if (this.#prefixes.length > 0 && tx.payload) {
+    if (this.#prefixes.size > 0 && tx.payload) {
       const payloadHex = tx.payload;
 
-      // Use 'return' inside the switch cases so .some() sees the match
-      payloadMatch = this.#prefixes.some((prefixHex) => {
+      for (const prefixHex of this.#prefixes) {
         switch (this.searchMode) {
           case SearchMode.INCLUDES:
-            return payloadHex.includes(prefixHex);
+            payloadMatch = payloadHex.includes(prefixHex);
+            break;
           case SearchMode.STARTS_WITH:
-            return payloadHex.startsWith(prefixHex);
+            payloadMatch = payloadHex.startsWith(prefixHex);
+            break;
           case SearchMode.EXACT:
-            return payloadHex === prefixHex;
+            payloadMatch = payloadHex === prefixHex;
+            break;
           case SearchMode.ENDS_WITH:
-            return payloadHex.endsWith(prefixHex);
+            payloadMatch = payloadHex.endsWith(prefixHex);
+            break;
           default:
-            return false;
+            payloadMatch = false;
         }
-      });
+        if (payloadMatch) break;
+      }
 
       if (payloadMatch) {
         try {
@@ -301,7 +317,7 @@ export class KaspaBlockScanner {
       (this.indexer.matchMode === MatchMode.CUSTOM &&
         this.indexer.indexAllBlocks)
     ) {
-      this.indexer.addBlock(block);
+      this.indexer.addBlock(dehydrateBlock(block));
     }
   }
 
@@ -318,7 +334,7 @@ export class KaspaBlockScanner {
       this.blockSubscription = null;
     }
     this.onBlock = null;
-    this.prefix = null;
+    this.#prefixes = new Set();
     this.addresses = [];
     this.searchMode = SearchMode.INCLUDES;
   }

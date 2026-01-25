@@ -148,6 +148,9 @@
             },
           };
 
+          // Initialize KaspaPortal
+          await kaspaPortal.init();
+
           // Connect to Kaspa network
           await kaspaPortal.connect({
             networkId,

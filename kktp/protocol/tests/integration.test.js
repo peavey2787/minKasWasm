@@ -7,29 +7,29 @@ const TEST_WALLET_PASSWORD = "integration-test-password";
  * Helper: Creates real, signed discovery and response anchors
  * utilizing the Portal and Protocol facades.
  */
-  async function createAnchors() {
-    await kaspaPortal.connect(null, "testnet-10");
+async function createAnchors() {
+  await kaspaPortal.connect({ networkId: "testnet-10" });
 
-    await kaspaPortal.identity.createOrOpenWallet(
-      { password: TEST_WALLET_PASSWORD }
-    );
+  await kaspaPortal.identity.createOrOpenWallet({
+    password: TEST_WALLET_PASSWORD,
+  });
 
-    // Required meta fields for KKTP anchors
-    const meta = {
-      game: "integration-test",
-      version: "1.0.0",
-      upTime: 3600, // or whatever is appropriate for your test
-    };
+  // Required meta fields for KKTP anchors
+  const meta = {
+    game: "integration-test",
+    version: "1.0.0",
+    upTime: 3600, // or whatever is appropriate for your test
+  };
 
-    // Pass meta to the factory methods
-    const { discovery, dhPrivateKey: initiatorDhPriv } =
-      await kaspaPortal.kktpProtocol.createDiscoveryAnchor(meta);
+  // Pass meta to the factory methods
+  const { discovery, dhPrivateKey: initiatorDhPriv } =
+    await kaspaPortal.kktpProtocol.createDiscoveryAnchor(meta);
 
-    const { response, dhPrivateKey: responderDhPriv } =
-      await kaspaPortal.kktpProtocol.createResponseAnchor(discovery);
+  const { response, dhPrivateKey: responderDhPriv } =
+    await kaspaPortal.kktpProtocol.createResponseAnchor(discovery);
 
-    return { discovery, response, initiatorDhPriv, responderDhPriv };
-  }
+  return { discovery, response, initiatorDhPriv, responderDhPriv };
+}
 
 /**
  * 1. End-to-End Session Establishment

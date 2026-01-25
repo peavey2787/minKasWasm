@@ -1,13 +1,16 @@
 // dom_handlers.js
 // All handler functions for scanner UI
 
-import * as elements from './dom_elements.js';
-import { KaspaPortal, SearchMode, IndexerStore } from "../../wrapper/kaspaPortal.js";
-import * as renderUI from './render_ui.js';
+import * as elements from "./dom_elements.js";
+import {
+  kaspaPortal,
+  SearchMode,
+  IndexerStore,
+} from "../../wrapper/kaspaPortal.js";
+import * as renderUI from "./render_ui.js";
 
 // State (exported for controller)
 export let walletInitialized = false;
-export let portal = null;
 export let scanning = false;
 export let currentIndexerOptions = {};
 
@@ -18,20 +21,39 @@ let cachedRenderTimer = null;
 const CACHED_RENDER_THROTTLE_MS = 350;
 
 function renderInMemoryLiveSnapshot() {
-  if (!portal || !portal.intelligence || !portal.intelligence.indexer) return;
-  renderUI.renderInMemoryAllTransactionsSection(portal.intelligence.indexer.getAllTransactions());
-  renderUI.renderInMemoryMatchingTransactionsSection(portal.intelligence.indexer.getAllMatchingTransactions());
-  renderUI.renderInMemoryBlocksSection(portal.intelligence.indexer.getAllBlocks());
+  if (
+    !kaspaPortal ||
+    !kaspaPortal.intelligence ||
+    !kaspaPortal.intelligence.indexer
+  )
+    return;
+  renderUI.renderInMemoryAllTransactionsSection(
+    kaspaPortal.intelligence.indexer.getAllTransactions(),
+  );
+  renderUI.renderInMemoryMatchingTransactionsSection(
+    kaspaPortal.intelligence.indexer.getAllMatchingTransactions(),
+  );
+  renderUI.renderInMemoryBlocksSection(
+    kaspaPortal.intelligence.indexer.getAllBlocks(),
+  );
 }
 
 function isInMemoryPanelOpen() {
   const content = elements.getInMemorySections();
-  return !!content && content.style.display !== "none" && content.style.display !== "";
+  return (
+    !!content &&
+    content.style.display !== "none" &&
+    content.style.display !== ""
+  );
 }
 
 function isCachedPanelOpen() {
   const content = elements.getCachedSections();
-  return !!content && content.style.display !== "none" && content.style.display !== "";
+  return (
+    !!content &&
+    content.style.display !== "none" &&
+    content.style.display !== ""
+  );
 }
 
 function scheduleInMemoryLiveSnapshot() {
@@ -48,12 +70,17 @@ function scheduleInMemoryLiveSnapshot() {
 function scheduleCachedSnapshotRender() {
   // Don’t do IndexedDB reads + DOM work when the user can’t see it.
   if (!isCachedPanelOpen()) return;
-  if (!portal || !portal.intelligence || !portal.intelligence.indexer) return;
+  if (
+    !kaspaPortal ||
+    !kaspaPortal.intelligence ||
+    !kaspaPortal.intelligence.indexer
+  )
+    return;
 
   if (cachedRenderTimer) return;
   cachedRenderTimer = setTimeout(async () => {
     cachedRenderTimer = null;
-    await renderUI.renderAllIndexerSections(portal.intelligence.indexer);
+    await renderUI.renderAllIndexerSections(kaspaPortal.intelligence.indexer);
   }, CACHED_RENDER_THROTTLE_MS);
 }
 
@@ -63,15 +90,16 @@ export async function handleConnectClick() {
   const networkId = elements.getNetworkInput().value.trim();
   const usePublicResolver = elements.getPublicResolverCheckbox().checked;
   try {
-
     // Get indexer options from UI
     const ttlInput = elements.getTtlInput();
     const maxSizeInput = elements.getMaxSizeInput();
     const inMemoryMaxInput = elements.getInMemoryMaxInput();
     const priorityRadios = elements.getIndexerPriorityRadios();
     const matchModeSelect = elements.getMatchModeSelect();
-    const indexAllTransactions = elements.getIndexAllTransactionsCheckbox().checked;
-    const indexAllMatchingTransactions = elements.getIndexAllMatchingTransactionsCheckbox().checked;
+    const indexAllTransactions =
+      elements.getIndexAllTransactionsCheckbox().checked;
+    const indexAllMatchingTransactions =
+      elements.getIndexAllMatchingTransactionsCheckbox().checked;
     const indexAllBlocks = elements.getIndexAllBlocksCheckbox().checked;
     const flushIntervalInput = elements.getFlushIntervalInput();
     const flushIntervalSeconds = parseInt(flushIntervalInput?.value) || 5;
@@ -84,16 +112,16 @@ export async function handleConnectClick() {
       if (radio.checked && radio.value === "size") priorityTTL = false;
     }
     let matchMode = matchModeSelect.value;
-    
+
     if (matchMode !== "custom") {
       currentIndexerOptions = {
         ttlMinutes,
         flushInterval,
         maxSize,
         priorityTTL,
-        matchMode,        
+        matchMode,
         inMemoryMaxTxs: inMemoryMax,
-        inMemoryMaxBlocks: inMemoryMax
+        inMemoryMaxBlocks: inMemoryMax,
       };
     } else {
       currentIndexerOptions = {
@@ -106,17 +134,21 @@ export async function handleConnectClick() {
         indexAllMatchingTransactions,
         indexAllBlocks,
         inMemoryMaxTxs: inMemoryMax,
-        inMemoryMaxBlocks: inMemoryMax
+        inMemoryMaxBlocks: inMemoryMax,
       };
     }
-    
-    portal = new KaspaPortal({
-      intelligence: {
-        indexer: currentIndexerOptions
-      }
+
+    await kaspaPortal.init();
+
+    await kaspaPortal.connect({
+      rpcUrl: usePublicResolver ? null : url,
+      networkId,
+      startIntelligence: false,
+      balanceElementId: "balanceResult",
+      indexerOptions: currentIndexerOptions,
     });
-    
-    portal
+
+    kaspaPortal
       .onNewTransaction(() => scheduleInMemoryLiveSnapshot())
       .onNewTransactionMatch(() => scheduleInMemoryLiveSnapshot())
       .onNewBlock(() => scheduleInMemoryLiveSnapshot())
@@ -126,34 +158,36 @@ export async function handleConnectClick() {
       .onEvict(() => scheduleInMemoryLiveSnapshot())
       .onCacheEvict(() => scheduleCachedSnapshotRender());
 
-    await portal.connect(usePublicResolver ? null : url, networkId, { startIntelligence: false, balanceElementId: "balanceResult" });
     statusDiv.textContent = "Connected";
 
-    await portal.intelligence.indexer.initDB();
-    renderUI.renderAllIndexerSections(portal.intelligence.indexer);
+    renderUI.renderAllIndexerSections(kaspaPortal.intelligence.indexer);
     scheduleInMemoryLiveSnapshot();
   } catch (err) {
     console.error("Connection error:", err);
-    statusDiv.textContent = "Connection failed: " + (err && err.message ? err.message : err);
+    statusDiv.textContent =
+      "Connection failed: " + (err && err.message ? err.message : err);
   }
 }
 
 export async function handleStartStopClick() {
   const startStopBtn = elements.getStartStopBtn();
   const statusDiv = elements.getStatusDiv();
-  if (!portal || !portal.client) return alert("Connect to a node first!");
+  if (!kaspaPortal || !kaspaPortal.client)
+    return alert("Connect to a node first!");
   if (!scanning) {
     // Clear previous blocks
-    const iframeDoc = elements.getBlocksIframe().contentDocument || elements.getBlocksIframe().contentWindow.document;
+    const iframeDoc =
+      elements.getBlocksIframe().contentDocument ||
+      elements.getBlocksIframe().contentWindow.document;
     if (iframeDoc && iframeDoc.body) iframeDoc.body.innerHTML = "";
     elements.getMatchesContainer().innerHTML = "";
     // Set search options
     const searchText = elements.getSearchInput().value.trim();
-    portal.intelligence.scanner.prefix = searchText ? searchText : null;
-    portal.intelligence.scanner.addresses = [];
-    portal.intelligence.scanner.searchMode = SearchMode.INCLUDES;
+    kaspaPortal.intelligence.scanner.addPrefix(searchText);
+    kaspaPortal.intelligence.scanner.addresses = [];
+    kaspaPortal.intelligence.scanner.searchMode = SearchMode.INCLUDES;
 
-    await portal.intelligence.scanner.start((block, matches) => {
+    await kaspaPortal.intelligence.scanner.start((block, matches) => {
       // UI: show block in iframe
       renderUI.addBlockToUI(block, null, null);
 
@@ -167,7 +201,7 @@ export async function handleStartStopClick() {
     startStopBtn.textContent = "Stop";
     statusDiv.textContent = "Scanning...";
   } else {
-    portal.intelligence.scanner.stop();
+    kaspaPortal.intelligence.scanner.stop();
     scanning = false;
     startStopBtn.textContent = "Start";
     statusDiv.textContent = "Stopped.";
@@ -176,16 +210,25 @@ export async function handleStartStopClick() {
 }
 
 export async function handleStartIndexerClick() {
-  if (!portal || !portal.intelligence || !portal.intelligence.indexer) return;
+  if (
+    !kaspaPortal ||
+    !kaspaPortal.intelligence ||
+    !kaspaPortal.intelligence.indexer
+  )
+    return;
+    console.log("Starting indexer...");
   try {
-    if (typeof portal.intelligence.indexer.freshStart === "function") {
-      await portal.intelligence.indexer.freshStart();
+    if (typeof kaspaPortal.intelligence.indexer.freshStart === "function") {
+      await kaspaPortal.intelligence.indexer.freshStart();
     } else {
-      await portal.intelligence.indexer.initDB();
-      portal.intelligence.indexer.start();
+      await kaspaPortal.intelligence.indexer.initDB();
+      kaspaPortal.intelligence.indexer.start();
     }
-    renderUI.restartCountdown(portal.intelligence.indexer.ttlMs);
-    renderUI.restartFlushCountdown(portal.intelligence.indexer.flushInterval);
+    console.log("Indexer started.");
+    renderUI.restartCountdown(kaspaPortal.intelligence.indexer.ttlMs);
+    renderUI.restartFlushCountdown(
+      kaspaPortal.intelligence.indexer.flushInterval,
+    );
   } catch (err) {
     console.error("Failed to start indexer:", err);
   }
@@ -196,7 +239,7 @@ export function handleStopIndexerClick() {
   renderUI.stopFlushCountdown();
   const countdownDiv = elements.getIndexerCountdownDiv();
   countdownDiv.textContent = "";
-  portal.intelligence.indexer.stop();
+  kaspaPortal.intelligence.indexer.stop();
 }
 
 export function handleMatchModeChange() {
@@ -210,29 +253,51 @@ export function handleMatchModeChange() {
 }
 
 export async function handleClearMatchingTxsClick() {
-  if (!portal || !portal.intelligence || !portal.intelligence.indexer) return;
-  await portal.intelligence.indexer.clearStore(IndexerStore.MATCHING_TRANSACTIONS);
+  if (
+    !kaspaPortal ||
+    !kaspaPortal.intelligence ||
+    !kaspaPortal.intelligence.indexer
+  )
+    return;
+  await kaspaPortal.intelligence.indexer.clearStore(
+    IndexerStore.MATCHING_TRANSACTIONS,
+  );
   renderUI.clearAllCachedSections();
 }
 
 export async function handleClearAllTxsClick() {
-  if (!portal || !portal.intelligence || !portal.intelligence.indexer) return;
-  await portal.intelligence.indexer.clearStore(IndexerStore.TRANSACTIONS);
+  if (
+    !kaspaPortal ||
+    !kaspaPortal.intelligence ||
+    !kaspaPortal.intelligence.indexer
+  )
+    return;
+  await kaspaPortal.intelligence.indexer.clearStore(IndexerStore.TRANSACTIONS);
   renderUI.clearAllCachedSections();
 }
 
 export async function handleClearBlocksClick() {
-  if (!portal || !portal.intelligence || !portal.intelligence.indexer) return;
-  await portal.intelligence.indexer.clearStore(IndexerStore.BLOCKS);
+  if (
+    !kaspaPortal ||
+    !kaspaPortal.intelligence ||
+    !kaspaPortal.intelligence.indexer
+  )
+    return;
+  await kaspaPortal.intelligence.indexer.clearStore(IndexerStore.BLOCKS);
   renderUI.clearAllCachedSections();
 }
 
 export function handleCreateWalletClick() {
-  const walletLoading = elements.getWalletLoading ? elements.getWalletLoading() : document.getElementById("walletLoading");
+  const walletLoading = elements.getWalletLoading
+    ? elements.getWalletLoading()
+    : document.getElementById("walletLoading");
   walletLoading.style.display = "inline-block";
   setTimeout(async () => {
-    if (!portal || !portal.client) return alert("Connect to a node first!");
-    const { address } = await portal.identity.createWallet({ password: "1234" });
+    if (!kaspaPortal || !kaspaPortal.client)
+      return alert("Connect to a node first!");
+    const { address } = await kaspaPortal.identity.createWallet({
+      password: "1234",
+    });
     walletInitialized = true;
     elements.getReceiveAddressLabel().textContent = address;
     elements.getToAddressInput().value = address;
@@ -246,7 +311,7 @@ export async function handleSendClick() {
   const amount = elements.getAmountInput().value.trim();
   let payload = elements.getPayloadInput().value.trim();
   try {
-    await portal.send({ amount, toAddress, payload });
+    await kaspaPortal.send({ amount, toAddress, payload });
     elements.getSendResultLabel().textContent = "Transaction sent!";
   } catch (err) {
     elements.getSendResultLabel().textContent = "Send error: " + err.message;
@@ -259,7 +324,7 @@ export function handleCopyClick() {
   if (addr) {
     navigator.clipboard.writeText(addr).then(() => {
       copyBtn.textContent = "Copied!";
-      setTimeout(() => copyBtn.textContent = "Copy", 1000);
+      setTimeout(() => (copyBtn.textContent = "Copy"), 1000);
     });
   }
 }

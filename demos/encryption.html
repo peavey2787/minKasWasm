@@ -23,10 +23,10 @@
   </div>
 
   <script type="module">
-    import { KaspaPortal } from "../wrapper/kaspaPortal.js";
+    import { kaspaPortal } from "../wrapper/kaspaPortal.js";
 
-    const portal = new KaspaPortal();
-    await portal.crypto.init();
+    const portal = kaspaPortal;
+    await portal.init();
 
     document.getElementById("encryptBtn").addEventListener("click", () => {
       const password = document.getElementById("password").value;

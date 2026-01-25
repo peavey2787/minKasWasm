@@ -1,12 +1,11 @@
 // kaspa_client.js
-import initKaspa, {
+import {
   RpcClient,
   Resolver,
   ConnectStrategy,
 } from "../kas-wasm/kaspa.js";
 
 let client = null;
-let wasmInitialized = false;
 let currentRpcUrl = null;
 let currentNetworkId = null;
 
@@ -15,11 +14,6 @@ export async function connect({
   networkId = "testnet-10",
   onDisconnect,
 } = {}) {
-  // Initialize Kaspa wasm sdk once
-  if (!wasmInitialized) {
-    await initKaspa();
-    wasmInitialized = true;
-  }
 
   console.log(
     `Connecting to Kaspa node at ${rpcUrl || "public resolver"} on network ${networkId}...`,
