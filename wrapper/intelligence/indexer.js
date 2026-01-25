@@ -98,6 +98,12 @@ export class KaspaIndexer {
     this.indexAllBlocks = indexAllBlocks;
     this._inMemoryMaxTxs = inMemoryMaxTxs;
     this._inMemoryMaxBlocks = inMemoryMaxBlocks;
+
+    // Use maxSize as default query cap for cached UI
+    if (typeof maxSize === "number" && maxSize > 0) {
+      this._defaultQueryLimit = maxSize;
+    }
+
     this._dbReady = new Promise((resolve) => {
       this._resolveDbReady = resolve;
     });
@@ -257,6 +263,17 @@ export class KaspaIndexer {
     const entry = { ...tx, timestamp: now };
     this._pendingTxs.push({ entry, isMatch });
 
+    // Enforce in-memory cap immediately (rolling buffer)
+    if (this._inMemoryMaxTxs && this._inMemoryMaxTxs > 0) {
+      this._pruneInMemoryBuffer(
+        this._pendingTxs,
+        this._inMemoryMaxTxs,
+        EvictionReason.IN_MEMORY_TRANSACTION,
+        IndexerStore.TRANSACTIONS,
+        "txid",
+      );
+    }
+
     // Notify for all transactions added in-memory, respecting matchMode and indexAll* flags
     if (typeof this.onIndexerUpdate === "function") {
       // Only emit if user wants all transactions in memory
@@ -326,6 +343,17 @@ export class KaspaIndexer {
       }
       const blockEntry = { ...block, timestamp: now, hash };
       this._pendingBlocks.push(blockEntry);
+
+      // Enforce in-memory cap immediately (rolling buffer)
+      if (this._inMemoryMaxBlocks && this._inMemoryMaxBlocks > 0) {
+        this._pruneInMemoryBuffer(
+          this._pendingBlocks,
+          this._inMemoryMaxBlocks,
+          EvictionReason.IN_MEMORY_BLOCK,
+          IndexerStore.BLOCKS,
+          "hash",
+        );
+      }
       this._metrics.blocksIndexed++;
 
       // Only emit if user wants blocks in memory
@@ -357,6 +385,26 @@ export class KaspaIndexer {
 
     this._flushPromise = (async () => {
       await this._dbReady;
+
+      // Enforce caps before writing (keeps in-memory UI within limits)
+      if (this._inMemoryMaxTxs && this._inMemoryMaxTxs > 0) {
+        this._pruneInMemoryBuffer(
+          this._pendingTxs,
+          this._inMemoryMaxTxs,
+          EvictionReason.IN_MEMORY_TRANSACTION,
+          IndexerStore.TRANSACTIONS,
+          "txid",
+        );
+      }
+      if (this._inMemoryMaxBlocks && this._inMemoryMaxBlocks > 0) {
+        this._pruneInMemoryBuffer(
+          this._pendingBlocks,
+          this._inMemoryMaxBlocks,
+          EvictionReason.IN_MEMORY_BLOCK,
+          IndexerStore.BLOCKS,
+          "hash",
+        );
+      }
 
       // Temporary arrays to collect items for batched emission
       const batchTxs = [];
