@@ -122,6 +122,24 @@ export async function handleConnectClick() {
         matchMode,
         inMemoryMaxTxs: inMemoryMax,
         inMemoryMaxBlocks: inMemoryMax,
+        onIndexerUpdate: (evt) => {
+          if (!evt || !evt.type) return;
+          if (
+            evt.type === "transaction-in-memory" ||
+            evt.type === "matching-transaction-in-memory" ||
+            evt.type === "block-in-memory" ||
+            evt.type === "evict"
+          ) {
+            scheduleInMemoryLiveSnapshot();
+          }
+          if (
+            evt.type === "transaction-cached" ||
+            evt.type === "matching-transaction-cached" ||
+            evt.type === "block-cached"
+          ) {
+            scheduleCachedSnapshotRender();
+          }
+        },
       };
     } else {
       currentIndexerOptions = {
@@ -135,6 +153,24 @@ export async function handleConnectClick() {
         indexAllBlocks,
         inMemoryMaxTxs: inMemoryMax,
         inMemoryMaxBlocks: inMemoryMax,
+        onIndexerUpdate: (evt) => {
+          if (!evt || !evt.type) return;
+          if (
+            evt.type === "transaction-in-memory" ||
+            evt.type === "matching-transaction-in-memory" ||
+            evt.type === "block-in-memory" ||
+            evt.type === "evict"
+          ) {
+            scheduleInMemoryLiveSnapshot();
+          }
+          if (
+            evt.type === "transaction-cached" ||
+            evt.type === "matching-transaction-cached" ||
+            evt.type === "block-cached"
+          ) {
+            scheduleCachedSnapshotRender();
+          }
+        },
       };
     }
 
@@ -216,14 +252,10 @@ export async function handleStartIndexerClick() {
     !kaspaPortal.intelligence.indexer
   )
     return;
-    console.log("Starting indexer...");
+  console.log("Starting indexer...");
   try {
-    if (typeof kaspaPortal.intelligence.indexer.freshStart === "function") {
-      await kaspaPortal.intelligence.indexer.freshStart();
-    } else {
-      await kaspaPortal.intelligence.indexer.initDB();
-      kaspaPortal.intelligence.indexer.start();
-    }
+    const idx = kaspaPortal.intelligence.indexer;
+    idx.start();
     console.log("Indexer started.");
     renderUI.restartCountdown(kaspaPortal.intelligence.indexer.ttlMs);
     renderUI.restartFlushCountdown(
