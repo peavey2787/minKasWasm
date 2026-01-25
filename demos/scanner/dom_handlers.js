@@ -23,11 +23,11 @@ const CACHED_RENDER_THROTTLE_MS = 350;
 let cachedFlushRefreshTimer = null;
 let cachedTtlRefreshTimer = null;
 
-function startCachedAutoRefresh(indexer) {
+function startCachedAutoRefresh(timings) {
   stopCachedAutoRefresh();
 
-  const flushMs = Math.max(500, indexer?.flushInterval || 5000);
-  const ttlMs = Math.max(1000, indexer?.ttlMs || 600000);
+  const flushMs = Math.max(500, timings?.flushInterval || 5000);
+  const ttlMs = Math.max(1000, timings?.ttlMs || 600000);
 
   cachedFlushRefreshTimer = setInterval(
     () => scheduleCachedSnapshotRender(),
@@ -52,17 +52,11 @@ function stopCachedAutoRefresh() {
 }
 
 function renderInMemoryLiveSnapshot() {
-  if (!kaspaPortal || !kaspaPortal.indexer)
-    return;
-  renderUI.renderInMemoryAllTransactionsSection(
-    kaspaPortal.indexer.getAllTransactions(),
-  );
-  renderUI.renderInMemoryMatchingTransactionsSection(
-    kaspaPortal.indexer.getAllMatchingTransactions(),
-  );
-  renderUI.renderInMemoryBlocksSection(
-    kaspaPortal.indexer.getAllBlocks(),
-  );
+  if (!kaspaPortal?.isReady) return;
+  const snap = kaspaPortal.getInMemorySnapshot();
+  renderUI.renderInMemoryAllTransactionsSection(snap.allTxs);
+  renderUI.renderInMemoryMatchingTransactionsSection(snap.matchingTxs);
+  renderUI.renderInMemoryBlocksSection(snap.blocks);
 }
 
 function isInMemoryPanelOpen() {
@@ -86,16 +80,23 @@ function scheduleInMemoryLiveSnapshot() {
   }, IN_MEMORY_RENDER_THROTTLE_MS);
 }
 
+async function renderCachedSnapshot() {
+  if (!kaspaPortal?.isReady) return;
+  const snap = await kaspaPortal.getCachedSnapshot();
+  renderUI.renderAllTransactionsSection(snap.allTxs);
+  renderUI.renderMatchingTransactionsSection(snap.matchingTxs);
+  renderUI.renderAllBlocksSection(snap.blocks);
+}
+
 function scheduleCachedSnapshotRender() {
   // Don’t do IndexedDB reads + DOM work when the user can’t see it.
   if (!isCachedPanelOpen()) return;
-  if (!kaspaPortal || !kaspaPortal.indexer)
-    return;
+  if (!kaspaPortal?.isReady) return;
 
   if (cachedRenderTimer) return;
   cachedRenderTimer = setTimeout(async () => {
     cachedRenderTimer = null;
-    await renderUI.renderAllIndexerSections(kaspaPortal.indexer);
+    await renderCachedSnapshot();
   }, CACHED_RENDER_THROTTLE_MS);
 }
 
@@ -215,7 +216,7 @@ export async function handleConnectClick() {
 
     statusDiv.textContent = "Connected";
 
-    renderUI.renderAllIndexerSections(kaspaPortal.indexer);
+    await renderCachedSnapshot();
     scheduleInMemoryLiveSnapshot();
   } catch (err) {
     console.error("Connection error:", err);
@@ -265,16 +266,12 @@ export async function handleStartStopClick() {
 }
 
 export async function handleStartIndexerClick() {
-  if (!kaspaPortal || !kaspaPortal.indexer)
-    return;
   try {
-    const idx = kaspaPortal.indexer;
-    await kaspaPortal.initIndexer();
-    kaspaPortal.startIndexer();
-    renderUI.restartCountdown(idx.ttlMs);
-    renderUI.restartFlushCountdown(idx.flushInterval);
-    startCachedAutoRefresh(idx);
-    await renderUI.renderAllIndexerSections(idx);
+    const timings = await kaspaPortal.startIndexer();
+    renderUI.restartCountdown(timings.ttlMs);
+    renderUI.restartFlushCountdown(timings.flushInterval);
+    startCachedAutoRefresh(timings);
+    await renderCachedSnapshot();
   } catch (err) {
     console.error("Failed to start indexer:", err);
   }
@@ -300,22 +297,19 @@ export function handleMatchModeChange() {
 }
 
 export async function handleClearMatchingTxsClick() {
-  if (!kaspaPortal || !kaspaPortal.indexer)
-    return;
+  if (!kaspaPortal?.isReady) return;
   await kaspaPortal.clearIndexerStore(IndexerStore.MATCHING_TRANSACTIONS);
   renderUI.clearAllCachedSections();
 }
 
 export async function handleClearAllTxsClick() {
-  if (!kaspaPortal || !kaspaPortal.indexer)
-    return;
+  if (!kaspaPortal?.isReady) return;
   await kaspaPortal.clearIndexerStore(IndexerStore.TRANSACTIONS);
   renderUI.clearAllCachedSections();
 }
 
 export async function handleClearBlocksClick() {
-  if (!kaspaPortal || !kaspaPortal.indexer)
-    return;
+  if (!kaspaPortal?.isReady) return;
   await kaspaPortal.clearIndexerStore(IndexerStore.BLOCKS);
   renderUI.clearAllCachedSections();
 }

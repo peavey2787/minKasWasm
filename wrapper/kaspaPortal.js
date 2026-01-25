@@ -1,13 +1,23 @@
 import { KKTPProtocol } from "../kktp/protocol/kktpProtocol.js";
 import { TransportFacade } from "./transport/transportFacade.js";
 import { IdentityFacade } from "./identity/identityFacade.js";
-import { IntelligenceFacade } from "./intelligence/intelligenceFacade.js";
+import {
+  IntelligenceFacade,
+  IndexerEventType,
+  MatchMode,
+  EvictionReason,
+  IndexerStore,
+  SearchMode,
+} from "./intelligence/intelligenceFacade.js";
 import { CryptoFacade } from "./crypto/cryptoFacade.js";
 import { VRFFacade } from "./vrf/vrfFacade.js";
 import { KKTPStateMachine } from "../kktp/protocol/stateMachine.js";
 import initKaspa from "./kas-wasm/kaspa.js";
 
 let wasmInitialized = false;
+
+// Re-export common enums for convenience
+export { SearchMode, IndexerEventType, MatchMode, EvictionReason, IndexerStore };
 
 /**
  * KaspaPortal: The Master Facade.
@@ -124,13 +134,6 @@ export class KaspaPortal {
   }
 
   /**
-   * Access the indexer facade directly (read-only convenience).
-   */
-  get indexer() {
-    return this.intelligence?.indexer || null;
-  }
-
-  /**
    * Access the underlying RPC client directly.
    */
   get client() {
@@ -226,19 +229,17 @@ export class KaspaPortal {
 
   /** Set scanner search mode */
   setSearchMode(mode) {
-    if (this.intelligence?.scanner) {
-      this.intelligence.scanner.searchMode = mode;
-    }
+    this.intelligence?.setSearchMode(mode);
   }
 
   /** Start the live block scanner */
   async startScanner(onBlock) {
-    return this.intelligence?.scanner?.start(onBlock);
+    return this.intelligence?.startScanner(onBlock);
   }
 
   /** Stop the live block scanner */
   stopScanner() {
-    this.intelligence?.scanner?.stop();
+    this.intelligence?.stopScanner();
   }
 
   // Indexer Methods

@@ -3,11 +3,22 @@ import {
   scanDagForward,
   scanDagBackward,
 } from "./dag_walk.js";
-import { KaspaBlockScanner } from "./scanner.js";
-import { IndexerEventType, EvictionReason } from "./indexer.js";
+import { KaspaBlockScanner, SearchMode } from "./scanner.js";
+import {
+  IndexerEventType,
+  MatchMode,
+  EvictionReason,
+  IndexerStore,
+} from "./indexer.js";
 
 // Re-export indexer enums
-export { IndexerEventType, MatchMode, EvictionReason, IndexerStore };
+export {
+  IndexerEventType,
+  MatchMode,
+  EvictionReason,
+  IndexerStore,
+  SearchMode,
+};
 
 export class IntelligenceFacade {
   /**
@@ -57,6 +68,12 @@ export class IntelligenceFacade {
         break;
       case IndexerEventType.BLOCK_CACHED:
         this._trigger("onCachedBlock", data);
+        break;
+      case IndexerEventType.FLUSH_COMPLETED:
+        this._trigger("onFlushCompleted", data);
+        break;
+      case IndexerEventType.EVICT_CYCLE_COMPLETED:
+        this._trigger("onEvictCycleCompleted", data);
         break;
       case IndexerEventType.EVICT:
         // Differentiate between cache evictions and full evictions
@@ -146,6 +163,18 @@ export class IntelligenceFacade {
 
   stopIndexer() {
     this.indexer.stop();
+  }
+
+  setSearchMode(mode) {
+    if (this.scanner) this.scanner.searchMode = mode;
+  }
+
+  async startScanner(onBlock) {
+    return this.scanner.start(onBlock);
+  }
+
+  stopScanner() {
+    this.scanner.stop();
   }
 
   async getCachedSnapshot() {
