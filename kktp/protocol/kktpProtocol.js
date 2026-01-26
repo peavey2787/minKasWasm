@@ -62,23 +62,15 @@ export class KKTPProtocol {
 
   /**
    * PHASE 3: Communicate
-   * (Keep your existing pack/messenger logic or move to factory)
+   * Delegates to state machine for proper seq tracking (§6.6)
    */
-  async createMessageAnchor(plaintext) {
+  createMessageAnchor(plaintext) {
     if (this.sm.state !== KKTP_STATES.ACTIVE) {
       throw new Error("Cannot send message: Session not established.");
     }
-    const direction = this.sm.isInitiator ? "AtoB" : "BtoA";
 
-    // Using factory for consistency (§5.4: sid is required)
-    return await this.anchorFactory.createMessage(
-      this.sm.kktp.sid,
-      this.sm.kktp.mailboxId,
-      direction,
-      this.sm.kktp.nextSeq(), // Ensure SM tracks sequence
-      plaintext,
-      this.sm.kktp.sessionKey
-    );
+    // Use state machine to ensure seq tracking + canonicalization (§5.4, §6.6)
+    return this.sm.sendMessage(plaintext);
   }
 
   /**

@@ -32,11 +32,11 @@
     },
 
     "vrf_value": {
-      "type": "string"
+      "type": ["string", "null"]
     },
 
     "vrf_proof": {
-      "type": "string"
+      "type": ["string", "null"]
     },
 
     "meta": {
@@ -65,14 +65,7 @@
     }
   },
 
-  "required": [
-    "type",
-    "version",
-    "sid",
-    "pub_sig",
-    "pub_dh",
-    "meta"
-  ],
+  "required": ["type", "version", "sid", "pub_sig", "pub_dh", "meta", "sig"],
 
   "additionalProperties": false
 }

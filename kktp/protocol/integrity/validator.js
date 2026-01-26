@@ -57,7 +57,8 @@ export class KKTPValidator {
     }
 
     // 4. Check Regex Patterns (Strict Hex checking)
-    if (schema.pattern) {
+    // Skip pattern check if value is null (for optional fields like VRF)
+    if (schema.pattern && value !== null) {
       const re =
         schema.pattern instanceof RegExp
           ? schema.pattern
@@ -84,6 +85,17 @@ export class KKTPValidator {
   _checkType(expected, value, path) {
     const actual =
       value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+
+    // Support union types like ["string", "null"] for optional VRF fields
+    if (Array.isArray(expected)) {
+      if (!expected.includes(actual)) {
+        throw new KKTPValidationError(
+          `Expected type "${expected.join("|")}" but got "${actual}"`,
+          path,
+        );
+      }
+      return;
+    }
 
     if (expected === "number") {
       if (actual !== "number" || !Number.isFinite(value)) {

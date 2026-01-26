@@ -44,11 +44,11 @@
     },
 
     "vrf_value": {
-      "type": "string"
+      "type": ["string", "null"]
     },
 
     "vrf_proof": {
-      "type": "string"
+      "type": ["string", "null"]
     },
 
     "sig_resp": {
@@ -64,7 +64,8 @@
     "initiator_pub_sig",
     "initiator_pub_dh",
     "pub_sig_resp",
-    "pub_dh_resp"
+    "pub_dh_resp",
+    "sig_resp"
   ],
 
   "additionalProperties": false

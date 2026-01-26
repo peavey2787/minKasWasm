@@ -83,6 +83,7 @@ export async function establishSession(
     throw new Error("Handshake Failed: Invalid Signatures");
 
   // 2. VRF Binding Verification (§6.1, §7.3)
+  // VRF is OPTIONAL per deployment - only verify if present
   // VRF input MUST be H(pub_sig || pub_dh || sid) to prevent canonicalization attacks
   const initiatorVrfInputHash = computeVrfInputHash(
     discovery.pub_sig,
@@ -98,20 +99,42 @@ export async function establishSession(
     discovery.sid,
   );
 
-  const isInitiatorVrfValid = await kaspaPortal.verify(
-    discovery.vrf_value,
-    discovery.vrf_proof,
-    bytesToHex(initiatorVrfInputHash),
-  );
+  // VRF fields must be consistently null or non-null (value/proof pair)
+  const hasInitiatorVrf =
+    discovery.vrf_value !== null && discovery.vrf_proof !== null;
+  const hasResponderVrf =
+    response.vrf_value !== null && response.vrf_proof !== null;
 
-  const isResponderVrfValid = await kaspaPortal.verify(
-    response.vrf_value,
-    response.vrf_proof,
-    bytesToHex(responderVrfInputHash),
-  );
+  // Validate VRF field consistency (both null or both present)
+  if (
+    (discovery.vrf_value === null) !== (discovery.vrf_proof === null) ||
+    (response.vrf_value === null) !== (response.vrf_proof === null)
+  ) {
+    throw new Error("Handshake Failed: VRF value/proof mismatch.");
+  }
 
-  if (!isInitiatorVrfValid || !isResponderVrfValid) {
-    throw new Error("Handshake Failed: VRF Binding Mismatch.");
+  // Only verify VRF if initiator provided it
+  if (hasInitiatorVrf) {
+    const isInitiatorVrfValid = await kaspaPortal.verify(
+      discovery.vrf_value,
+      discovery.vrf_proof,
+      bytesToHex(initiatorVrfInputHash),
+    );
+    if (!isInitiatorVrfValid) {
+      throw new Error("Handshake Failed: Initiator VRF Binding Mismatch.");
+    }
+  }
+
+  // Only verify VRF if responder provided it
+  if (hasResponderVrf) {
+    const isResponderVrfValid = await kaspaPortal.verify(
+      response.vrf_value,
+      response.vrf_proof,
+      bytesToHex(responderVrfInputHash),
+    );
+    if (!isResponderVrfValid) {
+      throw new Error("Handshake Failed: Responder VRF Binding Mismatch.");
+    }
   }
 
   // 3. DH Shared Secret Derivation

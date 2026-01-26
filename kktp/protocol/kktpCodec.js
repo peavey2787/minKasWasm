@@ -60,15 +60,21 @@ export function unpack(kktpState, msg) {
   // 1. Validation: Ensure the object matches the schema before processing
   mailboxMessageValidator.validate(msg);
 
-  const { sessionKey, mailboxId } = kktpState;
+  const { sessionKey, mailboxId, sid } = kktpState;
 
-  // 2. Filter: Ignore if it doesn't belong to this mailbox
+  // 2. Filter: Ignore if it doesn't belong to this mailbox or session (§7.6)
   if (msg.mailbox_id !== mailboxId) return null;
+  if (msg.sid !== sid) return null;
 
   // 3. Reconstruction: Build AAD for decryption/integrity check
   const aad = constructAAD(mailboxId, msg.direction, msg.seq);
   const nonceBytes = hexToBytes(msg.nonce);
   const ciphertextBytes = hexToBytes(msg.ciphertext);
+
+  // 3b. Validate nonce length (§4: XChaCha20 requires 192-bit / 24-byte nonce)
+  if (nonceBytes.length !== 24) {
+    throw new Error("Invalid nonce length: expected 24 bytes.");
+  }
 
   // 4. Section 6.6: Decryption Hardening
   // Verify authentication tag + decrypt in one step (AEAD)
