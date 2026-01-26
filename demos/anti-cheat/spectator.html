@@ -60,7 +60,7 @@
       <div class="section-header">
         <h2>👁️ Spectator View</h2>
       </div>
-      
+
       <div class="game-row">
         <div class="game-panel" style="flex:1; max-width:100%;">
           <div class="panel-header">
@@ -72,7 +72,7 @@
             </div>
           </div>
           <p class="panel-desc">Connect to the same network as the player to scan for KKTP anchors.</p>
-          
+
           <div class="controls-row" style="margin-bottom:1rem;">
              <div class="control-group">
               <label for="payloadPrefix">Payload Prefix</label>
@@ -91,8 +91,18 @@
           </div>
 
           <div class="log-area">
-            <strong>Blockchain Log:</strong>
+            <div class="log-header">
+              <strong>Blockchain Log:</strong>
+              <button id="toggleSecurityLogBtn" class="small secondary">Show Security Details</button>
+            </div>
             <div id="spectatorLogPanel" class="output-panel small">No moves received yet.</div>
+          </div>
+
+          <div id="securityLogContainer" class="log-area hidden">
+            <div class="log-header">
+              <strong>Security Heartbeat:</strong>
+            </div>
+            <div id="securityLogPanel" class="output-panel small">Security details will appear here.</div>
           </div>
         </div>
       </div>

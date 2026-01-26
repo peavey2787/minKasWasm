@@ -161,6 +161,17 @@ export function initSpectator() {
     startSpectator(sid);
   });
 
+  // Security log toggle
+  const toggleBtn = document.getElementById('toggleSecurityLogBtn');
+  const secContainer = document.getElementById('securityLogContainer');
+  if (toggleBtn && secContainer) {
+    toggleBtn.addEventListener('click', () => {
+      const isHidden = secContainer.classList.contains('hidden');
+      secContainer.classList.toggle('hidden', !isHidden);
+      toggleBtn.textContent = isHidden ? 'Hide Security Details' : 'Show Security Details';
+    });
+  }
+
   try {
     ensureBehindBanner();
   } catch { /* ignore */ }

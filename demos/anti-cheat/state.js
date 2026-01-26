@@ -28,6 +28,7 @@ export const state = {
   btcBlocks: [],
   qrngData: [],
   foldedOutput: null,
+  vrfProof: null,
   nistResults: [],
 
   // Player state
@@ -48,6 +49,8 @@ export const state = {
     mailboxId: null, // hex
     seq: 0
   },
+  spectatorSessionEstablished: false,
+  spectatorHandshakeLogged: false,
 
   // Session (new each "Start Game")
   sessionId: null,
@@ -150,6 +153,8 @@ export function resetSpectatorState() {
     mailboxId: null,
     seq: 0
   };
+  state.spectatorSessionEstablished = false;
+  state.spectatorHandshakeLogged = false;
 
   // Chain ordering state
   state.spectatorSessionId = null;

@@ -112,13 +112,14 @@ export async function performKKTPHandshake() {
       startY: state.playerStartPos.y,
       timestamp: Date.now()
     },
-    vrfValue
+    vrfValue,
+    state.vrfProof
   );
 
   // 3. Simulate Peer (Responder) for demo purposes
   const peerIdentity = await KKTP.generateIdentityKey();
   const peerSession = await KKTP.generateSessionKey();
-  const response = await KKTP.createResponseAnchor(discovery, peerIdentity, peerSession);
+  const response = await KKTP.createResponseAnchor(discovery, peerIdentity, peerSession, vrfValue, state.vrfProof);
 
   // 4. Publish Anchors (Bundled for speed in demo, usually separate)
   const prefix = $('payloadPrefix')?.value || 'KKTP';

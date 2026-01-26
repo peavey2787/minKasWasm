@@ -41,7 +41,7 @@ export async function generateSessionKey() {
 }
 
 // --- Anchors ---
-export async function createDiscoveryAnchor(sid, identityKey, sessionKey, meta = {}, vrfValue = null) {
+export async function createDiscoveryAnchor(sid, identityKey, sessionKey, meta = {}, vrfValue = null, vrfProof = null) {
   const anchor = {
     type: "discovery",
     version: 1,
@@ -49,18 +49,18 @@ export async function createDiscoveryAnchor(sid, identityKey, sessionKey, meta =
     pub_sig: identityKey.pub,
     pub_dh: sessionKey.pub,
     vrf_value: vrfValue,
-    vrf_proof: null,
+    vrf_proof: vrfProof,
     meta
   };
-  
+
   const payload = new TextEncoder().encode(canonicalStringify(anchor));
   const sig = await ed.sign(payload, identityKey.priv);
   anchor.sig = bytesToHex(sig);
-  
+
   return anchor;
 }
 
-export async function createResponseAnchor(discoveryAnchor, identityKey, sessionKey, vrfValue = null) {
+export async function createResponseAnchor(discoveryAnchor, identityKey, sessionKey, vrfValue = null, vrfProof = null) {
   const anchor = {
     type: "response",
     version: 1,
@@ -70,7 +70,7 @@ export async function createResponseAnchor(discoveryAnchor, identityKey, session
     pub_sig_resp: identityKey.pub,
     pub_dh_resp: sessionKey.pub,
     vrf_value: vrfValue || discoveryAnchor.vrf_value,
-    vrf_proof: null
+    vrf_proof: vrfProof || discoveryAnchor.vrf_proof || null
   };
 
   const payload = new TextEncoder().encode(canonicalStringify(anchor));
@@ -99,13 +99,13 @@ export async function deriveSessionSecrets(isInitiator, myPrivDh, peerPubDh, sid
   const privBytes = hexToBytes(myPrivDh);
   const pubBytes = hexToBytes(peerPubDh);
   const shared = await ed.getSharedSecret(privBytes, pubBytes);
-  
+
   const salt = new TextEncoder().encode(sid);
   // Info: A's pub_sig || B's pub_sig_resp
   const info = new Uint8Array([...hexToBytes(pubSigA), ...hexToBytes(pubSigB)]);
-  
+
   const kSession = hkdf(blake2b, shared, salt, info, 32);
-  
+
   // Mailbox ID: H(pub_sig || pub_sig_resp || sid)
   const mailboxInput = new Uint8Array([...hexToBytes(pubSigA), ...hexToBytes(pubSigB), ...new TextEncoder().encode(sid)]);
   const mailboxId = bytesToHex(hash(mailboxInput));
@@ -116,12 +116,12 @@ export async function deriveSessionSecrets(isInitiator, myPrivDh, peerPubDh, sid
 export function derivePublicSessionSecrets(vrfValueHex, sid, pubSigA, pubSigB) {
   // In public mode, the VRF output acts as the shared secret
   const shared = hexToBytes(vrfValueHex);
-  
+
   const salt = new TextEncoder().encode(sid);
   const info = new Uint8Array([...hexToBytes(pubSigA), ...hexToBytes(pubSigB)]);
-  
+
   const kSession = hkdf(blake2b, shared, salt, info, 32);
-  
+
   const mailboxInput = new Uint8Array([...hexToBytes(pubSigA), ...hexToBytes(pubSigB), ...new TextEncoder().encode(sid)]);
   const mailboxId = bytesToHex(hash(mailboxInput));
 
@@ -136,16 +136,16 @@ export function encryptMessage(kSession, mailboxId, direction, seq, plaintextObj
 
   const nonce = randomBytes(24); // 192-bit
   const plaintext = new TextEncoder().encode(canonicalStringify(plaintextObj));
-  
+
   // AAD: mailbox_id (bytes) || direction (utf8) || seq (u64be)
   const dirBytes = new TextEncoder().encode(direction);
   const seqBytes = new Uint8Array(8);
   new DataView(seqBytes.buffer).setBigUint64(0, BigInt(seq), false); // BigEndian
-  
+
   const aad = new Uint8Array([...hexToBytes(mailboxId), ...dirBytes, ...seqBytes]);
-  
+
   const ciphertext = xchacha20poly1305(kSession, nonce, aad).encrypt(plaintext);
-  
+
   return {
     type: "msg",
     version: 1,
@@ -165,9 +165,9 @@ export function decryptMessage(kSession, msgObj) {
   const dirBytes = new TextEncoder().encode(msgObj.direction);
   const seqBytes = new Uint8Array(8);
   new DataView(seqBytes.buffer).setBigUint64(0, BigInt(msgObj.seq), false);
-  
+
   const aad = new Uint8Array([...mailboxIdBytes, ...dirBytes, ...seqBytes]);
-  
+
   try {
     const plaintextBytes = xchacha20poly1305(kSession, nonce, aad).decrypt(ciphertext);
     const json = new TextDecoder().decode(plaintextBytes);
@@ -182,7 +182,7 @@ export function decryptMessage(kSession, msgObj) {
 export async function verifyAnchorSignature(anchor) {
   let pubKey, sig;
   const copy = { ...anchor };
-  
+
   if (anchor.type === 'discovery') {
     pubKey = anchor.pub_sig;
     sig = anchor.sig;

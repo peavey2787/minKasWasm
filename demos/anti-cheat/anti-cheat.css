@@ -282,6 +282,15 @@ button.small {
   width: 8px;
 }
 
+.log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.hidden { display: none; }
 .output-panel::-webkit-scrollbar-track {
   background: var(--bg-dark);
 }
@@ -584,12 +593,12 @@ button.small {
     grid-template-columns: repeat(10, 30px);
     grid-template-rows: repeat(10, 30px);
   }
-  
+
   .controls-row {
     flex-direction: column;
     align-items: stretch;
   }
-  
+
   .section-header {
     flex-direction: column;
     align-items: flex-start;

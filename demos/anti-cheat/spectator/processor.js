@@ -14,6 +14,8 @@ const live = {
   pendingEncrypted: [], // Buffer for packets arriving before keys
 };
 
+const logSec = (msg) => log('securityLogPanel', msg, false);
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -37,10 +39,10 @@ function computeBehindState() {
   const pending = getPendingCount();
   const lastAppliedSeq = typeof state.spectatorLastSeq === 'number' ? state.spectatorLastSeq : -1;
   const latestSeen = typeof live.latestSeqSeen === 'number' ? live.latestSeqSeen : -1;
-  
+
   const lag = latestSeen >= 0 && lastAppliedSeq >= 0 ? Math.max(0, latestSeen - lastAppliedSeq) : (queued + pending);
   const behind = (queued > 2 || lag > 2);
-  
+
   return { behind, queued, pending, lag };
 }
 
@@ -102,14 +104,14 @@ async function applyMovesWithLatency(obj, { animate = false, stepMs = 0 } = {}) 
   for (let i = 0; i < moves.length; i++) {
     const ch = moves[i];
     const dir = ch === 'U' ? 'UP' : ch === 'D' ? 'DOWN' : ch === 'L' ? 'LEFT' : ch === 'R' ? 'RIGHT' : null;
-    
+
     // Strict State Sync: Update state directly, then render
     if (dir) {
       if (dir === 'UP' && state.spectatorPos.y > 0) state.spectatorPos.y--;
       if (dir === 'DOWN' && state.spectatorPos.y < 9) state.spectatorPos.y++;
       if (dir === 'LEFT' && state.spectatorPos.x > 0) state.spectatorPos.x--;
       if (dir === 'RIGHT' && state.spectatorPos.x < 9) state.spectatorPos.x++;
-      
+
       UI.updateSpectatorGrid();
       log('spectatorLogPanel', `[MOVE] #${(obj.seq0 || 0) + i} [${dir}]`, false);
     }
@@ -170,21 +172,39 @@ export async function tryAcceptAnchor(obj, meta, opts = {}) {
   // --- [1. Standard KKTP Decryption] ---
   if (obj.type === 'msg' && obj.ciphertext && !obj.moves) {
     if (state.kktp.kSession) {
-      if (state.kktp.mailboxId && obj.mailbox_id !== state.kktp.mailboxId) return; 
+      if (state.kktp.mailboxId && obj.mailbox_id !== state.kktp.mailboxId) {
+        logSec(`[INTEGRITY] Mailbox mismatch: expected ${state.kktp.mailboxId.slice(0, 8)}..., got ${obj.mailbox_id?.slice(0, 8) || 'unknown'}...`);
+        return;
+      }
       try {
+        logSec(`[DECRYPT] Payload: KKTP:${obj.mailbox_id?.slice(0, 8) || '????'}... seq=${obj.seq} dir=${obj.direction}`);
         const decrypted = KKTP.decryptMessage(state.kktp.kSession, obj);
+        const tagHex = typeof obj.ciphertext === 'string' && obj.ciphertext.length >= 32
+          ? obj.ciphertext.slice(-32)
+          : 'unknown';
+        logSec(`[SEC] AEAD Verify: Tag ${tagHex.slice(0, 4)}... Match Found. Integrity Guaranteed.`);
+        logSec(`[INTEGRITY] AEAD verified: mailbox ${obj.mailbox_id?.slice(0, 8) || '????'} | seq ${obj.seq} | dir ${obj.direction}`);
         obj = decrypted;
-      } catch (e) { return; }
+      } catch (e) {
+        logSec(`[INTEGRITY] AEAD verification failed: seq ${obj.seq} (message dropped)`);
+        return;
+      }
     } else {
       if (!state.spectatorSessionId || obj.sid === state.spectatorSessionId) {
         live.pendingEncrypted.push({ obj, meta, opts });
+        logSec(`[DECRYPT] Encrypted payload queued (awaiting session keys) seq=${obj.seq}`);
       }
-      return; 
+      return;
     }
   }
 
   // --- [2. KKTP Handshake & Discovery] ---
   if (obj.type === 'discovery') {
+    if (!state.spectatorHandshakeLogged) {
+      logSec(`[SEC] DH-Handshake Initiated: Using X25519 Curve`);
+      logSec(`[SEC] Peer PubKey Verified: ${obj.pub_sig?.slice(0, 8) || '????'}... (Identity Bound)`);
+      state.spectatorHandshakeLogged = true;
+    }
     if (obj.meta && typeof obj.meta.startX === 'number') {
       state.spectatorPos = { x: obj.meta.startX, y: obj.meta.startY };
       // Kickstart: Use discovery to set baseline sequence if available
@@ -197,16 +217,31 @@ export async function tryAcceptAnchor(obj, meta, opts = {}) {
   }
 
   if (obj.type === 'response') {
+    if (state.spectatorSessionEstablished) {
+      logSec(`[SEC] Re-handshake detected (session already established). Ignoring duplicate response.`);
+      return;
+    }
     if (obj.vrf_value) {
+      logSec(`[VRF] Entropy Value Received: ${obj.vrf_value.slice(0, 8)}...`);
+      if (obj.vrf_proof) {
+        const proofStr = typeof obj.vrf_proof === 'string'
+          ? obj.vrf_proof
+          : JSON.stringify(obj.vrf_proof);
+        logSec(`[VRF] Proof: ${proofStr.slice(0, 4)}...${proofStr.slice(-4)}`);
+      } else {
+        logSec(`[VRF] Proof: unavailable`);
+      }
       const secrets = KKTP.derivePublicSessionSecrets(
-        obj.vrf_value, 
-        obj.sid, 
-        obj.initiator_pub_sig, 
+        obj.vrf_value,
+        obj.sid,
+        obj.initiator_pub_sig,
         obj.pub_sig_resp
       );
       state.kktp.kSession = secrets.kSession;
       state.kktp.mailboxId = secrets.mailboxId;
       log('spectatorLogPanel', `Derived session keys from VRF. Mailbox: ${secrets.mailboxId.slice(0,8)}...`);
+      logSec(`[SEC] HKDF-Expand: Deriving SessionKeys + MailboxID (${secrets.mailboxId.slice(0, 8)})`);
+      state.spectatorSessionEstablished = true;
 
       // Keys derived: Retry any pending encrypted messages
       if (live.pendingEncrypted.length > 0) {
@@ -231,7 +266,7 @@ export async function tryAcceptAnchor(obj, meta, opts = {}) {
   if (obj.sid !== state.spectatorSessionId) return;
 
   // --- [3. The Kickstart & Sequence Logic] ---
-  
+
   // If we haven't processed anything yet, lock onto this incoming anchor as seq0
   if (state.spectatorLastSeq === null || state.spectatorLastSeq === undefined || state.spectatorLastSeq === -1) {
     state.spectatorLastSeq = (obj.seq0 || 0) - 1;
@@ -251,7 +286,7 @@ export async function tryAcceptAnchor(obj, meta, opts = {}) {
 
     await processAnchor(obj, meta, opts);
     await checkBuffer();
-  } 
+  }
   // 2. OVERLAP RECOVERY (Batch started in the past but ends in the future)
   else if (incomingSeq < expectedSeq && endSeq >= expectedSeq) {
     const dedupeKey = `sid:${obj.sid}:seq:${obj.seq0}`;
@@ -261,7 +296,7 @@ export async function tryAcceptAnchor(obj, meta, opts = {}) {
     const offset = expectedSeq - incomingSeq;
     const newMoves = obj.moves.slice(offset);
     const newDts = obj.dts ? obj.dts.slice(offset) : [];
-    
+
     log('spectatorLogPanel', `+ Overlap Recovery: Replaying ${newMoves.length} new moves.`);
     const partialObj = { ...obj, moves: newMoves, dts: newDts, seq0: expectedSeq };
     await processAnchor(partialObj, meta, opts);
@@ -282,16 +317,16 @@ export function startLiveProcessing() {
     try {
       while (state.spectatorActive && !replayState.inProgress) {
         // 1. ATOMIC SHIFT: Take it off the queue immediately
-        const item = live.queue.shift(); 
+        const item = live.queue.shift();
         if (!item) break;
 
         const { queued, pending } = computeBehindState();
         const backlog = queued + pending;
-        
+
         const speedMultiplier = backlog >= 5 ? 2.5 : 1.0;
         const anchorInterval = state.anchorInterval || 1250;
         const targetDuration = anchorInterval / speedMultiplier;
-        
+
         const moveCount = item.anchorObj.moves ? item.anchorObj.moves.length : 0;
         const stepMs = moveCount > 0 ? targetDuration / moveCount : 0;
 

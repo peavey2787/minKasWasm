@@ -91,7 +91,14 @@ export async function autoFetchVRF() {
   try {
     // Try Full (QRNG + BTC + KAS)
     try {
-      state.foldedOutput = await portal.generateFullRandomness();
+      if (portal.vrf?.generateFoldedEntropy) {
+        const result = await portal.vrf.generateFoldedEntropy();
+        state.foldedOutput = result.finalOutput;
+        state.vrfProof = result.proof || null;
+      } else {
+        state.foldedOutput = await portal.generateFullRandomness();
+        state.vrfProof = null;
+      }
       log('foldedOutputPanel', '✅ VRF Secured: QRNG + Bitcoin + Kaspa');
       return;
     } catch (e) {
@@ -100,11 +107,19 @@ export async function autoFetchVRF() {
     }
 
     // Fallback to Partial (BTC + KAS)
-    state.foldedOutput = await portal.generatePartialRandomness();
+    if (portal.vrf?.generatePartialEntropy) {
+      const result = await portal.vrf.generatePartialEntropy();
+      state.foldedOutput = result.finalOutput;
+      state.vrfProof = result.proof || null;
+    } else {
+      state.foldedOutput = await portal.generatePartialRandomness();
+      state.vrfProof = null;
+    }
     log('foldedOutputPanel', '⚠️ VRF Fallback: Bitcoin + Kaspa (No QRNG)');
 
   } catch (err) {
     state.foldedOutput = null;
+    state.vrfProof = null;
     log('foldedOutputPanel', '❌ VRF FAILED: ' + err.message);
     alert("Critical Error: Unable to generate verifiable randomness. Gameplay disabled.");
     throw err;
