@@ -142,19 +142,39 @@ export function dehydrateTx({ tx, block, decodedPayload }) {
   return txData;
 }
 
-/** Dehydrate a block object into a lightweight summary.
- * @param {Object} block - The block object.
- * @return {Object} Dehydrated block summary.
+/** * Dehydrate a block object into a lightweight summary.
+ * Ensures UI fields like hash, timestamp, and txCount are preserved
+ * without carrying the massive transaction payload.
+ * * @param {Object} block - The raw block object from RPC or Indexer.
+ * @return {Object|null} Dehydrated block summary.
  */
 export function dehydrateBlock(block) {
   if (!block) return null;
 
-  // Explicitly pull primitives.
+  // 1. Identify where the header data lives (Kaspa RPC usually nests this)
+  const header = block.header || {};
+
   return {
-    hash: String(block.header?.hash || block.hash || ""),
-    timestamp: Number(block.header?.timestamp || block.timestamp || 0),
-    blueScore: Number(block.header?.blueScore || 0),
-    daaScore: Number(block.header?.daaScore || 0),
+    // Unique Identifier
+    hash: String(header.hash || block.hash || ""),
+
+    // Temporal Data
+    timestamp: Number(header.timestamp || block.timestamp || 0),
+
+    // DAG Scores
+    blueScore: Number(header.blueScore || block.blueScore || 0),
+    daaScore: Number(header.daaScore || block.daaScore || 0),
+
+    // Prefer explicit count fields, fall back to tx array length
+    txCount: Number(
+      block.txCount ??
+      header.transactionCount ??
+      header.txCount ??
+      (Array.isArray(block.transactions) ? block.transactions.length : 0)
+    ),
+
+    // Optional: Useful for UI "Chain" indicators
+    isChainBlock: !!(block.isChainBlock || header.isChainBlock),
   };
 }
 

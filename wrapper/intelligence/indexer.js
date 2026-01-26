@@ -343,7 +343,13 @@ export class KaspaIndexer {
         console.error("Block has no hash, cannot index.", block);
         return;
       }
-      const blockEntry = { ...block, timestamp: now, hash };
+      const txCount = Number(
+        block.txCount ??
+        block.header?.transactionCount ??
+        block.header?.txCount ??
+        (Array.isArray(block.transactions) ? block.transactions.length : 0)
+      );
+      const blockEntry = { ...block, timestamp: now, hash, txCount };
       this._pendingBlocks.push(blockEntry);
 
       // Enforce in-memory cap immediately (rolling buffer)

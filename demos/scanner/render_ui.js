@@ -1,6 +1,6 @@
 // render_ui.js
 // UI rendering functions for scanner
-import * as elements from './dom_elements.js';
+import * as elements from "./dom_elements.js";
 
 let indexerCountdownInterval = null;
 let indexerCountdownStart = null;
@@ -12,10 +12,13 @@ const MAX_SNAPSHOT_ROWS = 200;
 const MAX_BLOCK_ROWS = 300;
 
 export function addBlockToUI(block, match, matchedPayload) {
-  const txCount = Array.isArray(block.transactions) ? block.transactions.length : 0;
+  const txCount = Array.isArray(block.transactions)
+    ? block.transactions.length
+    : 0;
   const header = block.header;
-  const payloadText = match && matchedPayload ? ` | Payload: ${matchedPayload}` : "";
-  const blockText = `Hash: ${header?.hash?.slice(0,6)}... | BlueScore: ${header?.blueScore} | Txs: ${txCount}${payloadText}`;
+  const payloadText =
+    match && matchedPayload ? ` | Payload: ${matchedPayload}` : "";
+  const blockText = `Hash: ${header?.hash?.slice(0, 6)}... | BlueScore: ${header?.blueScore} | Txs: ${txCount}${payloadText}`;
 
   if (match) {
     const div = document.createElement("div");
@@ -28,7 +31,9 @@ export function addBlockToUI(block, match, matchedPayload) {
       container.removeChild(container.lastElementChild);
     }
   } else {
-    const iframeDoc = elements.getBlocksIframe().contentDocument || elements.getBlocksIframe().contentWindow.document;
+    const iframeDoc =
+      elements.getBlocksIframe().contentDocument ||
+      elements.getBlocksIframe().contentWindow.document;
     if (!iframeDoc.body) return;
     const div = iframeDoc.createElement("div");
     div.className = "block";
@@ -41,7 +46,13 @@ export function addBlockToUI(block, match, matchedPayload) {
   }
 }
 
-export function renderSection({ item, container, itemClass, infoColor = "#e67e22", getItemText }) {
+export function renderSection({
+  item,
+  container,
+  itemClass,
+  infoColor = "#e67e22",
+  getItemText,
+}) {
   // If container is an iframe, use its document body
   let targetDoc, targetContainer;
   if (container.tagName === "IFRAME") {
@@ -51,7 +62,9 @@ export function renderSection({ item, container, itemClass, infoColor = "#e67e22
     targetContainer = container;
   }
 
-  const div = (targetDoc ? targetDoc.createElement("div") : document.createElement("div"));
+  const div = targetDoc
+    ? targetDoc.createElement("div")
+    : document.createElement("div");
   div.className = itemClass;
   div.textContent = getItemText(item);
 
@@ -63,8 +76,9 @@ export function renderSection({ item, container, itemClass, infoColor = "#e67e22
   targetContainer.insertBefore(div, targetContainer.children[1] || null);
 
   // Info bar is still in the main document
-  const baseId = container.id.replace(/Div$/, '');
-  const infoBarGetterName = 'get' + baseId.charAt(0).toUpperCase() + baseId.slice(1) + 'InfoBar';
+  const baseId = container.id.replace(/Div$/, "");
+  const infoBarGetterName =
+    "get" + baseId.charAt(0).toUpperCase() + baseId.slice(1) + "InfoBar";
   let infoBarElem = elements[infoBarGetterName]?.();
 
   updateInfoBarOnAdd({ infoBarElem, newTimestamp: item.timestamp, infoColor });
@@ -78,7 +92,9 @@ export function updateInfoBarOnAdd({ infoBarElem, newTimestamp, infoColor }) {
 
   // Parse current info bar state
   if (infoBarElem.textContent) {
-    const match = infoBarElem.textContent.match(/Count: (\d+)(?: \| Oldest: ([^|]+))?(?: \| Newest: ([^|]+))?/);
+    const match = infoBarElem.textContent.match(
+      /Count: (\d+)(?: \| Oldest: ([^|]+))?(?: \| Newest: ([^|]+))?/,
+    );
     if (match) {
       count = parseInt(match[1], 10) || 0;
       oldest = match[2] ? new Date(match[2]) : null;
@@ -113,11 +129,13 @@ export function clearAllCachedSections() {
 
 export function updateInfoBarAfterRemoval(container, itemClass, infoBarElem) {
   if (!infoBarElem) return;
-  let prevCount = 0, oldest = "", newest = "";
+  let prevCount = 0,
+    oldest = "",
+    newest = "";
   if (infoBarElem.textContent) {
     // This regex will always match, even if oldest/newest are empty
     const match = infoBarElem.textContent.match(
-      /Count: (\d+)\s*\|\s*Oldest: ([^|]*)\s*\|\s*Newest: (.*)/
+      /Count: (\d+)\s*\|\s*Oldest: ([^|]*)\s*\|\s*Newest: (.*)/,
     );
     if (match) {
       prevCount = parseInt(match[1], 10) || 0;
@@ -136,7 +154,7 @@ export async function renderAllIndexerSections(indexer) {
   const [allTxs, matchingTxs, blocks] = await Promise.all([
     indexer.getAllCachedTransactions(),
     indexer.getAllCachedMatchingTransactions(),
-    indexer.getAllCachedBlocks()
+    indexer.getAllCachedBlocks(),
   ]);
   renderAllTransactionsSection(allTxs);
   renderMatchingTransactionsSection(matchingTxs);
@@ -146,39 +164,45 @@ export async function renderAllIndexerSections(indexer) {
 export function renderMatchingTransactionsSection(matchingTxs) {
   const container = elements.getIndexerMatchingTxsDiv();
   const infoBar = elements.getIndexerMatchingTxsInfoBar();
-  const items = Array.isArray(matchingTxs) ? matchingTxs : (matchingTxs ? [matchingTxs] : []);
+  const items = Array.isArray(matchingTxs)
+    ? matchingTxs
+    : matchingTxs
+      ? [matchingTxs]
+      : [];
   renderIframeSnapshot({
     items,
     container,
     infoBarElem: infoBar,
     infoColor: "#49eacb",
     itemClass: "indexer-tx",
-    getItemText: tx => `TxID: ${tx.txid?.slice(0,8)}... | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`,
+    getItemText: (tx) =>
+      `TxID: ${tx.txid?.slice(0, 8)}... | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`,
     keyAttr: "data-txid",
-    keyGetter: (tx) => tx?.txid
+    keyGetter: (tx) => tx?.txid,
   });
 }
 
 export function renderAllTransactionsSection(allTxs) {
   const container = elements.getIndexerAllTxsDiv();
   const infoBar = elements.getIndexerAllTxsInfoBar();
-  const items = Array.isArray(allTxs) ? allTxs : (allTxs ? [allTxs] : []);
+  const items = Array.isArray(allTxs) ? allTxs : allTxs ? [allTxs] : [];
   renderIframeSnapshot({
     items,
     container,
     infoBarElem: infoBar,
     infoColor: "#49eacb",
     itemClass: "indexer-tx",
-    getItemText: tx => `TxID: ${tx.txid?.slice(0,8)}... | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`,
+    getItemText: (tx) =>
+      `TxID: ${tx.txid?.slice(0, 8)}... | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`,
     keyAttr: "data-txid",
-    keyGetter: (tx) => tx?.txid
+    keyGetter: (tx) => tx?.txid,
   });
 }
 
 export function renderAllBlocksSection(blocks) {
   const container = elements.getIndexerBlocksDiv();
   const infoBar = elements.getIndexerBlocksInfoBar();
-  const items = Array.isArray(blocks) ? blocks : (blocks ? [blocks] : []);
+  const items = Array.isArray(blocks) ? blocks : blocks ? [blocks] : [];
   renderIframeSnapshot({
     items,
     container,
@@ -186,51 +210,56 @@ export function renderAllBlocksSection(blocks) {
     infoColor: "#49eacb",
     itemClass: "block indexed-block",
     getItemText: (block) => {
-      const txCount = Array.isArray(block?.transactions) ? block.transactions.length : 0;
-      const header = block?.header;
-      return `Hash: ${header?.hash?.slice(0,6)}... | BlueScore: ${header?.blueScore} | Txs: ${txCount} | Time: ${new Date(block?.timestamp).toLocaleTimeString()}`;
+      const { hash, blueScore, txCount, timestamp } = getBlockSummary(block);
+      return `Hash: ${hash?.slice(0, 6)}... | BlueScore: ${blueScore} | Txs: ${txCount} | Time: ${new Date(timestamp).toLocaleTimeString()}`;
     },
     keyAttr: "data-hash",
-    keyGetter: (block) => block?.hash || block?.header?.hash
+    keyGetter: (block) => block?.hash || block?.header?.hash,
   });
 }
 
 export function renderInMemoryMatchingTransactionsSection(matchingTxs) {
   const container = elements.getInMemoryMatchingTxsDiv();
   const infoBar = elements.getInMemoryMatchingTxsInfoBar();
-  const items = Array.isArray(matchingTxs) ? matchingTxs : (matchingTxs ? [matchingTxs] : []);
+  const items = Array.isArray(matchingTxs)
+    ? matchingTxs
+    : matchingTxs
+      ? [matchingTxs]
+      : [];
   renderIframeSnapshot({
     items,
     container,
     infoBarElem: infoBar,
     infoColor: "#e67e22",
     itemClass: "indexer-tx",
-    getItemText: tx => `TxID: ${tx.txid?.slice(0,8)}... | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`,
+    getItemText: (tx) =>
+      `TxID: ${tx.txid?.slice(0, 8)}... | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`,
     keyAttr: "data-txid",
-    keyGetter: (tx) => tx.txid
+    keyGetter: (tx) => tx.txid,
   });
 }
 
 export function renderInMemoryAllTransactionsSection(allTxs) {
   const container = elements.getInMemoryAllTxsDiv();
   const infoBar = elements.getInMemoryAllTxsInfoBar();
-  const items = Array.isArray(allTxs) ? allTxs : (allTxs ? [allTxs] : []);
+  const items = Array.isArray(allTxs) ? allTxs : allTxs ? [allTxs] : [];
   renderIframeSnapshot({
     items,
     container,
     infoBarElem: infoBar,
     infoColor: "#e67e22",
     itemClass: "indexer-tx",
-    getItemText: tx => `TxID: ${tx.txid?.slice(0,8)}... | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`,
+    getItemText: (tx) =>
+      `TxID: ${tx.txid?.slice(0, 8)}... | Time: ${new Date(tx.timestamp).toLocaleTimeString()}`,
     keyAttr: "data-txid",
-    keyGetter: (tx) => tx.txid
+    keyGetter: (tx) => tx.txid,
   });
 }
 
 export function renderInMemoryBlocksSection(blocks) {
   const container = elements.getInMemoryBlocksDiv();
   const infoBar = elements.getInMemoryBlocksInfoBar();
-  const items = Array.isArray(blocks) ? blocks : (blocks ? [blocks] : []);
+  const items = Array.isArray(blocks) ? blocks : blocks ? [blocks] : [];
   renderIframeSnapshot({
     items,
     container,
@@ -238,32 +267,53 @@ export function renderInMemoryBlocksSection(blocks) {
     infoColor: "#e67e22",
     itemClass: "block indexed-block",
     getItemText: (block) => {
-      const txCount = Array.isArray(block.transactions) ? block.transactions.length : 0;
-      const header = block.header;
-      return `Hash: ${header?.hash?.slice(0,6)}... | BlueScore: ${header?.blueScore} | Txs: ${txCount} | Time: ${new Date(block.timestamp).toLocaleTimeString()}`;
+      const { hash, blueScore, txCount, timestamp } = getBlockSummary(block);
+      return `Hash: ${hash?.slice(0,6)}... | BlueScore: ${blueScore} | Txs: ${txCount} | Time: ${new Date(timestamp).toLocaleTimeString()}`;
     },
     keyAttr: "data-hash",
-    keyGetter: (block) => block?.hash || block?.header?.hash
+    keyGetter: (block) => block?.hash || block?.header?.hash,
   });
+}
+
+function getBlockSummary(block) {
+  const hash = block?.hash || block?.header?.hash;
+  const blueScore = block?.blueScore ?? block?.header?.blueScore;
+  const txCount =
+    block?.txCount ?? block?.transactions?.length ?? block?.txs?.length ?? 0;
+  const timestamp = block?.timestamp ?? block?.header?.timestamp;
+  return { hash, blueScore, txCount, timestamp };
 }
 
 function clearIframeContainer(container) {
   if (!container) return;
   if (container.tagName !== "IFRAME") return;
-  const iframeDoc = container.contentDocument || container.contentWindow?.document;
+  const iframeDoc =
+    container.contentDocument || container.contentWindow?.document;
   if (iframeDoc && iframeDoc.body) iframeDoc.body.innerHTML = "";
 }
 
-
-function renderIframeSnapshot({ items, container, infoBarElem, infoColor, itemClass, getItemText, keyAttr, keyGetter }) {
+function renderIframeSnapshot({
+  items,
+  container,
+  infoBarElem,
+  infoColor,
+  itemClass,
+  getItemText,
+  keyAttr,
+  keyGetter,
+}) {
   clearIframeContainer(container);
 
-  const iframeDoc = container?.contentDocument || container?.contentWindow?.document;
+  const iframeDoc =
+    container?.contentDocument || container?.contentWindow?.document;
   const body = iframeDoc?.body;
   if (!body) return;
 
   // Cap render to avoid massive DOM churn
-  const sliced = items.length > MAX_SNAPSHOT_ROWS ? items.slice(items.length - MAX_SNAPSHOT_ROWS) : items;
+  const sliced =
+    items.length > MAX_SNAPSHOT_ROWS
+      ? items.slice(items.length - MAX_SNAPSHOT_ROWS)
+      : items;
 
   const fragment = iframeDoc.createDocumentFragment();
   const count = items.length;
@@ -295,14 +345,18 @@ function renderIframeSnapshot({ items, container, infoBarElem, infoColor, itemCl
     infoBarElem.style = `color:${infoColor};font-size:0.98em;margin-bottom:0.5em;`;
     const oldest = oldestTs === null ? "" : new Date(oldestTs).toLocaleString();
     const newest = newestTs === null ? "" : new Date(newestTs).toLocaleString();
-    const renderedNote = items.length > MAX_SNAPSHOT_ROWS ? ` (showing last ${MAX_SNAPSHOT_ROWS})` : "";
+    const renderedNote =
+      items.length > MAX_SNAPSHOT_ROWS
+        ? ` (showing last ${MAX_SNAPSHOT_ROWS})`
+        : "";
     infoBarElem.textContent = `Count: ${count}${renderedNote} | Oldest: ${oldest} | Newest: ${newest}`;
   }
 }
 
 function queryIframeElement(container, selector) {
   if (!container || container.tagName !== "IFRAME") return null;
-  const iframeDoc = container.contentDocument || container.contentWindow?.document;
+  const iframeDoc =
+    container.contentDocument || container.contentWindow?.document;
   if (!iframeDoc) return null;
   return iframeDoc.querySelector(selector);
 }
@@ -312,15 +366,24 @@ export function removeMatchingTransactionFromUI(txid) {
   const el = queryIframeElement(container, `[data-txid="${txid}"]`);
   if (el) {
     el.remove();
-    updateInfoBarAfterRemoval(container, "indexer-tx", elements.getIndexerMatchingTxsInfoBar());
+    updateInfoBarAfterRemoval(
+      container,
+      "indexer-tx",
+      elements.getIndexerMatchingTxsInfoBar(),
+    );
   }
 }
+
 export function removeTransactionFromUI(txid) {
   const container = elements.getIndexerAllTxsDiv();
   const el = queryIframeElement(container, `[data-txid="${txid}"]`);
   if (el) {
     el.remove();
-    updateInfoBarAfterRemoval(container, "indexer-tx", elements.getIndexerAllTxsInfoBar());
+    updateInfoBarAfterRemoval(
+      container,
+      "indexer-tx",
+      elements.getIndexerAllTxsInfoBar(),
+    );
   }
 }
 
@@ -329,7 +392,11 @@ export function removeBlockFromUI(hash) {
   const el = queryIframeElement(container, `[data-hash="${hash}"]`);
   if (el) {
     el.remove();
-    updateInfoBarAfterRemoval(container, "block", elements.getIndexerBlocksInfoBar());
+    updateInfoBarAfterRemoval(
+      container,
+      "block",
+      elements.getIndexerBlocksInfoBar(),
+    );
   }
 }
 
@@ -338,7 +405,11 @@ export function removeInMemoryMatchingTransactionFromUI(txid) {
   const el = queryIframeElement(container, `[data-txid="${txid}"]`);
   if (el) {
     el.remove();
-    updateInfoBarAfterRemoval(container, "indexer-tx", elements.getInMemoryMatchingTxsInfoBar());
+    updateInfoBarAfterRemoval(
+      container,
+      "indexer-tx",
+      elements.getInMemoryMatchingTxsInfoBar(),
+    );
   }
 }
 
@@ -347,7 +418,11 @@ export function removeInMemoryTransactionFromUI(txid) {
   const el = queryIframeElement(container, `[data-txid="${txid}"]`);
   if (el) {
     el.remove();
-    updateInfoBarAfterRemoval(container, "indexer-tx", elements.getInMemoryAllTxsInfoBar());
+    updateInfoBarAfterRemoval(
+      container,
+      "indexer-tx",
+      elements.getInMemoryAllTxsInfoBar(),
+    );
   }
 }
 
@@ -356,7 +431,11 @@ export function removeInMemoryBlockFromUI(hash) {
   const el = queryIframeElement(container, `[data-hash="${hash}"]`);
   if (el) {
     el.remove();
-    updateInfoBarAfterRemoval(container, "block", elements.getInMemoryBlocksInfoBar());
+    updateInfoBarAfterRemoval(
+      container,
+      "block",
+      elements.getInMemoryBlocksInfoBar(),
+    );
   }
 }
 
