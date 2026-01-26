@@ -1,7 +1,7 @@
-// nist_tests.js - NIST randomness testing using KaspaPortal
+// nist_tests.js - NIST randomness testing using KaspaPortal singleton
 
 import { $ } from './dom_elements.js';
-import { state } from './state.js';
+import { state, portal } from './state.js';
 import { downloadJSON, hexToBinary } from './utils.js';
 
 export async function runNistTests() {
@@ -60,18 +60,18 @@ export async function runNistTests() {
   $('exportNistBtn').disabled = true;
 
   try {
-    // Use the portal's NIST suite
-    const results = await state.portal.fullNIST(bits);
+    // Use the portal singleton's NIST suite
+    const results = await portal.fullNIST(bits);
     state.nistResults = results;
 
     // Render results
     for (const r of results) {
       const tr = document.createElement('tr');
-      const statStr = (r.statistic !== null && typeof r.statistic === 'number') 
-        ? r.statistic.toFixed(6) 
+      const statStr = (r.statistic !== null && typeof r.statistic === 'number')
+        ? r.statistic.toFixed(6)
         : (r.statistic !== null ? String(r.statistic) : 'N/A');
-      const pValStr = (r.pValue !== null && typeof r.pValue === 'number') 
-        ? r.pValue.toFixed(6) 
+      const pValStr = (r.pValue !== null && typeof r.pValue === 'number')
+        ? r.pValue.toFixed(6)
         : (r.pValue !== null ? String(r.pValue) : 'N/A');
       tr.innerHTML = `
         <td>${r.testName || 'Unknown'}</td>
@@ -104,7 +104,7 @@ export async function runNistTests() {
 }
 
 export function stopNistTests() {
-  // Since we are awaiting a promise, we can't easily cancel execution mid-flight 
+  // Since we are awaiting a promise, we can't easily cancel execution mid-flight
   // without abort signals which might not be supported by the facade yet.
   // For now, we just reset UI.
   $('runNistBtn').disabled = false;
@@ -120,12 +120,12 @@ export function initNistTests() {
   if (!$('runNistBtn')) return; // Guard
 
   $('runNistBtn').addEventListener('click', runNistTests);
-  
+
   const stopBtn = $('stopNistBtn');
   if (stopBtn) {
     stopBtn.addEventListener('click', stopNistTests);
   }
-  
+
   $('exportNistBtn').addEventListener('click', () => {
     downloadJSON({
       source: $('nistSource').value,

@@ -71,6 +71,55 @@ export class VRFFacade {
   }
 
   /**
+   * Generates entropy using only BTC and Kaspa blocks (no QRNG).
+   * Fallback when QRNG is unavailable.
+   */
+  async generatePartialEntropy({
+    btcBlocks = 3,
+    kasBlocks = 6,
+    iterations = 3,
+    seed = "kktp-partial-seed",
+  } = {}) {
+    const numPositions = 256;
+
+    const [kBlocks, bBlocks] = await Promise.all([
+      getKaspaBlocks(kasBlocks),
+      getBitcoinBlocks(btcBlocks),
+    ]);
+
+    const sources = [...kBlocks, ...bBlocks];
+
+    const initialBits = /^[0-9a-fA-F]+$/.test(seed)
+      ? hexToBinary(seed)
+      : hexToBinary(await sha256Hash(seed));
+
+    const result = await recursiveFolding(
+      sources,
+      initialBits,
+      "sha256",
+      iterations,
+      numPositions,
+    );
+
+    const finalHex = await sha256Hash(result.finalOutput);
+
+    // Build the proof without NIST
+    const proof = new VRFProof({
+      nist: null,
+      kaspa: kBlocks,
+      btc: bBlocks,
+      finalOutput: finalHex,
+      seed: seed,
+      iterations: iterations,
+    });
+
+    return {
+      finalOutput: finalHex,
+      proof: proof,
+    };
+  }
+
+  /**
    * PROVE: Generates a formalized VRF proof object.
    */
   async prove({ seedInput, btcBlocks = 6, kasBlocks = 12, iterations = 2 }) {

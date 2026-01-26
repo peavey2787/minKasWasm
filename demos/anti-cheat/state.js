@@ -1,14 +1,15 @@
 // state.js - Centralized state for anti-cheat demo
+// Uses the global kaspaPortal singleton - no local instantiation
 
-import { KaspaPortal } from '../../wrapper/kaspaPortal.js';
+import { kaspaPortal } from '../../wrapper/kaspaPortal.js';
 import { MerkleTree } from './merkle.js';
 
+// Export portal reference for modules that import state
+export const portal = kaspaPortal;
+
 export const state = {
-  // Connection
+  // Connection - portal is accessed via the singleton, not stored here
   connected: false,
-  portal: new KaspaPortal(),
-  client: null,
-  scanner: null,
   walletAddress: null,
   walletReady: false,
   walletBalanceMatureKAS: null,
@@ -36,7 +37,7 @@ export const state = {
   merkleTree: null,
   anchorInterval: 250,
   anchorTimer: null,
-  
+
   // KKTP State
   kktp: {
     identity: null, // { priv, pub }
@@ -93,6 +94,10 @@ export const state = {
     count: 0,
     sum: 0
   },
+
+  // Game Browser state - persistent across scanning cycles
+  // Additive: sessions are never removed, only added or updated
+  foundSessions: new Map(),
 };
 
 export function addIndexerUpdateHandler(handler) {
@@ -158,8 +163,38 @@ export function resetSpectatorState() {
   // Latency stats
   state.spectatorLatency = { last: null, avg: null, max: null, count: 0, sum: 0 };
 
+  // NOTE: foundSessions is NOT reset here - it's persistent and additive
+
   if (state.spectatorTimer) {
     clearInterval(state.spectatorTimer);
     state.spectatorTimer = null;
   }
+}
+
+/**
+ * Add or update a session in the persistent game browser list.
+ * Additive: never removes sessions, only adds/updates.
+ * @param {Object} session - { sid, meta, timestamp }
+ * @returns {boolean} - true if this was a new session
+ */
+export function addFoundSession(session) {
+  if (!session || !session.sid) return false;
+  const existed = state.foundSessions.has(session.sid);
+
+  // Update if newer or if not seen before
+  const existing = state.foundSessions.get(session.sid);
+  if (!existing || (session.timestamp && session.timestamp > (existing.timestamp || 0))) {
+    state.foundSessions.set(session.sid, session);
+  }
+
+  return !existed;
+}
+
+/**
+ * Get all found sessions sorted by timestamp (newest first).
+ * @returns {Array} - Sorted array of session objects
+ */
+export function getFoundSessionsSorted() {
+  return Array.from(state.foundSessions.values())
+    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 }

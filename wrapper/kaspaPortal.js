@@ -333,6 +333,43 @@ export class KaspaPortal {
   }
 
   /**
+   * Get all matching transactions from in-memory indexer.
+   * @returns {Array} Array of matching transactions.
+   */
+  getAllMatchingTransactions() {
+    this._ensureIntelligence();
+    return this.intelligence.indexer?.getAllMatchingTransactions() || [];
+  }
+
+  /**
+   * Get all matching transactions from IndexedDB cache.
+   * @returns {Promise<Array>} Array of cached matching transactions.
+   */
+  async getAllCachedMatchingTransactions() {
+    this._ensureIntelligence();
+    return await (this.intelligence.indexer?.getAllCachedMatchingTransactions() || Promise.resolve([]));
+  }
+
+  /**
+   * Set the scanner prefix for payload matching.
+   * @param {string} prefix - The prefix to match.
+   */
+  setScannerPrefix(prefix) {
+    this._ensureIntelligence();
+    if (this.intelligence.scanner) {
+      this.intelligence.scanner.prefix = prefix;
+    }
+  }
+
+  /**
+   * Get the current scanner prefix.
+   * @returns {string|null}
+   */
+  getScannerPrefix() {
+    return this.intelligence?.scanner?.prefix || null;
+  }
+
+  /**
    * Sync indexer from a specific block hash to present.
    */
   async syncFrom(startHash, logFn = null, options = {}) {
@@ -604,18 +641,28 @@ export class KaspaPortal {
 
   /**
    * Generate full randomness using QRNG + Kaspa + BTC (delegates to VRF).
-   * @returns {Promise<string>} Folded result
+   * @returns {Promise<string>} Folded result hex
    */
   async generateFullRandomness() {
-    return await this.vrf.generateFullRandomness();
+    const result = await this.vrf.generateFoldedEntropy({
+      btcBlocks: 1,
+      kasBlocks: 1,
+      iterations: 2,
+    });
+    return result.finalOutput;
   }
 
   /**
-   * Generate partial randomness using Kaspa + BTC (delegates to VRF).
-   * @returns {Promise<string>} Folded result
+   * Generate partial randomness using Kaspa + BTC only (no QRNG).
+   * @returns {Promise<string>} Folded result hex
    */
   async generatePartialRandomness() {
-    return await this.vrf.generatePartialRandomness();
+    const result = await this.vrf.generatePartialEntropy({
+      btcBlocks: 3,
+      kasBlocks: 6,
+      iterations: 3,
+    });
+    return result.finalOutput;
   }
 
   // --- KKTP Convenience Methods ---

@@ -1,8 +1,9 @@
 // connection.js - Connection handling for anti-cheat demo
+// Uses the global kaspaPortal singleton exclusively
 
-import { MatchMode, IndexerEventType } from '../../wrapper/kaspaPortal.js';
+import { MatchMode, IndexerEventType, SearchMode } from '../../wrapper/kaspaPortal.js';
 import { $, getNetworkSelect, getUsePublicResolver, getNodeUrl, getConnectBtn, getWalletAddress, getCopyWalletBtn, getWalletBalance, getWalletStatus } from './dom_elements.js';
-import { state } from './state.js';
+import { state, portal } from './state.js';
 import { copyToClipboard, setStatus, showInsufficientFundsModal } from './utils.js';
 import { autoFetchVRF } from './vrf_sources.js';
 
@@ -54,7 +55,10 @@ export async function handleConnect() {
   setStatus('connectionStatus', 'Connecting...', 'pending');
 
   try {
-    // 1. Configure Intelligence (Scanner/Indexer) options
+    // 1. Initialize WASM
+    await portal.init();
+
+    // 2. Configure Intelligence (Scanner/Indexer) options
     const indexerOptions = {
       matchMode: MatchMode.CUSTOM,
       indexAllTransactions: false,
@@ -65,22 +69,36 @@ export async function handleConnect() {
       ttlMinutes: 60
     };
 
-    // 2. Connect via Portal
-    // We pass startIntelligence: false so we can manually configure the scanner prefix/callback before starting
-    await state.portal.connect(useResolver ? null : nodeUrl, networkId, {
-      startIntelligence: false
+    // 3. Define balance change handler (called by portal when wallet balance changes)
+    const handleBalanceChange = (balanceKas) => {
+      state.walletBalanceMatureKAS = balanceKas;
+      const n = Number(balanceKas);
+      state.walletBalanceMatureNumber = Number.isFinite(n) ? n : null;
+
+      setWalletUi({ address: state.walletAddress, balanceKAS: balanceKas, ready: state.walletReady });
+
+      if (state.walletBalanceMatureNumber != null && state.walletBalanceMatureNumber > 0) {
+        state.noFundsModalEligibleUntilMs = 0;
+      }
+      maybeShowNoFundsModalOnce();
+    };
+
+    // 4. Connect via Portal singleton with structured options
+    await portal.connect({
+      rpcUrl: useResolver ? null : nodeUrl,
+      networkId,
+      startIntelligence: false,
+      indexerOptions,
+      onBalanceChange: handleBalanceChange
     });
 
-    // Map portal components to state for compatibility with other modules
-    state.client = state.portal.client;
-    state.scanner = state.portal.intelligence.scanner;
+    // 5. Configure scanner + indexer prefixes (keep them in sync)
+    const prefix = ($('payloadPrefix')?.value || 'KKTP').trim();
+    portal.setSearchMode(SearchMode.STARTS_WITH);
+    portal.setPrefixes([prefix]);
+    portal.setScannerPrefix(prefix);
 
-    // 3. Configure Scanner
-    state.scanner.prefix = 'KKTP';
-    // Apply indexer options manually since we created portal before knowing them
-    Object.assign(state.scanner.indexer, indexerOptions);
-    
-    // Wire up event fan-out
+    // 6. Wire up event fan-out using portal callbacks
     const fanOut = (type, data) => {
       if (state.indexerUpdateHandlers && state.indexerUpdateHandlers.size) {
         const evt = { type, data };
@@ -90,65 +108,52 @@ export async function handleConnect() {
       }
     };
 
-    state.portal.onNewTransactionMatch(data => fanOut(IndexerEventType.MATCHING_TRANSACTION_IN_MEMORY, data));
-    state.portal.onCachedTransactionMatch(data => fanOut(IndexerEventType.MATCHING_TRANSACTION_CACHED, data));
+    portal.onNewTransactionMatch(data => fanOut(IndexerEventType.MATCHING_TRANSACTION_IN_MEMORY, data));
+    portal.onCachedTransactionMatch(data => fanOut(IndexerEventType.MATCHING_TRANSACTION_CACHED, data));
 
-    // 4. Start Intelligence
-    await state.portal.intelligence.start();
-    
+    // 7. Start Intelligence
+    await portal.intelligence.start();
+
     // Re-attach the raw block callback for VRF sources (which bypasses the indexer)
-    state.scanner.start((block, matches) => {
+    portal.intelligence.scanner.start((block, matches) => {
       // Forward to onBlock if set (for VRF collection)
-      if (typeof state.scanner._vrfCallback === 'function') {
-        state.scanner._vrfCallback(block, matches);
+      if (typeof portal.intelligence.scanner._vrfCallback === 'function') {
+        portal.intelligence.scanner._vrfCallback(block, matches);
       }
     });
-    
+
     console.log('[Connection] Scanner started, waiting for blocks...');
 
-    // Wallet init (needed for anchoring move payloads)
+    // 8. Wallet init using portal methods
+    // Detect role from page to use unique wallet filenames
+    const roleEl = document.querySelector('.role-badge');
+    const roleText = roleEl?.textContent?.trim().toLowerCase() || 'default';
+    const walletFilename = `anticheat_demo_wallet_${roleText}`;
+    const walletHint = `Anti-cheat demo wallet (${roleText})`;
+
     try {
-      // Define balance updater to sync UI with wallet state
-      const updateBalance = async () => {
-        try {
-          const balanceSompi = await state.portal.getBalance();
-          const balanceKas = (Number(balanceSompi) / 100000000).toFixed(8).replace(/\.?0+$/, "");
-          
-          state.walletBalanceMatureKAS = balanceKas;
-          const n = Number(balanceKas);
-          state.walletBalanceMatureNumber = Number.isFinite(n) ? n : null;
-          
-          setWalletUi({ address: state.walletAddress, balanceKAS: balanceKas, ready: state.walletReady });
-
-          if (state.walletBalanceMatureNumber != null && state.walletBalanceMatureNumber > 0) {
-            state.noFundsModalEligibleUntilMs = 0;
-          }
-          maybeShowNoFundsModalOnce();
-        } catch (e) {
-          console.error("Balance update failed", e);
-        }
-      };
-
-      // Attach listener to the WASM wallet instance exposed by portal
-      if (state.portal.wallet) {
-        state.portal.wallet.addEventListener("balance", () => updateBalance());
-      }
-
-      const { address } = await state.portal.identity.createWallet({
+      const { address } = await portal.createOrOpenWallet({
         password: 'anticheat-demo',
-        filename: 'anticheat_demo_wallet',
-        userHint: 'Anti-cheat demo wallet',
+        filename: walletFilename,
+        userHint: walletHint,
         storeMnemonic: false,
         discoverAddresses: true,
       });
 
       state.walletAddress = address;
       state.walletReady = true;
-      
+
       // Initial balance fetch
-      await updateBalance();
-      
+      try {
+        const balanceSompi = await portal.getBalance();
+        const balanceKas = (Number(balanceSompi) / 100000000).toFixed(8).replace(/\.?0+$/, "");
+        handleBalanceChange(balanceKas);
+      } catch (e) {
+        console.warn('[Connection] Initial balance fetch failed:', e);
+      }
+
       console.log('[Connection] Wallet ready:', address);
+      setWalletUi({ address, balanceKAS: state.walletBalanceMatureKAS, ready: true });
       maybeShowNoFundsModalOnce();
     } catch (e) {
       state.walletReady = false;
@@ -183,12 +188,15 @@ export function initConnection() {
     });
   }
 
-  // Keep scanner prefix in sync with the UI prefix (for matching tx indexing).
+  // Keep scanner + indexer prefixes in sync with the UI prefix (for matching tx indexing).
   const prefixEl = $('payloadPrefix');
   if (prefixEl) {
     prefixEl.addEventListener('input', () => {
-      if (state.scanner && typeof prefixEl.value === 'string') {
-        state.scanner.prefix = prefixEl.value.trim() || 'KKTP';
+      if (portal.isReady && typeof prefixEl.value === 'string') {
+        const prefix = prefixEl.value.trim() || 'KKTP';
+        portal.setSearchMode(SearchMode.STARTS_WITH);
+        portal.setPrefixes([prefix]);
+        portal.setScannerPrefix(prefix);
       }
     });
   }

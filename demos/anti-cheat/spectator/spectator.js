@@ -1,9 +1,10 @@
 // spectator.js - Main controller for Spectator mode
+// Uses the global kaspaPortal singleton exclusively
 
 import { $ } from '../dom_elements.js';
-import { state, addIndexerUpdateHandler, removeIndexerUpdateHandler, resetSpectatorState } from '../state.js';
+import { state, portal, addIndexerUpdateHandler, removeIndexerUpdateHandler, resetSpectatorState, addFoundSession, getFoundSessionsSorted } from '../state.js';
 import { setStatus, log, createGrid } from '../utils.js';
-import { handleMatchObject, initialBackfillFromIndexer, findLatestSessionId, extractSessionFromTx } from './indexer_integration.js';
+import { handleMatchObject, initialBackfillFromIndexer, findLatestSessionId, extractSessionFromTx, bootstrapGameBrowserFromCache } from './indexer_integration.js';
 import { replayFromStart, cancelReplay } from './replay.js';
 import { resetLiveQueue } from './processor.js';
 import { resetForSession, ensureBehindBanner, setSpectatorBadges, applyMove, injectGameBrowser, updateGameList } from './ui.js';
@@ -15,9 +16,9 @@ const INDEXER_EVENT = Object.freeze({
 
 let spectatorTimer = null;
 let isScanning = false;
-let foundSessions = new Map();
 
 // Persistent handler for both Spectator Mode and Game Browser
+// ALWAYS listens for new games, regardless of isScanning state
 const indexerHandler = async (evt) => {
   if (!evt || !evt.type) return;
   const items = Array.isArray(evt.data) ? evt.data : (evt.data ? [evt.data] : []);
@@ -25,7 +26,7 @@ const indexerHandler = async (evt) => {
 
   // 1. Spectator Active Logic
   if (state.spectatorActive) {
-    if (evt.type === INDEXER_EVENT.MATCHING_TRANSACTION_IN_MEMORY || 
+    if (evt.type === INDEXER_EVENT.MATCHING_TRANSACTION_IN_MEMORY ||
         evt.type === INDEXER_EVENT.MATCHING_TRANSACTION_CACHED) {
       for (const item of items) {
         await handleMatchObject(item, prefix);
@@ -33,19 +34,20 @@ const indexerHandler = async (evt) => {
     }
   }
 
-  // 2. Game Browser Scanning Logic (Live Only)
-  if (isScanning && evt.type === INDEXER_EVENT.MATCHING_TRANSACTION_IN_MEMORY) {
+  // 2. Game Browser - ALWAYS detect new games (not just when isScanning)
+  // This ensures the persistent game list stays up-to-date
+  if (evt.type === INDEXER_EVENT.MATCHING_TRANSACTION_IN_MEMORY) {
     let updated = false;
     for (const tx of items) {
       const session = extractSessionFromTx(tx, prefix);
-      if (session && !foundSessions.has(session.sid)) {
-        foundSessions.set(session.sid, session);
-        updated = true;
+      if (session) {
+        const isNew = addFoundSession(session);
+        if (isNew) updated = true;
       }
     }
-    if (updated) {
-      const sorted = Array.from(foundSessions.values()).sort((a, b) => b.timestamp - a.timestamp);
-      updateGameList(sorted);
+    // Only refresh UI if scanning is active (to avoid jarring updates)
+    if (updated && isScanning) {
+      updateGameList(getFoundSessionsSorted());
     }
   }
 };
@@ -56,8 +58,8 @@ export async function startSpectator(targetSessionId = null) {
     return;
   }
 
-  if (!state.portal.intelligence.scanner) {
-    alert('Scanner not ready yet. Connect first.');
+  if (!portal.isReady) {
+    alert('Portal not ready yet. Connect first.');
     return;
   }
 
@@ -77,7 +79,7 @@ export async function startSpectator(targetSessionId = null) {
   resetForSession(startSession, startPos);
 
   state.spectatorActive = true;
-  state.portal.intelligence.scanner.prefix = prefix;
+  portal.setScannerPrefix(prefix);
 
   log('spectatorLogPanel', `Watching for anchors... prefix="${prefix}"`, false);
 
@@ -117,9 +119,9 @@ export function syncWithPlayer(move) {
 
 function toggleGameScanning() {
   const btn = document.getElementById('refreshGamesBtn');
-  
+
   if (isScanning) {
-    // Stop scanning
+    // Stop scanning - but don't clear the list!
     isScanning = false;
     if (btn) {
       btn.textContent = 'Start Scan';
@@ -128,12 +130,18 @@ function toggleGameScanning() {
   } else {
     // Start scanning
     isScanning = true;
-    foundSessions.clear();
-    updateGameList([]); // Clear UI
     if (btn) {
       btn.textContent = 'Stop Scan';
       btn.classList.add('danger');
     }
+
+    // Bootstrap from cached/in-memory transactions first
+    // This bridges the "Live vs. Historical" gap
+    (async () => {
+      const prefix = $('payloadPrefix')?.value || 'KKTP';
+      await bootstrapGameBrowserFromCache(prefix);
+      updateGameList(getFoundSessionsSorted());
+    })();
   }
 }
 

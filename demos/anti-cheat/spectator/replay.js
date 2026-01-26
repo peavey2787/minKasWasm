@@ -1,4 +1,4 @@
-import { state } from '../state.js';
+import { state, portal } from '../state.js';
 import { setStatus, log } from '../utils.js';
 import { $ } from '../dom_elements.js';
 import { collectSessionAnchors } from './indexer_integration.js';
@@ -50,8 +50,8 @@ export async function replayFromStart() {
     alert('Connect to a node first!');
     return;
   }
-  if (!state.portal.intelligence.scanner) {
-    alert('Scanner not ready yet. Connect first.');
+  if (!portal.isReady) {
+    alert('Portal not ready yet. Connect first.');
     return;
   }
 

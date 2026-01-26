@@ -1,7 +1,8 @@
 // vrf_sources.js - VRF data fetching and folding
+// Uses the global kaspaPortal singleton exclusively
 
 import { $ } from './dom_elements.js';
-import { state } from './state.js';
+import { state, portal } from './state.js';
 import { log, downloadJSON, hexToBinary } from './utils.js';
 
 function clampByte(n) {
@@ -90,7 +91,7 @@ export async function autoFetchVRF() {
   try {
     // Try Full (QRNG + BTC + KAS)
     try {
-      state.foldedOutput = await state.portal.generateFullRandomness();
+      state.foldedOutput = await portal.generateFullRandomness();
       log('foldedOutputPanel', '✅ VRF Secured: QRNG + Bitcoin + Kaspa');
       return;
     } catch (e) {
@@ -99,9 +100,9 @@ export async function autoFetchVRF() {
     }
 
     // Fallback to Partial (BTC + KAS)
-    state.foldedOutput = await state.portal.generatePartialRandomness();
+    state.foldedOutput = await portal.generatePartialRandomness();
     log('foldedOutputPanel', '⚠️ VRF Fallback: Bitcoin + Kaspa (No QRNG)');
-    
+
   } catch (err) {
     state.foldedOutput = null;
     log('foldedOutputPanel', '❌ VRF FAILED: ' + err.message);
@@ -112,7 +113,7 @@ export async function autoFetchVRF() {
 
 export async function fetchKaspaBlocks() {
   const count = parseInt($('kaspaBlockCount').value) || 6;
-  
+
   if (kaspaCollecting) {
     log('kaspaBlocksPanel', 'Already collecting... click Stop first.');
     return;
@@ -125,21 +126,21 @@ export async function fetchKaspaBlocks() {
 
   const bps = 10; // ~10 blocks per second on Kaspa
   const estimatedSeconds = Math.ceil(count / bps);
-  
+
   const panel = $('kaspaBlocksPanel');
   panel.innerHTML = '';
   panel.style.maxHeight = '400px';
   panel.style.overflow = 'auto';
-  
+
   appendBlockLine(panel, `🚀 Fetching ${count} blocks via Portal...`);
   appendBlockLine(panel, `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-  
+
   $('kaspaBlockCountLabel').textContent = `(0/${count})`;
 
   try {
-    // Use portal to fetch blocks
-    const blocks = await state.portal.fetchBlocks('kaspa', count);
-    
+    // Use portal singleton to fetch blocks
+    const blocks = await portal.fetchBlocks('kaspa', count);
+
     for (const b of blocks) {
       const hash = b.hash;
       const shortHash = hash ? hash.slice(0, 12) + '...' + hash.slice(-8) : 'unknown';
@@ -176,13 +177,13 @@ function formatTime(seconds) {
 function finishKaspaCollection() {
   kaspaCollecting = false;
   state.kaspaBlocks = kaspaCollectedBlocks.slice(0, kaspaTargetCount);
-  
+
   const panel = $('kaspaBlocksPanel');
   appendBlockLine(panel, `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   appendBlockLine(panel, `✅ DONE! Collected ${state.kaspaBlocks.length} blocks`);
   appendBlockLine(panel, `First: ${state.kaspaBlocks[0]?.hash?.slice(0, 20)}...`);
   appendBlockLine(panel, `Last: ${state.kaspaBlocks[state.kaspaBlocks.length - 1]?.hash?.slice(0, 20)}...`);
-  
+
   $('kaspaBlockCountLabel').textContent = `(${state.kaspaBlocks.length})`;
   $('fetchKaspaBtn').disabled = false;
   $('stopKaspaBtn').disabled = true;
@@ -193,11 +194,11 @@ export function stopKaspaCollection() {
   if (kaspaCollecting) {
     kaspaCollecting = false;
     state.kaspaBlocks = kaspaCollectedBlocks;
-    
+
     const panel = $('kaspaBlocksPanel');
     appendBlockLine(panel, `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
     appendBlockLine(panel, `⏹️ Stopped. Collected ${kaspaCollectedBlocks.length} blocks.`);
-    
+
     $('kaspaBlockCountLabel').textContent = `(${kaspaCollectedBlocks.length})`;
     $('fetchKaspaBtn').disabled = false;
     $('stopKaspaBtn').disabled = true;
@@ -210,7 +211,7 @@ export async function fetchBtcBlocks() {
   log('btcBlocksPanel', 'Fetching Bitcoin blocks...', true);
 
   try {
-    const blocks = await state.portal.getBitcoinBlocks(count);
+    const blocks = await portal.getBitcoinBlocks(count);
     state.btcBlocks = blocks;
     $('btcBlockCountLabel').textContent = `(${blocks.length})`;
 
@@ -236,7 +237,7 @@ export async function fetchQrng() {
   log('qrngPanel', manual ? 'Using manual QRNG input...' : 'Fetching QRNG data...', true);
 
   try {
-    const data = manual ? parseManualQrng(manual) : await state.portal.getQRNG('nist', bytes);
+    const data = manual ? parseManualQrng(manual) : await portal.getQRNG('nist', bytes);
     if (!Array.isArray(data)) throw new Error('QRNG data must be an array of bytes');
     state.qrngData = data;
     $('qrngDataLabel').textContent = `(${data.length} bytes)`;
@@ -296,10 +297,10 @@ export async function foldSources() {
     if (sources.length === 1) {
       result = hexToBinary(sources[0].data.slice(0, 64).padEnd(64, '0'));
     } else if (sources.length === 2) {
-      result = await state.portal.fold(sources[0].data, sources[1].data, { iterations });
+      result = await portal.fold(sources[0].data, sources[1].data, { iterations });
     } else {
-      const fold1 = await state.portal.fold(sources[0].data, sources[1].data, { iterations });
-      result = await state.portal.fold(fold1, sources[2].data, { iterations });
+      const fold1 = await portal.fold(sources[0].data, sources[1].data, { iterations });
+      result = await portal.fold(fold1, sources[2].data, { iterations });
     }
 
     state.foldedOutput = result;
@@ -324,13 +325,13 @@ export function initVrfSources() {
     $('stopKaspaBtn').disabled = false;
     fetchKaspaBlocks();
   });
-  
+
   $('stopKaspaBtn').addEventListener('click', () => {
     stopKaspaCollection();
     $('fetchKaspaBtn').disabled = false;
     $('stopKaspaBtn').disabled = true;
   });
-  
+
   $('fetchBtcBtn').addEventListener('click', fetchBtcBlocks);
   $('fetchQrngBtn').addEventListener('click', fetchQrng);
   $('foldBtn').addEventListener('click', foldSources);

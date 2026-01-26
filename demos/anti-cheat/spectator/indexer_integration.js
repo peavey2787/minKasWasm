@@ -1,4 +1,4 @@
-import { state } from '../state.js';
+import { state, portal, addFoundSession } from '../state.js';
 import { parseAnchorPayload } from './parser.js';
 import { enqueueLiveAnchor, startLiveProcessing } from './processor.js';
 
@@ -31,18 +31,17 @@ export function handleMatchObject(matchObj, prefix) {
 }
 
 export async function initialBackfillFromIndexer(prefix) {
-  const indexer = state.portal.intelligence.indexer;
-  if (!indexer) return;
+  if (!portal.isReady) return;
 
   const allTxs = [];
 
   try {
-    const cached = await indexer.getAllCachedMatchingTransactions?.();
+    const cached = await portal.getAllCachedMatchingTransactions();
     if (Array.isArray(cached)) allTxs.push(...cached);
   } catch (e) { /* ignore */ }
 
   try {
-    const inMem = indexer.getAllMatchingTransactions?.();
+    const inMem = portal.getAllMatchingTransactions();
     if (Array.isArray(inMem)) allTxs.push(...inMem);
   } catch (e) { /* ignore */ }
 
@@ -69,8 +68,7 @@ export async function initialBackfillFromIndexer(prefix) {
 }
 
 export async function collectSessionAnchors(prefix, sessionId) {
-  const indexer = state.portal.intelligence.indexer;
-  if (!indexer) return [];
+  if (!portal.isReady) return [];
 
   const out = [];
   const seenRoots = new Set();
@@ -97,13 +95,13 @@ export async function collectSessionAnchors(prefix, sessionId) {
   };
 
   try {
-    const cached = await indexer.getAllCachedMatchingTransactions?.();
+    const cached = await portal.getAllCachedMatchingTransactions();
     const arr = Array.isArray(cached) ? cached : [];
     for (const tx of arr) await pushTx(tx);
   } catch {}
 
   try {
-    const inMem = indexer.getAllMatchingTransactions?.() || [];
+    const inMem = portal.getAllMatchingTransactions();
     for (const tx of inMem) await pushTx(tx);
   } catch {}
 
@@ -111,13 +109,12 @@ export async function collectSessionAnchors(prefix, sessionId) {
 }
 
 export async function findLatestSessionId(prefix) {
-  const indexer = state.portal.intelligence.indexer;
-  if (!indexer) return null;
+  if (!portal.isReady) return null;
 
   try {
-    const cached = await indexer.getAllCachedMatchingTransactions?.() || [];
-    const inMem = indexer.getAllMatchingTransactions?.() || [];
-    const all = [...cached, ...inMem].sort((a, b) => b.timestamp - a.timestamp);
+    const cached = await portal.getAllCachedMatchingTransactions();
+    const inMem = portal.getAllMatchingTransactions();
+    const all = [...(cached || []), ...(inMem || [])].sort((a, b) => b.timestamp - a.timestamp);
 
     for (const tx of all) {
       const payloadStr = typeof tx?.decodedPayload === 'string' ? tx.decodedPayload : null;
@@ -158,4 +155,58 @@ export function extractSessionFromTx(tx, prefix) {
     return check(obj);
   }
   return null;
+}
+
+/**
+ * Bootstrap the Game Browser by scanning all cached and in-memory transactions.
+ * This bridges the "Live vs. Historical" gap - called when scanning starts.
+ * Adds discovered sessions to the persistent foundSessions state.
+ * @param {string} prefix - The payload prefix to match
+ * @returns {Promise<number>} - Number of new sessions discovered
+ */
+export async function bootstrapGameBrowserFromCache(prefix) {
+  if (!portal.isReady) return 0;
+
+  const TEN_MIN_MS = 10 * 60 * 1000;
+  const normalizeTimestamp = (ts) => {
+    const n = Number(ts);
+    if (!Number.isFinite(n)) return null;
+    return n < 1e12 ? n * 1000 : n;
+  };
+
+  const isRecentTx = (tx, cutoffMs) => {
+    const ts = normalizeTimestamp(tx?.timestamp);
+    if (!ts) return true;
+    return (Date.now() - ts) <= cutoffMs;
+  };
+
+  let newCount = 0;
+  const allTxs = [];
+
+  // Gather from both cache and in-memory
+  try {
+    const cached = await portal.getAllCachedMatchingTransactions();
+    if (Array.isArray(cached)) {
+      for (const tx of cached) {
+        if (isRecentTx(tx, TEN_MIN_MS)) allTxs.push(tx);
+      }
+    }
+  } catch (e) { /* ignore */ }
+
+  try {
+    const inMem = portal.getAllMatchingTransactions();
+    if (Array.isArray(inMem)) allTxs.push(...inMem);
+  } catch (e) { /* ignore */ }
+
+  // Extract sessions from all transactions
+  for (const tx of allTxs) {
+    const session = extractSessionFromTx(tx, prefix);
+    if (session) {
+      const isNew = addFoundSession(session);
+      if (isNew) newCount++;
+    }
+  }
+
+  console.log(`[GameBrowser] Bootstrap complete: ${newCount} new sessions from ${allTxs.length} txs`);
+  return newCount;
 }

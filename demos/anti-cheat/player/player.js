@@ -1,7 +1,8 @@
 // player.js - Main controller for Player mode
+// Uses the global kaspaPortal singleton exclusively
 
 import { $ } from '../dom_elements.js';
-import { state, resetPlayerState } from '../state.js';
+import { state, portal, resetPlayerState } from '../state.js';
 import { setStatus, log, createGrid } from '../utils.js';
 import * as KKTP from '../kktp_lib.js';
 import { setPlayerSessionBadge, updatePlayerGrid } from './ui.js';
@@ -63,7 +64,7 @@ export async function stopPlayer() {
   if (state.walletReady && state.kktp.identity) {
     const endAnchor = await KKTP.createSessionEndAnchor(state.sessionId, state.kktp.identity);
     const prefix = $('payloadPrefix')?.value || 'KKTP';
-    await state.portal.send({
+    await portal.send({
       amount: '0.2',
       toAddress: state.walletAddress,
       payload: KKTP.buildKKTPPayload(prefix + ':', endAnchor)
