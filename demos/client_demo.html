@@ -2,34 +2,52 @@
 <html lang="en">
   <head>
     <link rel="stylesheet" href="../styles.css">
-  <meta charset="UTF-8">
-  <title>Kaspa Connect Demo</title>
-</head>
-<body>
-  <button id="connectBtn">Connect</button>
-  <p id="status">Not connected</p>
-
-  <script type="module">
-    import { KaspaPortal } from '../wrapper/kaspaPortal.js';
-
-    const portal = new KaspaPortal();
-    const btn = document.getElementById('connectBtn');
-    const status = document.getElementById('status');
-
-    btn.addEventListener('click', async () => {
-      status.textContent = "Connecting...";
-      try {
-        await portal.connect(null, "mainnet", {
-          onDisconnect: () => {
-            status.textContent = "Disconnected";
-          },
-          startIntelligence: false
-        });
-        status.textContent = "Connected";
-      } catch (err) {
-        status.textContent = "Connection failed: " + err.message;
+    <meta charset="UTF-8">
+    <title>Kaspa Connect Demo</title>
+    <style>
+      .spinner {
+        display: inline-block;
+        width: 18px;
+        height: 18px;
+        border: 3px solid #ccc;
+        border-top: 3px solid #007bff;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        vertical-align: middle;
+        margin-left: 8px;
       }
-    });
-  </script>
-</body>
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
+  </head>
+  <body>
+    <button id="connectBtn">Connect</button>
+    <p id="status">Not connected</p>
+
+    <script type="module">
+      import { kaspaPortal } from '../wrapper/kaspaPortal.js';
+
+      const btn = document.getElementById('connectBtn');
+      const status = document.getElementById('status');
+
+      btn.addEventListener('click', async () => {
+        status.innerHTML = 'Connecting... <span class="spinner"></span>';
+        try {
+          await kaspaPortal.init();
+          await kaspaPortal.connect({
+            rpcUrl: null,
+            networkId: "mainnet",
+            onDisconnect: () => {
+              status.textContent = "Disconnected";
+            },
+            startIntelligence: false
+          });
+          status.textContent = "Connected";
+        } catch (err) {
+          status.textContent = "Connection failed: " + err.message;
+        }
+      });
+    </script>
+  </body>
 </html>
