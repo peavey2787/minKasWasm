@@ -201,6 +201,14 @@ export class KaspaPortal {
     return await this.identity.getSpendableBalance();
   }
 
+  /**
+   * List all wallet filenames (delegates to Identity).
+   * @returns {Promise<string[]>}
+   */
+  async getAllWallets() {
+    return await this.identity.getAllWallets();
+  }
+
   // --- Intelligence Proxy Methods ---
 
   // Scanner Methods

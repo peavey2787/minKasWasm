@@ -1,257 +1,291 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
-    <link rel="stylesheet" href="../styles.css">
-    <meta charset="UTF-8">
+    <link rel="stylesheet" href="../styles.css" />
+    <meta charset="UTF-8" />
     <title>Kaspa Demo</title>
   </head>
-<body>
-  <label for="networkId">Network:</label>
-  <select id="networkId">
-    <option value="mainnet">Mainnet</option>
-    <option value="testnet-12">testnet-12</option>
-    <option value="testnet-11">testnet-11</option>
-    <option value="testnet-10" selected>testnet-10</option>
-  </select>
-  </br>
-  <button id="connectBtn">Connect</button>
-  <p id="status">Not connected</p>
+  <body>
+    <label for="networkId">Network:</label>
+    <select id="networkId">
+      <option value="mainnet">Mainnet</option>
+      <option value="testnet-12">testnet-12</option>
+      <option value="testnet-11">testnet-11</option>
+      <option value="testnet-10" selected>testnet-10</option>
+    </select>
+    <br />
+    <button id="connectBtn">Connect</button>
+    <p id="status">Not connected</p>
 
-  <h2>Run RPC Command</h2>
-  <input id="rpcCommand" type="text" value='{"method":"getInfo","params":{}}'>
-  <button id="runRpcBtn">Run</button>
-  <pre id="rpcResult" class="output"></pre>
+    <h2>Run RPC Command</h2>
+    <input
+      id="rpcCommand"
+      type="text"
+      value='{"method":"getInfo","params":{}}'
+    />
+    <button id="runRpcBtn">Run</button>
+    <pre id="rpcResult" class="output"></pre>
 
-  <h2>Select Existing Wallet</h2>
-  <!-- Refresh Wallet List button removed -->
-  <select id="walletList"></select>
-  <input id="unlockWalletPasswordInput" type="password" placeholder="Wallet password">
-  <button id="unlockWalletBtn">Unlock Wallet</button>
-  <button id="deleteWalletBtn" style="margin-left:1em;color:#c00;">Delete Wallet</button>
-  <button id="showMnemonicBtn" style="margin-left:1em;">Show Mnemonic</button>
-  <pre id="unlockWalletResult" class="output"></pre>
+    <h2>Select Existing Wallet</h2>
+    <!-- Refresh Wallet List button removed -->
+    <select id="walletList"></select>
+    <input
+      id="unlockWalletPasswordInput"
+      type="password"
+      placeholder="Wallet password"
+    />
+    <button id="unlockWalletBtn">Unlock Wallet</button>
+    <button id="deleteWalletBtn" style="margin-left: 1em; color: #c00">
+      Delete Wallet
+    </button>
+    <button id="showMnemonicBtn" style="margin-left: 1em">Show Mnemonic</button>
+    <pre id="unlockWalletResult" class="output"></pre>
 
-  <h2>Create Wallet</h2>
-  <input id="walletPasswordInput" type="password" placeholder="Wallet password" style="margin-bottom:0.5em;">
-  <input id="walletFilenameInput" type="text" placeholder="Wallet filename (optional)" style="margin-bottom:0.5em;">
-  <button id="createWalletBtn">Create Wallet</button>
-  <input id="mnemonicInput" type="text" placeholder="Optional mnemonic for import">
-  <button id="importWalletBtn">Import Wallet</button>
-  <pre id="walletResult" class="output"></pre>
+    <h2>Create Wallet</h2>
+    <input
+      id="walletPasswordInput"
+      type="password"
+      placeholder="Wallet password"
+      style="margin-bottom: 0.5em"
+    />
+    <input
+      id="walletFilenameInput"
+      type="text"
+      placeholder="Wallet filename (optional)"
+      style="margin-bottom: 0.5em"
+    />
+    <button id="createWalletBtn">Create Wallet</button>
+    <input
+      id="mnemonicInput"
+      type="text"
+      placeholder="Optional mnemonic for import"
+    />
+    <button id="importWalletBtn">Import Wallet</button>
+    <pre id="walletResult" class="output"></pre>
 
-  <h2>Get Balance</h2>
-  <button id="getBalanceBtn">Get Balance</button>
-  <pre id="balanceResult"></pre>
+    <h2>Get Balance</h2>
+    <button id="getBalanceBtn">Get Balance</button>
+    <pre id="balanceResult"></pre>
 
-  <h2>Send Transaction</h2>
-  <button id="sendBtn">Send 1 KAS to address</button>
-  <input id="sendAddress" type="text" value="">
-  <input id="payloadInput" type="text" placeholder="Optional payload">
-  <pre id="sendResult"></pre>
+    <h2>Send Transaction</h2>
+    <button id="sendBtn">Send 1 KAS to address</button>
+    <input id="sendAddress" type="text" value="" />
+    <input id="payloadInput" type="text" placeholder="Optional payload" />
+    <pre id="sendResult"></pre>
 
-  <script type="module">
-    import { sompiToKaspaString } from '../kas-wasm/kaspa.js';
-    import { KaspaPortal } from '../wrapper/kaspaPortal.js';
+    <script type="module">
+      import { sompiToKaspaString } from "../wrapper/kas-wasm/kaspa.js";
+      import { kaspaPortal } from "../wrapper/kaspaPortal.js";
 
-    const portal = new KaspaPortal();
+      const portal = kaspaPortal;
+      await portal.init();
 
-    const networkId = document.getElementById('networkId');
-    const status = document.getElementById('status');
-    const connectBtn = document.getElementById('connectBtn');
-    const runBtn = document.getElementById('runRpcBtn');
-    const rpcInput = document.getElementById('rpcCommand');
-    const rpcResult = document.getElementById('rpcResult');
-    const createWalletBtn = document.getElementById('createWalletBtn');
-    const importWalletBtn = document.getElementById('importWalletBtn');
-    const walletResult = document.getElementById('walletResult');
-    const walletPasswordInput = document.getElementById('walletPasswordInput');
-    const walletFilenameInput = document.getElementById('walletFilenameInput');
-    const getBalanceBtn = document.getElementById('getBalanceBtn');
-    const balanceResult = document.getElementById('balanceResult');
-    const sendBtn = document.getElementById('sendBtn');
-    const sendAddressInput = document.getElementById('sendAddress');
-    const payloadInput = document.getElementById('payloadInput');
-    const sendResult = document.getElementById('sendResult');
-    const showMnemonicBtn = document.getElementById('showMnemonicBtn');
-    const walletList = document.getElementById('walletList');
-    const unlockWalletPasswordInput = document.getElementById('unlockWalletPasswordInput');
-    const unlockWalletBtn = document.getElementById('unlockWalletBtn');
-    const unlockWalletResult = document.getElementById('unlockWalletResult');
-    const deleteWalletBtn = document.getElementById('deleteWalletBtn');
+      const networkId = document.getElementById("networkId");
+      const status = document.getElementById("status");
+      const connectBtn = document.getElementById("connectBtn");
+      const runBtn = document.getElementById("runRpcBtn");
+      const rpcInput = document.getElementById("rpcCommand");
+      const rpcResult = document.getElementById("rpcResult");
+      const createWalletBtn = document.getElementById("createWalletBtn");
+      const importWalletBtn = document.getElementById("importWalletBtn");
+      const walletResult = document.getElementById("walletResult");
+      const walletPasswordInput = document.getElementById(
+        "walletPasswordInput",
+      );
+      const walletFilenameInput = document.getElementById(
+        "walletFilenameInput",
+      );
+      const getBalanceBtn = document.getElementById("getBalanceBtn");
+      const balanceResult = document.getElementById("balanceResult");
+      const sendBtn = document.getElementById("sendBtn");
+      const sendAddressInput = document.getElementById("sendAddress");
+      const payloadInput = document.getElementById("payloadInput");
+      const sendResult = document.getElementById("sendResult");
+      const showMnemonicBtn = document.getElementById("showMnemonicBtn");
+      const walletList = document.getElementById("walletList");
+      const unlockWalletPasswordInput = document.getElementById(
+        "unlockWalletPasswordInput",
+      );
+      const unlockWalletBtn = document.getElementById("unlockWalletBtn");
+      const unlockWalletResult = document.getElementById("unlockWalletResult");
+      const deleteWalletBtn = document.getElementById("deleteWalletBtn");
 
-    // Show mnemonic handler
-    showMnemonicBtn.addEventListener('click', async () => {
-      const filename = walletList.value;
-      const password = unlockWalletPasswordInput.value.trim();
-      if (!filename) {
-        unlockWalletResult.textContent = "Please select a wallet.";
-        return;
+      // Show mnemonic handler
+      showMnemonicBtn.addEventListener("click", async () => {
+        unlockWalletResult.textContent =
+          "Mnemonic lookup is not available in this demo (kaspaPortal-only).";
+      });
+
+      // Delete wallet handler
+      deleteWalletBtn.addEventListener("click", async () => {
+        unlockWalletResult.textContent =
+          "Wallet deletion is not available in this demo (kaspaPortal-only).";
+      });
+
+      // Populate wallet list
+      async function refreshWalletList() {
+        // Make sure walletList exists
+        if (!walletList) return;
+        walletList.innerHTML = "";
+
+        const firstOpt = document.createElement("option");
+        firstOpt.value = "";
+        firstOpt.textContent = "Click me to select :)";
+        walletList.appendChild(firstOpt);
+
+        unlockWalletResult.textContent = "";
+
+        try {
+          const wallets = await portal.getAllWallets();
+          for (const item of wallets) {
+            const name =
+              typeof item === "string" ? item : item?.title || item?.filename;
+            const value =
+              typeof item === "string" ? item : item?.filename || item?.title;
+
+            if (!name || !value) continue;
+
+            const opt = document.createElement("option");
+            opt.value = value;
+            opt.textContent = name;
+            walletList.appendChild(opt);
+          }
+        } catch (err) {
+          unlockWalletResult.textContent =
+            "Failed to load wallets: " + (err.message || err);
+        }
       }
-      if (!password) {
-        unlockWalletResult.textContent = "Please enter the wallet password.";
-        return;
-      }
-      unlockWalletResult.textContent = "Fetching mnemonic...";
-      try {
-        const mnemonic = await portal.identity.getMnemonic(filename, password);
-        unlockWalletResult.textContent = `Mnemonic for '${filename}':\n${mnemonic}`;
-      } catch (err) {
-        unlockWalletResult.textContent = "Failed to fetch mnemonic: " + (err.message || err);
-      }
-    });
 
-    // Delete wallet handler
-    deleteWalletBtn.addEventListener('click', async () => {
-      const filename = walletList.value;
-      if (!filename) {
-        unlockWalletResult.textContent = "Please select a wallet to delete.";
-        return;
-      }
-      if (!confirm(`Are you sure you want to delete wallet '${filename}'? This action cannot be undone.`)) {
-        return;
-      }
-      unlockWalletResult.textContent = "Deleting wallet...";
-      try {
-        await portal.identity.deleteWallet(filename);
-        unlockWalletResult.textContent = `Wallet '${filename}' deleted.`;
-        await refreshWalletList();
-      } catch (err) {
-        unlockWalletResult.textContent = "Failed to delete wallet: " + (err.message || err);
-      }
-    });
-
-    // Populate wallet list
-    async function refreshWalletList() {
-      walletList.innerHTML = '';
-      unlockWalletResult.textContent = '';
-      try {
-        const wallets = await portal.identity.getAllWallets();
-        if (wallets.length === 0) {
-          walletList.innerHTML = '<option value="">No wallets found</option>';
+      // Unlock wallet
+      unlockWalletBtn.addEventListener("click", async () => {
+        const filename = walletFilenameInput.value.trim() || walletList.value;
+        const password = unlockWalletPasswordInput.value.trim();
+        if (!filename) {
+          unlockWalletResult.textContent = "Please enter a wallet filename.";
           return;
         }
-        wallets.forEach(w => {
-          const opt = document.createElement('option');
-          opt.value = w.filename;
-          opt.textContent = w.title || w.filename;
-          walletList.appendChild(opt);
-        });
-      } catch (err) {
-        unlockWalletResult.textContent = "Failed to load wallets: " + (err.message || err);
-      }
-    }
+        if (!password) {
+          unlockWalletResult.textContent = "Please enter the wallet password.";
+          return;
+        }
+        unlockWalletResult.textContent = "Unlocking wallet...";
+        try {
+          const result = await portal.createOrOpenWallet({
+            password,
+            walletFilename: filename,
+          });
+          unlockWalletResult.textContent =
+            "Wallet unlocked!\nAddress:\n" + result.address;
+          sendAddressInput.value = result.address;
+        } catch (err) {
+          unlockWalletResult.textContent =
+            "Failed to unlock wallet: " + (err.message || err);
+        }
+      });
 
-    // Unlock wallet
-    unlockWalletBtn.addEventListener('click', async () => {
-      const filename = walletList.value;
-      const password = unlockWalletPasswordInput.value.trim();
-      if (!filename) {
-        unlockWalletResult.textContent = "Please select a wallet.";
-        return;
-      }
-      if (!password) {
-        unlockWalletResult.textContent = "Please enter the wallet password.";
-        return;
-      }
-      unlockWalletResult.textContent = "Unlocking wallet...";
-      try {
-        const result = await portal.identity.createWallet({ password, filename });
-        unlockWalletResult.textContent = "Wallet unlocked!\nAddress:\n" + result.address;
-        sendAddressInput.value = result.address;
-      } catch (err) {
-        unlockWalletResult.textContent = "Failed to unlock wallet: " + (err.message || err);
-      }
-    });
+      connectBtn.addEventListener("click", async () => {
+        status.textContent = "Connecting...";
+        try {
+          await portal.connect({
+            rpcUrl: null,
+            networkId: networkId.value,
+            onDisconnect: () => {
+              status.textContent = "Disconnected";
+            },
+            balanceElementId: "balanceResult",
+            startIntelligence: false,
+          });
+          await refreshWalletList();
+          status.textContent = "Connected";
+        } catch (err) {
+          status.textContent = "Connection failed: " + err.message;
+        }
+      });
 
-    connectBtn.addEventListener('click', async () => {
-      status.textContent = "Connecting...";
-      try {
-        await portal.connect(null, networkId.value, {
-          onDisconnect: () => {
-            status.textContent = "Disconnected";
-          },
-          balanceElementId: "balanceResult",
-          startIntelligence: false
-        });
-        await refreshWalletList();
-        status.textContent = "Connected";
-      } catch (err) {
-        status.textContent = "Connection failed: " + err.message;
-      }
-    });
+      runBtn.addEventListener("click", async () => {
+        const cmdText = rpcInput.value.trim();
+        const result = await portal.transport.runRpcCommand(cmdText);
+        rpcResult.textContent = result;
+      });
 
-    runBtn.addEventListener('click', async () => {
-      const cmdText = rpcInput.value.trim();
-      const result = await portal.transport.runRpcCommand(cmdText);
-      rpcResult.textContent = result;
-    });
+      createWalletBtn.addEventListener("click", async () => {
+        walletResult.textContent = "Creating wallet...";
+        const password = walletPasswordInput.value.trim() || "password";
+        const filename = walletFilenameInput.value.trim() || "demo_wallet";
+        try {
+          const result = await portal.createOrOpenWallet({
+            password,
+            walletFilename: filename,
+            storeMnemonic: true,
+          });
+          walletResult.textContent =
+            "Wallet created!\nMnemonic:\n" +
+            result.mnemonic +
+            "\n\nAddress:\n" +
+            result.address;
+          sendAddressInput.value = result.address;
+        } catch (err) {
+          walletResult.textContent =
+            "Wallet creation failed: " + (err.message || err);
+        }
+      });
 
-    createWalletBtn.addEventListener('click', async () => {
-      walletResult.textContent = "Creating wallet...";
-      const password = walletPasswordInput.value.trim() || "password";
-      const filename = walletFilenameInput.value.trim() || "demo_wallet";
-      try {
-        const result = await portal.identity.createWallet({
-          password,
-          filename,
-          storeMnemonic: true
-        });
-        walletResult.textContent = "Wallet created!\nMnemonic:\n" + result.mnemonic + "\n\nAddress:\n" + result.address;
-        sendAddressInput.value = result.address;
-      } catch (err) {
-        walletResult.textContent = "Wallet creation failed: " + (err.message || err);
-      }
-    });
+      importWalletBtn.addEventListener("click", async () => {
+        const mnemonic = mnemonicInput.value.trim();
+        const password = walletPasswordInput.value.trim() || "password";
+        const filename =
+          walletFilenameInput.value.trim() || "imported_demo_wallet";
+        if (!mnemonic) {
+          walletResult.textContent = "Import cancelled.";
+          return;
+        }
+        walletResult.textContent = "Importing wallet...";
+        try {
+          const result = await portal.createOrOpenWallet({
+            password,
+            mnemonic,
+            walletFilename: filename,
+          });
+          walletResult.textContent =
+            "Wallet imported!\nAddress:\n" + result.address;
+          sendAddressInput.value = result.address;
+        } catch (err) {
+          walletResult.textContent =
+            "Wallet import failed: " + (err.message || err);
+        }
+      });
 
-    importWalletBtn.addEventListener('click', async () => {
-      const mnemonic = mnemonicInput.value.trim();
-      const password = walletPasswordInput.value.trim() || "password";
-      const filename = walletFilenameInput.value.trim() || "imported_demo_wallet";
-      if (!mnemonic) {
-        walletResult.textContent = "Import cancelled.";
-        return;
-      }
-      walletResult.textContent = "Importing wallet...";
-      try {
-        const result = await portal.identity.createWallet({
-          password,
-          mnemonic,
-          filename
-        });
-        walletResult.textContent = "Wallet imported!\nAddress:\n" + result.address;
-        sendAddressInput.value = result.address;
-      } catch (err) {
-        walletResult.textContent = "Wallet import failed: " + (err.message || err);
-      }
-    });
+      getBalanceBtn.addEventListener("click", async () => {
+        balanceResult.textContent = "Fetching balance...";
+        try {
+          const result = await portal.getBalance();
+          balanceResult.textContent =
+            "Balance:\n" + sompiToKaspaString(result) + " KAS";
+        } catch (err) {
+          balanceResult.textContent =
+            "Failed to get balance: " + (err.message || err);
+        }
+      });
 
-    getBalanceBtn.addEventListener('click', async () => {
-      balanceResult.textContent = "Fetching balance...";
-      try {
-        const result = await portal.getBalance();
-        balanceResult.textContent = "Balance:\n" + sompiToKaspaString(result) + " KAS";
-      } catch (err) {
-        balanceResult.textContent = "Failed to get balance: " + (err.message || err);
-      }
-    });
-
-    sendBtn.addEventListener('click', async () => {
-      const address = sendAddressInput.value.trim();
-      sendResult.textContent = "Sending transaction...";
-      const payload = payloadInput.value.trim();
-      try {
-        const sendResultData = await portal.send({
-          password: "password",
-          amount: 1,
-          toAddress: address,
-          priorityFeeKas: 0.0,
-          payload: ""
-        });
-        sendResult.textContent = "Transaction sent! TxID: " + sendResultData.transactionIds[0];
-      } catch (err) {
-        sendResult.textContent = "Transaction failed: " + (err.message || err);
-      }
-    });
-  </script>
-</body>
+      sendBtn.addEventListener("click", async () => {
+        const address = sendAddressInput.value.trim();
+        sendResult.textContent = "Sending transaction...";
+        const payload = payloadInput.value.trim();
+        try {
+          const sendResultData = await portal.send({
+            password: "password",
+            amount: 1,
+            toAddress: address,
+            priorityFeeKas: 0.0,
+            payload: "",
+          });
+          sendResult.textContent =
+            "Transaction sent! TxID: " + sendResultData.transactionIds[0];
+        } catch (err) {
+          sendResult.textContent =
+            "Transaction failed: " + (err.message || err);
+        }
+      });
+    </script>
+  </body>
 </html>
