@@ -101,6 +101,15 @@ export const state = {
   // Game Browser state - persistent across scanning cycles
   // Additive: sessions are never removed, only added or updated
   foundSessions: new Map(),
+
+  // Audit History - stores cryptographic data for manual verification
+  auditHistory: {
+    discoveryAnchor: null,      // First discovery anchor for identity verification
+    responseAnchor: null,       // Response anchor with VRF data
+    encryptedMessages: [],      // Array of { ciphertext, nonce, mailbox_id, seq, direction, tag }
+    sequences: [],              // All seen sequence numbers for continuity check
+    vrfData: null,              // VRF entropy data { kaspaBlocks, btcBlocks, foldedOutput }
+  },
 };
 
 export function addIndexerUpdateHandler(handler) {
@@ -167,6 +176,15 @@ export function resetSpectatorState() {
 
   // Latency stats
   state.spectatorLatency = { last: null, avg: null, max: null, count: 0, sum: 0 };
+
+  // Reset audit history for new session
+  state.auditHistory = {
+    discoveryAnchor: null,
+    responseAnchor: null,
+    encryptedMessages: [],
+    sequences: [],
+    vrfData: null,
+  };
 
   // NOTE: foundSessions is NOT reset here - it's persistent and additive
 

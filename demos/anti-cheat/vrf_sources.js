@@ -95,6 +95,16 @@ export async function autoFetchVRF() {
         const result = await portal.vrf.generateFoldedEntropy();
         state.foldedOutput = result.finalOutput;
         state.vrfProof = result.proof || null;
+
+        // Store VRF data in audit history for later verification
+        if (state.auditHistory) {
+          state.auditHistory.vrfData = {
+            kaspaBlocks: result.kaspaBlocks || [],
+            btcBlocks: result.btcBlocks || [],
+            foldedOutput: result.finalOutput,
+            timestamp: Date.now(),
+          };
+        }
       } else {
         state.foldedOutput = await portal.generateFullRandomness();
         state.vrfProof = null;
@@ -111,6 +121,16 @@ export async function autoFetchVRF() {
       const result = await portal.vrf.generatePartialEntropy();
       state.foldedOutput = result.finalOutput;
       state.vrfProof = result.proof || null;
+
+      // Store VRF data in audit history for later verification
+      if (state.auditHistory) {
+        state.auditHistory.vrfData = {
+          kaspaBlocks: result.kaspaBlocks || [],
+          btcBlocks: result.btcBlocks || [],
+          foldedOutput: result.finalOutput,
+          timestamp: Date.now(),
+        };
+      }
     } else {
       state.foldedOutput = await portal.generatePartialRandomness();
       state.vrfProof = null;
@@ -319,6 +339,19 @@ export async function foldSources() {
     }
 
     state.foldedOutput = result;
+
+    // Store VRF data in audit history for later verification (manual fold)
+    if (state.auditHistory) {
+      state.auditHistory.vrfData = {
+        kaspaBlocks: includeKaspa ? state.kaspaBlocks : [],
+        btcBlocks: includeBtc ? state.btcBlocks : [],
+        foldedOutput: result,
+        sources: sources.map(s => s.name),
+        iterations,
+        timestamp: Date.now(),
+      };
+    }
+
     log('foldedOutputPanel', JSON.stringify({
       sources: sources.map(s => s.name),
       iterations,

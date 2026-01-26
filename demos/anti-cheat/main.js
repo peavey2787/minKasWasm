@@ -6,6 +6,7 @@ import { initVrfSources } from './vrf_sources.js';
 import { initNistTests } from './nist_tests.js';
 import { initPlayer } from './player/player.js';
 import { initSpectator } from './spectator/spectator.js';
+import { initSentinelShield } from './sentinel_shield.js';
 import { initTabs, initCollapsibles } from './utils.js';
 
 async function init() {
@@ -23,6 +24,9 @@ async function init() {
   if (typeof initNistTests === 'function') initNistTests();
   if (typeof initPlayer === 'function') initPlayer();
   if (typeof initSpectator === 'function') initSpectator();
+
+  // Initialize Sentinel Shield for session integrity audit
+  if (typeof initSentinelShield === 'function') initSentinelShield();
 
   console.log('[AntiCheat] Demo ready.');
 }

@@ -733,3 +733,414 @@ button.small {
 .game-list-item:last-child {
   border-bottom: none;
 }
+
+/* ========================================
+   SENTINEL SHIELD - Audit UI
+   ======================================== */
+
+.sentinel-section {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.sentinel-shield-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1rem;
+}
+
+/* The Shield Icon */
+.sentinel-shield {
+  width: 120px;
+  height: 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.shield-icon {
+  width: 80px;
+  height: 80px;
+  position: relative;
+}
+
+.shield-svg {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+  transition: all 0.3s ease;
+}
+
+.shield-svg path:first-child {
+  fill: currentColor;
+}
+
+.shield-check {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.shield-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--text-muted);
+  margin-top: 0.5rem;
+}
+
+.shield-status {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
+/* Shield States */
+.sentinel-shield.idle {
+  color: #555;
+}
+
+.sentinel-shield.idle .shield-status {
+  color: #666;
+}
+
+/* Scanning - Yellow Pulse */
+.sentinel-shield.scanning {
+  color: #f1c40f;
+  animation: shieldPulse 1.2s ease-in-out infinite;
+}
+
+.sentinel-shield.scanning .shield-status {
+  color: #f1c40f;
+}
+
+@keyframes shieldPulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 8px rgba(241, 196, 15, 0.3));
+    transform: scale(1);
+  }
+  50% {
+    filter: drop-shadow(0 0 20px rgba(241, 196, 15, 0.7));
+    transform: scale(1.05);
+  }
+}
+
+/* Verified - Green Glow */
+.sentinel-shield.verified {
+  color: #00ff88;
+  filter: drop-shadow(0 0 15px rgba(0, 255, 136, 0.5));
+  animation: shieldGlow 2s ease-in-out infinite;
+}
+
+.sentinel-shield.verified .shield-check {
+  opacity: 1;
+  stroke: #00ff88;
+}
+
+.sentinel-shield.verified .shield-status {
+  color: #00ff88;
+}
+
+@keyframes shieldGlow {
+  0%, 100% {
+    filter: drop-shadow(0 0 15px rgba(0, 255, 136, 0.5));
+  }
+  50% {
+    filter: drop-shadow(0 0 25px rgba(0, 255, 136, 0.8));
+  }
+}
+
+/* Tampered - Red Strobe */
+.sentinel-shield.tampered {
+  color: #ff3333;
+  animation: shieldStrobe 0.15s ease-in-out infinite, shieldShake 0.1s ease-in-out infinite;
+}
+
+.sentinel-shield.tampered .shield-status {
+  color: #ff3333;
+}
+
+@keyframes shieldStrobe {
+  0%, 100% {
+    filter: drop-shadow(0 0 10px rgba(255, 51, 51, 0.5));
+    opacity: 1;
+  }
+  50% {
+    filter: drop-shadow(0 0 30px rgba(255, 51, 51, 1));
+    opacity: 0.8;
+  }
+}
+
+@keyframes shieldShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px) rotate(-2deg); }
+  75% { transform: translateX(3px) rotate(2deg); }
+}
+
+/* Error - Orange/Inconclusive */
+.sentinel-shield.error {
+  color: #e67e22;
+  filter: drop-shadow(0 0 10px rgba(230, 126, 34, 0.4));
+}
+
+.sentinel-shield.error .shield-status {
+  color: #e67e22;
+}
+
+/* Verify Button - Cyberpunk Style */
+.verify-btn {
+  background: linear-gradient(135deg, #00ff88 0%, #00cc6a 100%);
+  color: #0a0a0a;
+  border: none;
+  border-radius: 8px;
+  padding: 1rem 2rem;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3),
+              inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  text-transform: uppercase;
+}
+
+.verify-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 255, 136, 0.5),
+              inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.verify-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.verify-btn:disabled {
+  background: linear-gradient(135deg, #444 0%, #333 100%);
+  color: #888;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.verify-btn.scanning {
+  animation: btnPulse 1s ease-in-out infinite;
+}
+
+@keyframes btnPulse {
+  0%, 100% {
+    box-shadow: 0 4px 15px rgba(241, 196, 15, 0.3);
+  }
+  50% {
+    box-shadow: 0 4px 25px rgba(241, 196, 15, 0.6);
+  }
+}
+
+.btn-icon {
+  font-size: 1.2rem;
+}
+
+.reset-audit-btn {
+  background: var(--border);
+  color: var(--text);
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+}
+
+.reset-audit-btn.hidden {
+  display: none;
+}
+
+/* Audit Controls */
+.audit-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+/* Audit Results Panel */
+.audit-results-panel {
+  width: 100%;
+  max-width: 600px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  font-size: 0.9rem;
+}
+
+.audit-results-panel.hidden {
+  display: none;
+}
+
+.audit-result-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.audit-result-header.verified {
+  color: #00ff88;
+}
+
+.audit-result-header.tampered {
+  color: #ff3333;
+}
+
+.result-icon {
+  font-size: 1.3rem;
+}
+
+/* Audit Pillars */
+.audit-pillars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.audit-pillar {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 6px;
+  border-left: 3px solid transparent;
+}
+
+.audit-pillar.pass {
+  border-left-color: #00ff88;
+}
+
+.audit-pillar.fail {
+  border-left-color: #ff3333;
+}
+
+.audit-pillar.skip {
+  border-left-color: #888;
+}
+
+.audit-pillar.error {
+  border-left-color: #e67e22;
+}
+
+.pillar-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.pillar-content {
+  flex: 1;
+}
+
+.pillar-title {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.25rem;
+}
+
+.pillar-detail {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Audit Conclusion */
+.audit-conclusion {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.audit-conclusion.verified {
+  background: rgba(0, 255, 136, 0.1);
+  border: 1px solid rgba(0, 255, 136, 0.3);
+  color: #00ff88;
+}
+
+.audit-conclusion.tampered {
+  background: rgba(255, 51, 51, 0.1);
+  border: 1px solid rgba(255, 51, 51, 0.3);
+  color: #ff3333;
+}
+
+/* Shatter Overlay */
+.shatter-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.shatter-overlay.hidden {
+  display: none;
+}
+
+.shatter-overlay.active {
+  animation: shatterFlash 0.5s ease-out;
+  background: rgba(255, 0, 0, 0.15);
+}
+
+.shatter-message {
+  background: rgba(0, 0, 0, 0.9);
+  border: 2px solid #ff3333;
+  border-radius: 12px;
+  padding: 1.5rem 3rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  animation: shatterPulse 1s ease-in-out infinite;
+  box-shadow: 0 0 40px rgba(255, 51, 51, 0.5);
+}
+
+.shatter-icon {
+  font-size: 3rem;
+}
+
+.shatter-text {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #ff3333;
+  letter-spacing: 0.15em;
+  text-shadow: 0 0 10px rgba(255, 51, 51, 0.5);
+}
+
+@keyframes shatterFlash {
+  0% {
+    background: rgba(255, 0, 0, 0.4);
+  }
+  100% {
+    background: rgba(255, 0, 0, 0.15);
+  }
+}
+
+@keyframes shatterPulse {
+  0%, 100% {
+    box-shadow: 0 0 40px rgba(255, 51, 51, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 60px rgba(255, 51, 51, 0.8);
+  }
+}

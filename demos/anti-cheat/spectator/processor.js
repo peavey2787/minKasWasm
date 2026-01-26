@@ -178,6 +178,24 @@ export async function tryAcceptAnchor(obj, meta, opts = {}) {
       }
       try {
         logSec(`[DECRYPT] Payload: KKTP:${obj.mailbox_id?.slice(0, 8) || '????'}... seq=${obj.seq} dir=${obj.direction}`);
+
+        // Store encrypted message in audit history BEFORE decryption
+        if (state.auditHistory) {
+          state.auditHistory.encryptedMessages.push({
+            ciphertext: obj.ciphertext,
+            nonce: obj.nonce,
+            mailbox_id: obj.mailbox_id,
+            seq: obj.seq,
+            direction: obj.direction,
+            tag: obj.ciphertext?.slice(-32) || null,
+            timestamp: Date.now(),
+          });
+          // Track sequence for continuity check
+          if (typeof obj.seq === 'number') {
+            state.auditHistory.sequences.push(obj.seq);
+          }
+        }
+
         const decrypted = KKTP.decryptMessage(state.kktp.kSession, obj);
         const tagHex = typeof obj.ciphertext === 'string' && obj.ciphertext.length >= 32
           ? obj.ciphertext.slice(-32)
@@ -200,6 +218,11 @@ export async function tryAcceptAnchor(obj, meta, opts = {}) {
 
   // --- [2. KKTP Handshake & Discovery] ---
   if (obj.type === 'discovery') {
+    // Store discovery anchor in audit history for identity verification
+    if (state.auditHistory && !state.auditHistory.discoveryAnchor) {
+      state.auditHistory.discoveryAnchor = { ...obj };
+    }
+
     if (!state.spectatorHandshakeLogged) {
       logSec(`[SEC] DH-Handshake Initiated: Using X25519 Curve`);
       logSec(`[SEC] Peer PubKey Verified: ${obj.pub_sig?.slice(0, 8) || '????'}... (Identity Bound)`);
@@ -221,6 +244,12 @@ export async function tryAcceptAnchor(obj, meta, opts = {}) {
       logSec(`[SEC] Re-handshake detected (session already established). Ignoring duplicate response.`);
       return;
     }
+
+    // Store response anchor in audit history for VRF verification
+    if (state.auditHistory && !state.auditHistory.responseAnchor) {
+      state.auditHistory.responseAnchor = { ...obj };
+    }
+
     if (obj.vrf_value) {
       logSec(`[VRF] Entropy Value Received: ${obj.vrf_value.slice(0, 8)}...`);
       if (obj.vrf_proof) {
