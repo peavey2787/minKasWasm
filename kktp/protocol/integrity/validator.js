@@ -125,8 +125,8 @@ export class KKTPValidator {
     if (additional === false) {
       for (const key of keys) {
         if (!(key in props)) {
-          // Protocol Exception: Always allow 'meta' at the top level
-          if (isTopLevel && key === "meta") continue;
+          // Protocol Exception: Only allow 'meta' at top level for Discovery anchors (§5.2)
+          if (isTopLevel && key === "meta" && this.#name === "discovery") continue;
           throw new KKTPValidationError(
             `Unexpected field "${key}"`,
             `${path}.${key}`,

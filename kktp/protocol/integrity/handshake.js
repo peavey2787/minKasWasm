@@ -47,15 +47,28 @@ export async function establishSession(
   if (!isDValid || !isRValid)
     throw new Error("Handshake Failed: Invalid Signatures");
 
-  // 2. VRF Binding Verification
+  // 2. VRF Binding Verification (§7.3)
+  // Verify VRF input matches the expected key tuple per §6.1
+  const expectedInitiatorVrfInput =
+    discovery.pub_sig + discovery.pub_dh + discovery.sid;
+
+  const expectedResponderVrfInput =
+    discovery.pub_sig +
+    discovery.pub_dh +
+    response.pub_sig_resp +
+    response.pub_dh_resp +
+    discovery.sid;
+
   const isInitiatorVrfValid = await kaspaPortal.verify(
     discovery.vrf_value,
     discovery.vrf_proof,
+    expectedInitiatorVrfInput,
   );
 
   const isResponderVrfValid = await kaspaPortal.verify(
     response.vrf_value,
     response.vrf_proof,
+    expectedResponderVrfInput,
   );
 
   if (!isInitiatorVrfValid || !isResponderVrfValid) {

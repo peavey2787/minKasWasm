@@ -23,6 +23,8 @@ export class KKTPProtocol {
   async createDiscoveryAnchor(meta) {
     const keys = await kaspaPortal.generateIdentityKeys(0);
     this.sm.kktp.myDhPriv = keys.dh.privateKey;
+    this.sm.kktp.myPrivSig = keys.sig.privateKey; // Store for SessionEnd signing (§5.5)
+
     const discovery = await this.anchorFactory.createDiscovery({
       meta,
       sig: keys.sig,
@@ -33,7 +35,6 @@ export class KKTPProtocol {
 
     // Store for the Initiator's state
     this.sm.kktp.discoveryAnchor = discovery;
-    this.sm.kktp.myDhPriv = keys.dh.privateKey;
 
     return { discovery, dhPrivateKey: keys.dh.privateKey };
   }
@@ -44,14 +45,14 @@ export class KKTPProtocol {
   async createResponseAnchor(discovery) {
     const keys = await kaspaPortal.generateIdentityKeys(1);
     this.sm.kktp.myDhPriv = keys.dh.privateKey;
+    this.sm.kktp.myPrivSig = keys.sig.privateKey; // Store for SessionEnd signing (§5.5)
+
     const response = await this.anchorFactory.createResponse(discovery, {
       sig: keys.sig,
       dh: keys.dh,
     });
     response.sig_resp = await this.signAnchor(response, keys.sig.privateKey);
     responseValidator.validate(response);
-
-    this.sm.kktp.myDhPriv = keys.dh.privateKey;
 
     // Trigger State Machine connection immediately for Responder
     await this.sm.connect(discovery, response);
@@ -69,8 +70,9 @@ export class KKTPProtocol {
     }
     const direction = this.sm.isInitiator ? "AtoB" : "BtoA";
 
-    // Using factory for consistency
+    // Using factory for consistency (§5.4: sid is required)
     return await this.anchorFactory.createMessage(
+      this.sm.kktp.sid,
       this.sm.kktp.mailboxId,
       direction,
       this.sm.kktp.nextSeq(), // Ensure SM tracks sequence
@@ -80,13 +82,20 @@ export class KKTPProtocol {
   }
 
   /**
-   * PHASE 4: Terminate
+   * PHASE 4: Terminate (§5.5, §7.7)
    */
   async createEndAnchor(reason = "finished") {
-    const anchor = await this.anchorFactory.createSessionEnd(this.sm.kktp.sid, reason);
+    const anchor = this.anchorFactory.createSessionEndAnchor(
+      this.sm.kktp.sid,
+      this.sm.kktp.myPubSig,
+      reason
+    );
+
+    // Sign with the session's signing key
+    anchor.sig = await this.signAnchor(anchor, this.sm.kktp.myPrivSig);
 
     sessionEndValidator.validate(anchor);
-    this.sm.state = KKTP_STATES.CLOSED;
+    this.sm.terminate();
 
     return anchor;
   }
@@ -120,21 +129,21 @@ export class KKTPProtocol {
         const messages = this.sm.receiveMessage(anchor);
         return { type: "MESSAGES_READY", data: messages };
 
-      // Inside processIncoming(anchor)
+      // Inside processIncoming(anchor) - §7.4 Signature Verification
       case "session_end":
         sessionEndValidator.validate(anchor);
 
         // Verify the signature against the identity key established in the handshake
-        const isA = anchor.pub_sig === this.sm.kktp.pub_sig;
-        const isB = anchor.pub_sig === this.sm.kktp.pub_sig_resp;
+        const isFromMe = anchor.pub_sig === this.sm.kktp.myPubSig;
+        const isFromPeer = anchor.pub_sig === this.sm.kktp.peerPubSig;
 
-        if (!isA && !isB)
+        if (!isFromMe && !isFromPeer)
           throw new Error("Unauthorized SessionEnd: Signature key mismatch.");
 
         const body = canonicalize(
           prepareForSigning(anchor, { omitKeys: ["sig"] }),
         );
-        const isValid = await this.portal.crypto.verifyMessage(
+        const isValid = await kaspaPortal.crypto.verifyMessage(
           anchor.pub_sig,
           body,
           anchor.sig,
@@ -142,7 +151,7 @@ export class KKTPProtocol {
 
         if (!isValid) throw new Error("Invalid SessionEnd signature.");
 
-        this.sm.state = KKTP_STATES.CLOSED;
+        this.sm.terminate();
         return { type: "SESSION_CLOSED", data: anchor.reason };
 
       default:

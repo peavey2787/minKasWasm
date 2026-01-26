@@ -34,6 +34,7 @@ export class AnchorFactory {
 
   /**
    * Section 6.2: Response Anchor
+   * Per §5.3: Response anchors do NOT include meta
    */
   async createResponse(discovery, { sig, dh }) {
     const response = {
@@ -46,9 +47,6 @@ export class AnchorFactory {
       pub_dh_resp: dh.publicKey,
       vrf_value: null,
       vrf_proof: null,
-      meta: {
-        version: discovery.meta.version,
-      },
     };
 
     const vrfInput =
@@ -71,18 +69,20 @@ export class AnchorFactory {
 
   /**
    * Section 6.5: Message Object
+   * Per §5.4: Message anchors MUST include sid
    */
-  async createMessage(mailboxId, direction, seq, plaintext, sessionKey) {
+  async createMessage(sid, mailboxId, direction, seq, plaintext, sessionKey) {
     const nonce = window.crypto.getRandomValues(new Uint8Array(24));
     const aad = constructAAD(mailboxId, direction, seq);
 
     // NO 'new' keyword here
-    const chacha = xchacha20poly1305(sessionKey, nonce);
-    const ciphertext = chacha.encrypt(new TextEncoder().encode(plaintext), aad);
+    const chacha = xchacha20poly1305(sessionKey, nonce, aad);
+    const ciphertext = chacha.encrypt(new TextEncoder().encode(plaintext));
 
     return {
       type: "msg",
       version: 1,
+      sid: sid,
       mailbox_id: mailboxId,
       direction: direction,
       seq: Number(seq),
@@ -92,20 +92,16 @@ export class AnchorFactory {
   }
 
   /**
-   * Section 8.1 / 5.5: Session End Anchor
+   * Section 5.5 / 7.7: Session End Anchor
+   * Uses the session's existing pub_sig (not new keys)
    */
-  async createSessionEndAnchor(sid, reason = "Session terminated by user") {
-    const keys = await kaspaPortal.generateIdentityKeys(0);
-
-    const sessionEnd = {
+  createSessionEndAnchor(sid, pubSig, reason = "Session terminated by user") {
+    return {
       type: "session_end",
       version: 1,
       sid: sid,
-      pub_sig: keys.sig.publicKey,
+      pub_sig: pubSig,
       reason: reason,
     };
-
-    sessionEnd.sig = await kaspaPortal.signAnchor(sessionEnd);
-    return sessionEnd;
   }
 }

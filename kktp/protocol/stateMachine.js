@@ -18,17 +18,25 @@ export class KKTPStateMachine {
 
     this.kktp = {
       session: null, // K_session + metadata
+      sessionKey: null, // 32-byte K_session for AEAD
       mailboxId: null, // Derived via Section 6.3
       sid: null,
       myPubSig: null, // Our identity for SessionEnd
+      myPrivSig: null, // Our private signing key for SessionEnd (§5.5)
       peerPubSig: null, // Peer identity for verification
 
-      // Section 6.6: Independent counters
+      // Section 6.6: Independent counters per direction
       outboundSeq: 0,
-      inboundSeq: 1,
+      inboundSeq: {
+        AtoB: 1,
+        BtoA: 1,
+      },
 
-      // Section 7.2: Reassembly buffers
-      buffer: [],
+      // Section 7.2: Reassembly buffers per direction
+      buffer: {
+        AtoB: [],
+        BtoA: [],
+      },
       maxBufferSize: 100, // Protection against DoS memory exhaustion
     };
   }
@@ -89,40 +97,49 @@ export class KKTPStateMachine {
   }
 
   /**
-   * Receives, reorders, and enforces strict contiguous delivery (Section 7.2)
+   * Receives, reorders, and enforces strict contiguous delivery (Section 7.1 & 7.2)
+   * Per-direction replay protection and buffering
    */
   receiveMessage(msg) {
     if (this.state !== KKTP_STATES.ACTIVE) return [];
 
-    // 1. Replay Protection: Discard old or duplicate sequences
-    if (msg.seq < this.kktp.inboundSeq) return [];
+    const direction = msg.direction;
+    if (direction !== "AtoB" && direction !== "BtoA") {
+      throw new Error(`Invalid direction: ${direction}`);
+    }
 
-    // 2. Buffer Limit: Prevent memory DoS
-    if (this.kktp.buffer.length >= this.kktp.maxBufferSize) {
+    const expectedSeq = this.kktp.inboundSeq[direction];
+    const buffer = this.kktp.buffer[direction];
+
+    // 1. Replay Protection: Discard old or duplicate sequences (§7.1)
+    if (msg.seq < expectedSeq) return [];
+
+    // 2. Buffer Limit: Prevent memory DoS (§7.2)
+    if (buffer.length >= this.kktp.maxBufferSize) {
       this.state = KKTP_STATES.FAULTED;
       throw new Error("Buffer overflow: Potential DoS or massive gap.");
     }
 
-    // 3. Add to reassembly buffer and sort
-    if (!this.kktp.buffer.find((m) => m.seq === msg.seq)) {
-      this.kktp.buffer.push(msg);
-      this.kktp.buffer.sort((a, b) => a.seq - b.seq);
+    // 3. Add to reassembly buffer (dedupe) and sort
+    if (!buffer.find((m) => m.seq === msg.seq)) {
+      buffer.push(msg);
+      buffer.sort((a, b) => a.seq - b.seq);
     }
 
     const readyPlaintexts = [];
 
-    // 4. Strict contiguous processing (The "While" loop from Section 6.7)
+    // 4. Strict contiguous processing (§7.2)
     while (
-      this.kktp.buffer.length > 0 &&
-      this.kktp.buffer[0].seq === this.kktp.inboundSeq
+      buffer.length > 0 &&
+      buffer[0].seq === this.kktp.inboundSeq[direction]
     ) {
-      const next = this.kktp.buffer.shift();
+      const next = buffer.shift();
 
       try {
         // Section 6.6: AAD must include direction and seq
         const plain = unpack(this.kktp, next);
         if (plain) readyPlaintexts.push(plain);
-        this.kktp.inboundSeq++;
+        this.kktp.inboundSeq[direction]++;
       } catch (e) {
         // Section 7.11: AEAD failure marks session as FAULTED
         this.state = KKTP_STATES.FAULTED;
@@ -138,11 +155,24 @@ export class KKTPStateMachine {
    */
   terminate() {
     this.state = KKTP_STATES.CLOSED;
-    // ZEROIZE: Securely erase keys from memory
-    if (this.kktp.session) {
-      this.kktp.session.zeroize(); // Assuming session object has a secure wipe
-      this.kktp.session = null;
+
+    // ZEROIZE: Securely erase keys from memory (§7.7)
+    if (this.kktp.session?.zeroize) {
+      this.kktp.session.zeroize();
     }
-    this.kktp.buffer = [];
+    this.kktp.session = null;
+
+    // Zeroize session key
+    if (this.kktp.sessionKey instanceof Uint8Array) {
+      this.kktp.sessionKey.fill(0);
+    }
+    this.kktp.sessionKey = null;
+
+    // Clear DH private key
+    this.kktp.myDhPriv = null;
+    this.kktp.myPrivSig = null;
+
+    // Clear buffers
+    this.kktp.buffer = { AtoB: [], BtoA: [] };
   }
 }

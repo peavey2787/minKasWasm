@@ -11,14 +11,28 @@ export function hexToBytes(hex) {
 }
 
 /**
- * Convert a Uint8Array or array of bytes to a hex string.
+ * Convert a Uint8Array or array of bytes to a lowercase hex string.
+ * Per KKTP §5.1: All hex fields MUST be lowercase.
  * @param {Uint8Array|Array<number>} bytes - The bytes to convert.
- * @returns {string} Hex string.
+ * @returns {string} Lowercase hex string.
  */
 export function bytesToHex(bytes) {
   return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
+    .map((b) => b.toString(16).padStart(2, "0").toLowerCase())
     .join("");
+}
+
+/**
+ * Validates and normalizes a hex string to lowercase.
+ * Per KKTP §5.1: All hex fields MUST be lowercase.
+ * @param {string} hex - The hex string to normalize.
+ * @returns {string} Lowercase hex string.
+ */
+export function normalizeHex(hex) {
+  if (typeof hex !== "string" || !/^[0-9a-fA-F]*$/.test(hex)) {
+    throw new Error("Invalid hex string");
+  }
+  return hex.toLowerCase();
 }
 
 /**

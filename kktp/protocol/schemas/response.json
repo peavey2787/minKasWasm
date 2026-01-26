@@ -15,31 +15,31 @@
 
     "sid": {
       "type": "string",
-      "pattern": "^[0-9a-fA-F]{32,}$",
+      "pattern": "^[0-9a-f]{32,}$",
       "required": true
     },
 
     "initiator_pub_sig": {
       "type": "string",
-      "pattern": "^[0-9a-fA-F]+$",
+      "pattern": "^[0-9a-f]+$",
       "required": true
     },
 
     "initiator_pub_dh": {
       "type": "string",
-      "pattern": "^[0-9a-fA-F]+$",
+      "pattern": "^[0-9a-f]+$",
       "required": true
     },
 
     "pub_sig_resp": {
       "type": "string",
-      "pattern": "^[0-9a-fA-F]+$",
+      "pattern": "^[0-9a-f]+$",
       "required": true
     },
 
     "pub_dh_resp": {
       "type": "string",
-      "pattern": "^[0-9a-fA-F]+$",
+      "pattern": "^[0-9a-f]+$",
       "required": true
     },
 
@@ -53,7 +53,7 @@
 
     "sig_resp": {
       "type": "string",
-      "pattern": "^[0-9a-fA-F]+$"
+      "pattern": "^[0-9a-f]+$"
     }
   },
 
