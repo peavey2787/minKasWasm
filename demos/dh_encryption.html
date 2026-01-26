@@ -1,199 +1,274 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Kaspa DH Encryption Demo</title>
-  <link rel="stylesheet" href="../styles.css">
-</head>
-<body>
-  <h1>Kaspa Wallet + Diffie–Hellman Demo</h1>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Kaspa DH Encryption Demo</title>
+    <link rel="stylesheet" href="../styles.css" />
+  </head>
+  <body>
+    <h1>Kaspa Wallet + Diffie–Hellman Demo</h1>
 
-  <label>Password:</label>
-  <input type="text" id="walletPassword" placeholder="Enter wallet password" value="1234">
-  
-  <button id="createWalletBtn">Create Wallet</button>
-  <div class="output">
-    <strong>Wallet Info:</strong>
-    <div id="mnemonic"></div>
-    <button class="copyBtn">Copy</button>
-  </div>
-  <div class="output">
-    <strong>First Address:</strong>
-    <div id="firstAddress"></div>
-    <button class="copyBtn">Copy</button>
-  </div>
-  
-  <button id="createNewAddressBtn">Generate New Address</button>
-  <div class="output">
-    <strong>New Address:</strong>
-    <div id="newAddressInfo"></div>
-    <button class="copyBtn">Copy</button>
-  </div>
+    <label>Password:</label>
+    <input
+      type="text"
+      id="walletPassword"
+      placeholder="Enter wallet password"
+      value="1234"
+    />
 
-  <label>Public Key:</label>
-  <div class="output">
-    <div id="pubKeyResult"></div>
-    <button class="copyBtn">Copy</button>
-  </div>
+    <button id="createWalletBtn">Create Wallet</button>
+    <div class="output">
+      <strong>Wallet Info:</strong>
+      <div id="mnemonic"></div>
+      <button class="copyBtn">Copy</button>
+    </div>
+    <div class="output">
+      <strong>First Address:</strong>
+      <div id="firstAddress"></div>
+      <button class="copyBtn">Copy</button>
+    </div>
 
-  <label>Peer Public Key:</label>
-  <input type="text" id="peerPubKey" placeholder="Paste peer public key hex">
+    <button id="createNewAddressBtn">Generate New Address</button>
+    <div class="output">
+      <strong>New Address:</strong>
+      <div id="newAddressInfo"></div>
+      <button class="copyBtn">Copy</button>
+    </div>
 
-  1.<button id="initHandshakeBtn">Initiate Handshake</button>
-  2.<button id="respondHandshakeBtn">Respond to Handshake</button>
+    <label>Public Key:</label>
+    <div class="output">
+      <div id="pubKeyResult"></div>
+      <button class="copyBtn">Copy</button>
+    </div>
 
-  <div class="output">
-    <strong>Handshake Result:</strong>
-    <div id="handshakeResult"></div>
-  </div>
+    <label>Peer Public Key:</label>
+    <input
+      type="text"
+      id="peerPubKey"
+      placeholder="Paste peer public key hex"
+    />
 
-  <label>Message:</label>
-  <textarea id="messageBox" placeholder="Enter message"></textarea>
-  <button id="encryptBtn">Encrypt</button>
-  <button id="decryptBtn">Decrypt</button>
+    1.<button id="initHandshakeBtn">Initiate Handshake</button> 2.<button
+      id="respondHandshakeBtn"
+    >
+      Respond to Handshake
+    </button>
 
-  <div class="output">
-    <strong>Message Result:</strong>
-    <div id="messageResult"></div>
-    <button class="copyBtn">Copy</button>
-  </div>
+    <div class="output">
+      <strong>Handshake Result:</strong>
+      <div id="handshakeResult"></div>
+    </div>
 
-  <label>Sign/Verify Message:</label>
-  <textarea id="signMessageBox" placeholder="Enter message to sign">Test message</textarea>
-  <input type="text" id="publicKeyBox" placeholder="Public key here">
-  <input type="text" id="signatureBox" placeholder="Signature here">
-  <button id="signBtn">Sign</button>
-  <button id="verifyBtn">Verify</button>
+    <label>Message:</label>
+    <textarea id="messageBox" placeholder="Enter message"></textarea>
+    <button id="encryptBtn">Encrypt</button>
+    <button id="decryptBtn">Decrypt</button>
 
-  <div class="output">
-    <strong>Verification Result:</strong>
-    <div id="verifyResult"></div>
-  </div>
+    <div class="output">
+      <strong>Message Result:</strong>
+      <div id="messageResult"></div>
+      <button class="copyBtn">Copy</button>
+    </div>
 
-  <script type="module">
-    import { KaspaPortal } from "../wrapper/kaspaPortal.js";
-    import * as utilities from "../wrapper/utilities/utilities.js";
+    <label>Sign/Verify Message:</label>
+    <textarea id="signMessageBox" placeholder="Enter message to sign">
+Test message</textarea
+    >
+    <input type="text" id="publicKeyBox" placeholder="Public key here" />
+    <input type="text" id="signatureBox" placeholder="Signature here" />
+    <button id="signBtn">Sign</button>
+    <button id="verifyBtn">Verify</button>
 
-    const portal = new KaspaPortal();
-    const networkId = "testnet-10";
-    
-    // Connect to network and initialize all services (Crypto, Transport, Identity)
-    await portal.connect(null, networkId, { startIntelligence: false });
+    <div class="output">
+      <strong>Verification Result:</strong>
+      <div id="verifyResult"></div>
+    </div>
 
-    let dhSession = portal.crypto.createDHSession();
-    
-    let myKeys = { privateKey: null, publicKey: null };  
+    <script type="module">
+      import { kaspaPortal } from "../wrapper/kaspaPortal.js";
 
-    document.getElementById("createWalletBtn").onclick = async () => {
-      document.getElementById("mnemonic").textContent = "Creating wallet, this can take a bit of time please be patient ...";
-      const password = document.getElementById("walletPassword").value;
-      try {        
-        const filename = `dh_demo_${Date.now()}`;
-        const { mnemonic, address } = await portal.identity.createWallet({ password, filename, storeMnemonic: true });
-        document.getElementById("mnemonic").textContent = mnemonic;
-        document.getElementById("firstAddress").textContent = address;
+      const portal = kaspaPortal;
+      const networkId = "testnet-10";
 
-      } catch (err) {
-        console.error("Wallet creation error:", err);
-        document.getElementById("mnemonic").textContent = "Error: " + err.message;
-      }
-    };
+      await portal.init();
+      await portal.connect({
+        rpcUrl: null,
+        networkId,
+        startIntelligence: false,
+      });
 
-    document.getElementById("createNewAddressBtn").onclick = async () => {
-      let newAddress;
-      try {
-        newAddress = await portal.identity.generateNewAddress();
-        document.getElementById("newAddressInfo").textContent = newAddress;
-      } catch (err) {
-        console.error("Generate new address error:", err);
-        document.getElementById("newAddressInfo").textContent = "Error: " + err.message;
-      }
-      
-      const keypair = await portal.generateKeypair();
-      myKeys.privateKey = keypair.privateKey;      
-      myKeys.publicKey = keypair.publicKey;
-      
-      document.getElementById("pubKeyResult").textContent = myKeys.publicKey;    
-    };
+      let dhSession = null;
+      let myKeys = { privateKey: null, publicKey: null };
+      let keyIndex = 0;
 
-    document.getElementById("initHandshakeBtn").onclick = () => {
-      const msg = dhSession.initiateHandshake(myKeys.privateKey, myKeys.publicKey);
-      document.getElementById("handshakeResult").textContent = JSON.stringify({
-        ...msg,
-        publicKey: myKeys.publicKey
-      }, null, 2);
-    };
-
-    document.getElementById("respondHandshakeBtn").onclick = async () => {
-      const peerPubKeyHex = document.getElementById("peerPubKey").value.trim();
-      const msg = await dhSession.respondToHandshake(peerPubKeyHex);
-      document.getElementById("handshakeResult").textContent = JSON.stringify(msg, null, 2);
-    };
-
-    document.getElementById("encryptBtn").onclick = () => {
-      const plaintext = document.getElementById("messageBox").value;
-      try {
-        const cipher = dhSession.encryptMessage(plaintext);
-        document.getElementById("messageResult").textContent = cipher;
-        
-        // Also fill the sign/verify textarea and public key box
-        document.getElementById("signMessageBox").value = cipher;
-        document.getElementById("publicKeyBox").value = myKeys.publicKey;
-      } catch (err) {
-        document.getElementById("messageResult").textContent = "Error: " + err.message;
-      }
-    };
-
-    document.getElementById("decryptBtn").onclick = () => {
-      const cipher = document.getElementById("messageBox").value;
-      try {
-        const plain = dhSession.decryptMessage(cipher);
-        document.getElementById("messageResult").textContent = plain;
-        // Also fill the sign/verify textarea and public key box
-        document.getElementById("signMessageBox").value = plain;
-        document.getElementById("publicKeyBox").value = myKeys.publicKey;
-      } catch (err) {
-        document.getElementById("messageResult").textContent = "Error: " + err.message;
-      }
-    };
-
-    document.getElementById("signBtn").onclick = async () => {
-      const message = document.getElementById("signMessageBox").value;
-      try {
-        const signatureHex = await utilities.signMessageWithPrivateKeyHex(myKeys.privateKey, message);
-        document.getElementById("signatureBox").value = signatureHex;
-        document.getElementById("publicKeyBox").value = myKeys.publicKey;
-      } catch (err) {
-        document.getElementById("messageResult").textContent = "Error: " + err.message;
-      }
-    };
-
-    document.getElementById("verifyBtn").onclick = async () => {
-      const message = document.getElementById("signMessageBox").value;
-      const pubKeyHex = document.getElementById("publicKeyBox").value.trim();
-      const signatureHex = document.getElementById("signatureBox").value.trim();
-      try {
-        const isValid = await utilities.verifyMessageWithPublicKeyHex(pubKeyHex, message, signatureHex);
-        document.getElementById("verifyResult").textContent = isValid ? "Signature is valid" : "Signature is INVALID";
-      } catch (err) {
-        document.getElementById("verifyResult").textContent = "Error: " + err.message;
-      }
-    };
-
-    // Add copy-to-clipboard functionality for all .copyBtn buttons
-    document.querySelectorAll('.output .copyBtn').forEach(btn => {
-      btn.onclick = function() {
-        // Find the first div inside the same .output container (skip <strong> and <button>)
-        const outputDiv = btn.parentElement.querySelector('div:not(:has(button))');
-        if (outputDiv) {
-          const text = outputDiv.textContent;
-          navigator.clipboard.writeText(text).then(() => {
-            btn.textContent = "Copied!";
-            setTimeout(() => btn.textContent = "Copy", 1000);
+      document.getElementById("createWalletBtn").onclick = async () => {
+        document.getElementById("mnemonic").textContent =
+          "Creating wallet, this can take a bit of time please be patient ...";
+        const password = document.getElementById("walletPassword").value;
+        try {
+          const walletFilename = `dh_demo_${Date.now()}`;
+          const { mnemonic, address } = await portal.createOrOpenWallet({
+            password,
+            walletFilename,
+            storeMnemonic: true,
           });
+          document.getElementById("mnemonic").textContent = mnemonic;
+          document.getElementById("firstAddress").textContent = address;
+        } catch (err) {
+          document.getElementById("mnemonic").textContent =
+            "Error: " + err.message;
         }
       };
-    });
-  </script>
-</body>
+
+      document.getElementById("createNewAddressBtn").onclick = async () => {
+        try {
+          const newAddress = await portal.generateNewAddress();
+          document.getElementById("newAddressInfo").textContent = newAddress;
+
+          const { dh } = await portal.generateIdentityKeys(keyIndex);
+          myKeys.privateKey = dh.privateKey;
+          myKeys.publicKey = dh.publicKey;
+
+          dhSession = await portal.startSession(keyIndex, dh.privateKey);
+
+          document.getElementById("pubKeyResult").textContent =
+            myKeys.publicKey;
+          keyIndex += 1;
+        } catch (err) {
+          document.getElementById("newAddressInfo").textContent =
+            "Error: " + err.message;
+        }
+      };
+
+      document.getElementById("initHandshakeBtn").onclick = () => {
+        if (!dhSession) {
+          document.getElementById("handshakeResult").textContent =
+            "Error: Create wallet and keys first.";
+          return;
+        }
+        const msg = dhSession.initiateHandshake(
+          myKeys.privateKey,
+          myKeys.publicKey,
+        );
+        document.getElementById("handshakeResult").textContent = JSON.stringify(
+          {
+            ...msg,
+            publicKey: myKeys.publicKey,
+          },
+          null,
+          2,
+        );
+      };
+
+      document.getElementById("respondHandshakeBtn").onclick = async () => {
+        if (!dhSession) {
+          document.getElementById("handshakeResult").textContent =
+            "Error: Create wallet and keys first.";
+          return;
+        }
+        const peerPubKeyHex = document
+          .getElementById("peerPubKey")
+          .value.trim();
+        const msg = await dhSession.respondToHandshake(peerPubKeyHex);
+        document.getElementById("handshakeResult").textContent = JSON.stringify(
+          msg,
+          null,
+          2,
+        );
+      };
+
+      document.getElementById("encryptBtn").onclick = () => {
+        if (!dhSession) {
+          document.getElementById("messageResult").textContent =
+            "Error: Create wallet and keys first.";
+          return;
+        }
+        const plaintext = document.getElementById("messageBox").value;
+        try {
+          const cipher = dhSession.encryptMessage(plaintext);
+          document.getElementById("messageResult").textContent = cipher;
+          document.getElementById("signMessageBox").value = cipher;
+          document.getElementById("publicKeyBox").value = myKeys.publicKey;
+        } catch (err) {
+          document.getElementById("messageResult").textContent =
+            "Error: " + err.message;
+        }
+      };
+
+      document.getElementById("decryptBtn").onclick = () => {
+        if (!dhSession) {
+          document.getElementById("messageResult").textContent =
+            "Error: Create wallet and keys first.";
+          return;
+        }
+        const cipher = document.getElementById("messageBox").value;
+        try {
+          const plain = dhSession.decryptMessage(cipher);
+          document.getElementById("messageResult").textContent = plain;
+          document.getElementById("signMessageBox").value = plain;
+          document.getElementById("publicKeyBox").value = myKeys.publicKey;
+        } catch (err) {
+          document.getElementById("messageResult").textContent =
+            "Error: " + err.message;
+        }
+      };
+
+      document.getElementById("signBtn").onclick = async () => {
+        const message = document.getElementById("signMessageBox").value;
+        try {
+          const signatureHex = await portal.signMessage(
+            myKeys.privateKey,
+            message,
+          );
+          document.getElementById("signatureBox").value = signatureHex;
+          document.getElementById("publicKeyBox").value = myKeys.publicKey;
+        } catch (err) {
+          document.getElementById("messageResult").textContent =
+            "Error: " + err.message;
+        }
+      };
+
+      document.getElementById("verifyBtn").onclick = async () => {
+        const message = document.getElementById("signMessageBox").value;
+        const pubKeyHex = document.getElementById("publicKeyBox").value.trim();
+        const signatureHex = document
+          .getElementById("signatureBox")
+          .value.trim();
+        try {
+          const isValid = await portal.verifyMessage(
+            pubKeyHex,
+            message,
+            signatureHex,
+          );
+          document.getElementById("verifyResult").textContent = isValid
+            ? "Signature is valid"
+            : "Signature is INVALID";
+        } catch (err) {
+          document.getElementById("verifyResult").textContent =
+            "Error: " + err.message;
+        }
+      };
+      // Add copy-to-clipboard functionality for all .copyBtn buttons
+      document.querySelectorAll(".output .copyBtn").forEach((btn) => {
+        btn.addEventListener("click", function () {
+          // Find the first div inside the same .output container (skip <strong> and <button>)
+          const outputDiv = Array.from(btn.parentElement.children).find(
+            (el) => el.tagName === "DIV" && !el.classList.contains("copyBtn"),
+          );
+          if (outputDiv) {
+            const text = outputDiv.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+              const original = btn.textContent;
+              btn.textContent = "Copied!";
+              btn.disabled = true;
+              setTimeout(() => {
+                btn.textContent = original;
+                btn.disabled = false;
+              }, 1000);
+            });
+          }
+        });
+      });
+    </script>
+  </body>
 </html>

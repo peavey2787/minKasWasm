@@ -209,6 +209,14 @@ export class KaspaPortal {
     return await this.identity.getAllWallets();
   }
 
+  /**
+   * Generate a new receiving address (delegates to Identity).
+   * @returns {Promise<string>}
+   */
+  async generateNewAddress() {
+    return await this.identity.generateNewAddress();
+  }
+
   // --- Intelligence Proxy Methods ---
 
   // Scanner Methods
