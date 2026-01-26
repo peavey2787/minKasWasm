@@ -23,22 +23,20 @@ export function pack(kktpState, plaintext, direction, seq) {
 
   // Normalize
   const keyBytes = normalizeKey(sessionKey);
-
   if (!(keyBytes instanceof Uint8Array) || keyBytes.length !== 32) {
     throw new Error(
       `Invalid sessionKey length: expected 32, got ${keyBytes?.length}`,
     );
   }
 
-  // Corrected Implementation
   const chacha = xchacha20poly1305(keyBytes, nonceBytes, aad);
   const plaintextBytes = new TextEncoder().encode(plaintext);
 
   // Encrypt only takes the plaintext (and an optional output buffer)
   const ciphertext = chacha.encrypt(plaintextBytes);
 
-  // 4. Return the standard JSON structure (Section 5.4)
-  return {
+  // 4. Construct object per Section 5.4
+  const msgObj = {
     type: "msg",
     version: 1,
     sid: sid,
@@ -48,6 +46,10 @@ export function pack(kktpState, plaintext, direction, seq) {
     nonce: nonceHex,
     ciphertext: bytesToHex(ciphertext),
   };
+
+  // 5. CANONICAL OUTPUT (Section 7.9 & 6.4)
+  // We return the canonical string so the Adapter doesn't have to guess.
+  return canonicalize(msgObj);
 }
 
 /**
