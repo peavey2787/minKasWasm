@@ -167,6 +167,20 @@ export class KaspaPortal {
     return this.identity.wallet;
   }
 
+  // RPC Runner
+
+  /**
+   * Run an arbitrary RPC command using the connected client.
+   * @param {string|Object} cmd - JSON string or object with {method, params}
+   * @returns {Promise<any>}
+   */
+  async runRpcCommand(cmd) {
+    if (!this.transport?.client) throw new Error("Not connected");
+    // Accept both string and object
+    let cmdText = typeof cmd === "string" ? cmd : JSON.stringify(cmd);
+    return await this.transport.runRpcCommand(cmdText);
+  }
+
   // --- Wallet Proxy Methods ---
 
   /**

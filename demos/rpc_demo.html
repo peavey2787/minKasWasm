@@ -20,10 +20,7 @@
     <pre id="rpcResult" class="output"></pre>
 
     <script type="module">
-      import { connect } from "../wrapper/transport/kaspa_client.js";
-      import { runRpcCommand } from "../wrapper/transport/rpc_runner.js";
-
-      let client = null;
+      import { kaspaPortal } from "../wrapper/kaspaPortal.js";
 
       const status = document.getElementById("status");
       const connectBtn = document.getElementById("connectBtn");
@@ -34,7 +31,8 @@
       connectBtn.addEventListener("click", async () => {
         status.textContent = "Connecting...";
         try {
-          client = await connect({
+          await kaspaPortal.init();
+          await kaspaPortal.connect({
             networkId: "testnet-10",
             onDisconnect: () => {
               status.textContent = "Disconnected";
@@ -48,8 +46,27 @@
 
       runBtn.addEventListener("click", async () => {
         const cmdText = rpcInput.value.trim();
-        const result = await runRpcCommand(client, cmdText);
-        rpcResult.textContent = result;
+        try {
+          const result = await kaspaPortal.runRpcCommand(cmdText);
+
+          // Prettify output
+          let pretty = "";
+          if (typeof result === "object") {
+            pretty = JSON.stringify(result, null, 2);
+          } else if (typeof result === "string" && result.includes("\n")) {
+            pretty = "<ul style='margin:0;padding-left:1.2em'>";
+            for (const line of result.split("\n")) {
+              const [key, ...rest] = line.split(":");
+              pretty += `<li><strong>${key.trim()}:</strong> ${rest.join(":").trim()}</li>`;
+            }
+            pretty += "</ul>";
+          } else {
+            pretty = result;
+          }
+          rpcResult.innerHTML = pretty;
+        } catch (err) {
+          rpcResult.textContent = "RPC Error: " + err.message;
+        }
       });
     </script>
   </body>
