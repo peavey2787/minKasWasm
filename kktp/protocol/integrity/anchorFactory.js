@@ -1,17 +1,40 @@
-import { bytesToHex } from "../utils/conversions.js";
+import { bytesToHex, hexToBytes } from "../utils/conversions.js";
 import { constructAAD } from "./aad.js";
 import { xchacha20poly1305 } from "https://esm.sh/@noble/ciphers/chacha";
+import { blake2b } from "https://esm.sh/@noble/hashes@1.3.0/blake2b";
 import { kaspaPortal } from "../../../wrapper/kaspaPortal.js";
+
+/**
+ * Computes VRF input hash per §6.1: H(pub_sig || pub_dh || sid)
+ * Hashing prevents canonicalization attacks from string concatenation.
+ * @param {...string} hexStrings - Hex-encoded key components
+ * @returns {string} Hex-encoded 32-byte Blake2b hash
+ */
+function computeVrfInputHash(...hexStrings) {
+  const totalLen = hexStrings.reduce((sum, h) => sum + h.length / 2, 0);
+  const combined = new Uint8Array(totalLen);
+
+  let offset = 0;
+  for (const hex of hexStrings) {
+    const bytes = hexToBytes(hex);
+    combined.set(bytes, offset);
+    offset += bytes.length;
+  }
+
+  return bytesToHex(blake2b(combined, { dkLen: 32 }));
+}
 
 export class AnchorFactory {
   /**
    * Section 6.1: Discovery Anchor
    */
   async createDiscovery({ meta, sig, dh }) {
-    const sid = bytesToHex(window.crypto.getRandomValues(new Uint8Array(16)));
+    // Use 32 bytes (256-bit) for high-entropy SID per §5.2 recommendation
+    const sid = bytesToHex(window.crypto.getRandomValues(new Uint8Array(32)));
 
-    const vrfInput = sig.publicKey + dh.publicKey + sid;
-    const vrfData = await kaspaPortal.prove({ seedInput: vrfInput });
+    // VRF input = H(pub_sig || pub_dh || sid) per §6.1
+    const vrfInputHash = computeVrfInputHash(sig.publicKey, dh.publicKey, sid);
+    const vrfData = await kaspaPortal.prove({ seedInput: vrfInputHash });
 
     const proofJson = JSON.stringify(vrfData.proof);
     const proofHex = bytesToHex(new TextEncoder().encode(proofJson));
@@ -35,6 +58,7 @@ export class AnchorFactory {
   /**
    * Section 6.2: Response Anchor
    * Per §5.3: Response anchors do NOT include meta
+   * Per §5.3: Response MUST echo initiator's keys for cryptographic binding
    */
   async createResponse(discovery, { sig, dh }) {
     const response = {
@@ -49,14 +73,16 @@ export class AnchorFactory {
       vrf_proof: null,
     };
 
-    const vrfInput =
-      discovery.pub_sig +
-      discovery.pub_dh +
-      response.pub_sig_resp +
-      response.pub_dh_resp +
-      discovery.sid;
+    // VRF input = H(pub_sig_A || pub_dh_A || pub_sig_B || pub_dh_B || sid) per §6.1
+    const vrfInputHash = computeVrfInputHash(
+      discovery.pub_sig,
+      discovery.pub_dh,
+      response.pub_sig_resp,
+      response.pub_dh_resp,
+      discovery.sid,
+    );
 
-    const vrfData = await kaspaPortal.prove({ seedInput: vrfInput });
+    const vrfData = await kaspaPortal.prove({ seedInput: vrfInputHash });
 
     const proofJson = JSON.stringify(vrfData.proof);
     const proofHex = bytesToHex(new TextEncoder().encode(proofJson));

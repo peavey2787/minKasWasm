@@ -9,6 +9,28 @@ import { blake2b } from "https://esm.sh/@noble/hashes@1.3.0/blake2b";
 import { hkdf } from "https://esm.sh/@noble/hashes@1.3.0/hkdf";
 
 /**
+ * Computes VRF input hash per §6.1: H(pub_sig || pub_dh || sid)
+ * Hashing prevents canonicalization attacks from string concatenation.
+ * @param {...string} hexStrings - Hex-encoded key components
+ * @returns {Uint8Array} 32-byte Blake2b hash
+ */
+function computeVrfInputHash(...hexStrings) {
+  // Calculate total byte length
+  const totalLen = hexStrings.reduce((sum, h) => sum + h.length / 2, 0);
+  const combined = new Uint8Array(totalLen);
+
+  let offset = 0;
+  for (const hex of hexStrings) {
+    const bytes = hexToBytes(hex);
+    combined.set(bytes, offset);
+    offset += bytes.length;
+  }
+
+  // H(pub_sig || pub_dh || sid) - commits to structure, prevents key-substitution
+  return blake2b(combined, { dkLen: 32 });
+}
+
+/**
  * Establishes a session with mandatory VRF binding verification.
  * Follows KKTP Spec Sections 6.1, 6.2, 6.3, and 7.3.
  */
@@ -23,6 +45,19 @@ export async function establishSession(
   // 1. Schema & Signature Validation
   discoveryValidator.validate(discovery);
   responseValidator.validate(response);
+
+  // 1.1 Verify Response echoes Initiator's keys (§5.3 - Cryptographic Binding)
+  // This prevents Session Hijacking and Reflection attacks
+  if (response.initiator_pub_sig !== discovery.pub_sig) {
+    throw new Error(
+      "Handshake Failed: Response initiator_pub_sig does not match Discovery pub_sig.",
+    );
+  }
+  if (response.initiator_pub_dh !== discovery.pub_dh) {
+    throw new Error(
+      "Handshake Failed: Response initiator_pub_dh does not match Discovery pub_dh.",
+    );
+  }
 
   const discBody = canonicalize(
     prepareForSigning(discovery, { omitKeys: ["sig"], excludeMeta: true }),
@@ -47,28 +82,32 @@ export async function establishSession(
   if (!isDValid || !isRValid)
     throw new Error("Handshake Failed: Invalid Signatures");
 
-  // 2. VRF Binding Verification (§7.3)
-  // Verify VRF input matches the expected key tuple per §6.1
-  const expectedInitiatorVrfInput =
-    discovery.pub_sig + discovery.pub_dh + discovery.sid;
+  // 2. VRF Binding Verification (§6.1, §7.3)
+  // VRF input MUST be H(pub_sig || pub_dh || sid) to prevent canonicalization attacks
+  const initiatorVrfInputHash = computeVrfInputHash(
+    discovery.pub_sig,
+    discovery.pub_dh,
+    discovery.sid,
+  );
 
-  const expectedResponderVrfInput =
-    discovery.pub_sig +
-    discovery.pub_dh +
-    response.pub_sig_resp +
-    response.pub_dh_resp +
-    discovery.sid;
+  const responderVrfInputHash = computeVrfInputHash(
+    discovery.pub_sig,
+    discovery.pub_dh,
+    response.pub_sig_resp,
+    response.pub_dh_resp,
+    discovery.sid,
+  );
 
   const isInitiatorVrfValid = await kaspaPortal.verify(
     discovery.vrf_value,
     discovery.vrf_proof,
-    expectedInitiatorVrfInput,
+    bytesToHex(initiatorVrfInputHash),
   );
 
   const isResponderVrfValid = await kaspaPortal.verify(
     response.vrf_value,
     response.vrf_proof,
-    expectedResponderVrfInput,
+    bytesToHex(responderVrfInputHash),
   );
 
   if (!isInitiatorVrfValid || !isResponderVrfValid) {
@@ -83,27 +122,36 @@ export async function establishSession(
   if (!peerDH) {
     throw new Error("Handshake Failed: Missing peer DH public key.");
   }
-  console.log("Peer DH Key:", peerDH);
+
   const rawSharedSecret = session.deriveSharedSecret(peerDH);
 
-  // 4. Session Key Derivation
+  // Ensure rawSharedSecret is Uint8Array
+  const sharedSecretBytes =
+    typeof rawSharedSecret === "string"
+      ? hexToBytes(rawSharedSecret)
+      : rawSharedSecret;
+
+  // 4. Session Key Derivation (§6.2)
+  // K_session = HKDF-Expand(HKDF-Extract(salt=sid, IKM=K), info=pub_sig_A||pub_sig_B, L=32)
   const pubSigA = hexToBytes(discovery.pub_sig);
   const pubSigB = hexToBytes(response.pub_sig_resp);
   const sidBytes = hexToBytes(discovery.sid);
 
+  // Construct info = pub_sig_A || pub_sig_B (raw bytes, not hex strings)
   const info = new Uint8Array(pubSigA.length + pubSigB.length);
   info.set(pubSigA, 0);
   info.set(pubSigB, pubSigA.length);
 
-  let kSession = hkdf(blake2b, sidBytes, rawSharedSecret, info, 32);
+  // HKDF with Blake2b: Extract phase uses sid as salt, Expand uses info
+  // @noble/hashes hkdf(hash, salt, ikm, info, length) handles Extract+Expand
+  const kSessionBytes = hkdf(blake2b, sidBytes, sharedSecretBytes, info, 32);
 
-  // Normalize to 32-byte Uint8Array (KKTP §6.2)
-  const kSessionBytes =
-    typeof kSession === "string"
-      ? /^[0-9a-f]+$/i.test(kSession)
-        ? hexToBytes(kSession)
-        : base64ToBytes(kSession)
-      : kSession;
+  // Validate output is exactly 32 bytes (256-bit key)
+  if (!(kSessionBytes instanceof Uint8Array) || kSessionBytes.length !== 32) {
+    throw new Error(
+      `Invalid K_session: expected 32-byte Uint8Array, got ${typeof kSessionBytes} of length ${kSessionBytes?.length}`,
+    );
+  }
 
   if (!(kSessionBytes instanceof Uint8Array) || kSessionBytes.length !== 32) {
     throw new Error(
