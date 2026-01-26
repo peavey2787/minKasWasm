@@ -21,6 +21,7 @@ async function createAnchors() {
 
   await kaspaPortal.identity.createOrOpenWallet({
     password: TEST_WALLET_PASSWORD,
+    filename: "kktp-integration-test"
   });
 
   // Required meta fields for KKTP anchors

@@ -324,6 +324,7 @@ export function handleCreateWalletClick() {
       return alert("Connect to a node first!");
     const { address } = await kaspaPortal.createOrOpenWallet({
       password: "1234",
+      filename: "scanner-demo-wallet",
     });
     walletInitialized = true;
     elements.getReceiveAddressLabel().textContent = address;
