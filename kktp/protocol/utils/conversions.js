@@ -35,3 +35,30 @@ export function hexToUtf8(hex) {
   }
   return new TextDecoder().decode(bytes);
 }
+
+export function base64ToBytes(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+export function normalizeKey(k) {
+  if (k instanceof Uint8Array) {
+    if (k.length === 32) return k;
+
+    // handle Uint8Array of base64 text (length ~44)
+    const asText = new TextDecoder().decode(k);
+    if (/^[A-Za-z0-9+/=]+$/.test(asText)) {
+      const b = base64ToBytes(asText);
+      if (b.length === 32) return b;
+    }
+    return k;
+  }
+
+  if (typeof k === "string") {
+    return /^[0-9a-f]+$/i.test(k) ? hexToBytes(k) : base64ToBytes(k);
+  }
+
+  return k;
+}

@@ -18,7 +18,7 @@ export async function establishSession(
   response,
   keyIndex = 0,
   dhPrivateKey = null,
-  isInitiator = true
+  isInitiator = true,
 ) {
   // 1. Schema & Signature Validation
   discoveryValidator.validate(discovery);
@@ -70,7 +70,7 @@ export async function establishSession(
   if (!peerDH) {
     throw new Error("Handshake Failed: Missing peer DH public key.");
   }
-console.log("Peer DH Key:", peerDH);
+  console.log("Peer DH Key:", peerDH);
   const rawSharedSecret = session.deriveSharedSecret(peerDH);
 
   // 4. Session Key Derivation
@@ -82,8 +82,23 @@ console.log("Peer DH Key:", peerDH);
   info.set(pubSigA, 0);
   info.set(pubSigB, pubSigA.length);
 
-  const kSession = hkdf(blake2b, sidBytes, rawSharedSecret, info, 32);
-  session.setSessionKey(kSession);
+  let kSession = hkdf(blake2b, sidBytes, rawSharedSecret, info, 32);
+
+  // Normalize to 32-byte Uint8Array (KKTP §6.2)
+  const kSessionBytes =
+    typeof kSession === "string"
+      ? /^[0-9a-f]+$/i.test(kSession)
+        ? hexToBytes(kSession)
+        : base64ToBytes(kSession)
+      : kSession;
+
+  if (!(kSessionBytes instanceof Uint8Array) || kSessionBytes.length !== 32) {
+    throw new Error(
+      `Invalid K_session length: expected 32, got ${kSessionBytes?.length}`,
+    );
+  }
+
+  session.setSessionKey(kSessionBytes);
 
   // 5. Mailbox ID Derivation
   const mailboxInput = new Uint8Array(
@@ -95,5 +110,5 @@ console.log("Peer DH Key:", peerDH);
 
   const mailboxId = bytesToHex(blake2b(mailboxInput, { dkLen: 32 }));
 
-  return { session, mailboxId };
+  return { session, mailboxId, sessionKey: kSessionBytes };
 }

@@ -44,7 +44,7 @@ export class KKTPStateMachine {
         throw new Error("Missing DH private key for session establishment.");
       }
 
-      const { session, mailboxId } = await establishSession(
+      const { session, mailboxId, sessionKey } = await establishSession(
         this.kaspaPortal,
         discovery,
         response,
@@ -54,6 +54,7 @@ export class KKTPStateMachine {
       );
 
       this.kktp.session = session;
+      this.kktp.sessionKey = sessionKey;
       this.kktp.mailboxId = mailboxId;
       this.kktp.sid = discovery.sid;
 

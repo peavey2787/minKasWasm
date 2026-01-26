@@ -1,7 +1,7 @@
 // kktp-core/sender.js
 import { bytesToHex } from "./utils/conversion.js";
 import { constructAAD } from "./integrity/aad.js";
-import { XChaCha20Poly1305 } from "https://esm.sh/@noble/ciphers/chacha";
+import { xchacha20poly1305 } from "https://esm.sh/@noble/ciphers/chacha";
 
 /**
  * KKTP Sender: Handles Section 6.6 Encrypted Messaging
@@ -27,7 +27,7 @@ export class KKTPSender {
 
     // 2. Derive Session Key (from Session object)
     const key = this.session.getSessionKey();
-    const chacha = new XChaCha20Poly1305(key, nonceBytes);
+    const chacha = xchacha20poly1305(key, nonceBytes);
 
     // 3. Construct AAD (Section 6.6)
     // AAD = mailbox_id || direction || seq (U64BE)
