@@ -1,4 +1,5 @@
 import { KKTPProtocol } from "../kktp/protocol/kktpProtocol.js";
+import { canonicalize } from "../kktp/protocol/integrity/canonical.js";
 import { TransportFacade } from "./transport/transportFacade.js";
 import { IdentityFacade } from "./identity/identityFacade.js";
 import {
@@ -47,6 +48,11 @@ export class KaspaPortal {
     this.vrf = new VRFFacade(false);
     // Initialized on connect()
     this.intelligence = null;
+
+    // KKTP session tracking (multi-session support)
+    this._kktpSessions = new Map(); // mailboxId -> session context
+    this._kktpPendingDiscoveries = new Map(); // sid -> pending context
+    this._kktpKeyIndex = 0;
   }
 
   async init() {
@@ -572,6 +578,113 @@ export class KaspaPortal {
    */
   async generatePartialRandomness() {
     return await this.vrf.generatePartialRandomness();
+  }
+
+  // --- KKTP Convenience Methods ---
+
+  _createKktpContext(isInitiator) {
+    const keyIndex = this._kktpKeyIndex++;
+    const sm = new KKTPStateMachine(this, isInitiator, keyIndex);
+    const protocol = new KKTPProtocol(sm);
+    return { sm, protocol, keyIndex };
+  }
+
+  /**
+   * Broadcast a signed discovery anchor and register as pending.
+   * @param {Object} meta - Discovery meta object
+   * @param {Object} [options] - { amount, toAddress }
+   */
+  async broadcastDiscovery(meta, options = {}) {
+    const { amount = "0.001", toAddress } = options;
+
+    const ctx = this._createKktpContext(true);
+    const { discovery } = await ctx.protocol.createDiscoveryAnchor(meta);
+
+    this._kktpPendingDiscoveries.set(discovery.sid, {
+      ...ctx,
+      discovery,
+      createdAt: Date.now(),
+    });
+
+    const payload = `KKTP:ANCHOR:${canonicalize(discovery)}`;
+    const address = toAddress ?? (await this.identity.getReceiveAddress());
+
+    await this.send({
+      toAddress: address,
+      amount,
+      payload,
+    });
+
+    return { discovery, payload };
+  }
+
+  /**
+   * Respond to a discovery anchor and establish a session as responder.
+   * @param {Object} discoveryAnchor - The peer's discovery anchor
+   * @param {Object} [options] - { amount, toAddress }
+   */
+  async connectToPeer(discoveryAnchor, options = {}) {
+    const { amount = "0.001", toAddress } = options;
+
+    const ctx = this._createKktpContext(false);
+    const { response } = await ctx.protocol.createResponseAnchor(discoveryAnchor);
+
+    const mailboxId = ctx.protocol.sm.kktp.mailboxId;
+    this._kktpSessions.set(mailboxId, {
+      ...ctx,
+      discovery: discoveryAnchor,
+      response,
+      createdAt: Date.now(),
+    });
+
+    const payload = `KKTP:ANCHOR:${canonicalize(response)}`;
+    const address = toAddress ?? (await this.identity.getReceiveAddress());
+
+    await this.send({
+      toAddress: address,
+      amount,
+      payload,
+    });
+
+    return { response, mailboxId, payload };
+  }
+
+  /**
+   * Send an encrypted KKTP message for a specific mailbox.
+   * @param {string} mailboxId - Mailbox ID
+   * @param {string} plaintext - Message plaintext
+   * @param {Object} [options] - { amount, toAddress }
+   */
+  async sendMessage(mailboxId, plaintext, options = {}) {
+    const { amount = "0.001", toAddress } = options;
+
+    const session = this._kktpSessions.get(mailboxId);
+    if (!session) {
+      throw new Error(`KaspaPortal: No KKTP session for mailboxId ${mailboxId}`);
+    }
+
+    const canonicalMessage = session.protocol.createMessageAnchor(plaintext);
+    const payload = `KKTP:${mailboxId}:${canonicalMessage}`;
+    const address = toAddress ?? (await this.identity.getReceiveAddress());
+
+    await this.send({
+      toAddress: address,
+      amount,
+      payload,
+    });
+
+    return { payload };
+  }
+
+  /**
+   * Get active KKTP sessions.
+   * @returns {Array<Object>} Session contexts with mailboxId
+   */
+  getSessions() {
+    return Array.from(this._kktpSessions.entries()).map(([mailboxId, session]) => ({
+      mailboxId,
+      ...session,
+    }));
   }
 }
 

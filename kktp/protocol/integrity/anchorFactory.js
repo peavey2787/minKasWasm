@@ -27,43 +27,44 @@ function computeVrfInputHash(...hexStrings) {
 export class AnchorFactory {
   /**
    * Section 6.1: Discovery Anchor
+   * Per §6.1: VRF is optional
    */
   async createDiscovery({ meta, sig, dh }) {
     const sid = bytesToHex(window.crypto.getRandomValues(new Uint8Array(32)));
-    const vrfInputHash = computeVrfInputHash(sig.publicKey, dh.publicKey, sid);
-    const vrfData = await kaspaPortal.prove({ seedInput: vrfInputHash });
 
-    // 1. Build the base object
+    // 1. Build the base object with null VRF placeholders
     const anchor = {
       type: "discovery",
       version: 1,
       sid: sid,
       pub_sig: sig.publicKey,
       pub_dh: dh.publicKey,
-      vrf_value: vrfData.finalOutput,
-      vrf_proof: bytesToHex(
-        new TextEncoder().encode(JSON.stringify(vrfData.proof)),
-      ),
+      vrf_value: null,
+      vrf_proof: null,
       meta: {
         game: meta.game,
         version: meta.version || "1.0.0",
         expected_uptime_seconds: meta.upTime || 3600,
       },
+      sig: null, // Set by kktpProtocol.signAnchor()
     };
 
-    // 2. Prepare for signing per Section 5.1 & 6.1
-    // "omitted AND with the meta object excluded"
-    const { sig: _, meta: __, ...signablePart } = anchor;
+    // 2. Optionally compute VRF binding
+    const vrfInputHash = computeVrfInputHash(sig.publicKey, dh.publicKey, sid);
+    try {
+      const vrfData = await kaspaPortal.prove({ seedInput: vrfInputHash });
+      anchor.vrf_value = vrfData.finalOutput;
+      anchor.vrf_proof = bytesToHex(
+        new TextEncoder().encode(JSON.stringify(vrfData.proof)),
+      );
+    } catch {
+      // VRF is optional per §6.1 - proceed without it
+      anchor.vrf_value = null;
+      anchor.vrf_proof = null;
+    }
 
-    // 3. Canonicalize (RFC 8785 / JCS)
-    const messageToSign = canonicalize(signablePart);
-
-    // 4. Sign using the private key
-    anchor.sig = await kaspaPortal.crypto.signMessage(
-      sig.privateKey,
-      messageToSign,
-    );
-
+    // NOTE: sig is set by kktpProtocol.signAnchor() which uses
+    // prepareForSigning with proper excludeMeta and omitKeys handling
     return anchor;
   }
 
@@ -83,6 +84,7 @@ export class AnchorFactory {
       pub_dh_resp: dh.publicKey,
       vrf_value: null,
       vrf_proof: null,
+      sig_resp: null, // Set by kktpProtocol.signAnchor()
     };
 
     const vrfInputHash = computeVrfInputHash(
@@ -100,18 +102,12 @@ export class AnchorFactory {
         new TextEncoder().encode(JSON.stringify(vrfData.proof)),
       );
     } catch {
-      // VRF is optional per deployment; keep nulls if not supported
       response.vrf_value = null;
       response.vrf_proof = null;
     }
 
-    // COMPLIANCE §5.3: Canonicalize everything EXCEPT sig_resp
-    const messageToSign = canonicalize(response);
-    response.sig_resp = await kaspaPortal.crypto.signMessage(
-      sig.privateKey,
-      messageToSign,
-    );
-
+    // NOTE: sig_resp is set by kktpProtocol.signAnchor() which uses
+    // prepareForSigning with proper excludeMeta and omitKeys handling
     return response;
   }
 
@@ -122,8 +118,6 @@ export class AnchorFactory {
   async createMessage(sid, mailboxId, direction, seq, plaintext, sessionKey) {
     const nonce = window.crypto.getRandomValues(new Uint8Array(24));
     const aad = constructAAD(mailboxId, direction, seq);
-
-    // NO 'new' keyword here
     const chacha = xchacha20poly1305(sessionKey, nonce, aad);
     const ciphertext = chacha.encrypt(new TextEncoder().encode(plaintext));
 

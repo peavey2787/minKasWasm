@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KKTP Dashboard - Live Kaspa Messaging</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="dashboard">
+    <!-- Header -->
+    <header class="header">
+      <h1>🔐 KKTP Dashboard</h1>
+      <div class="header-status">
+        <span id="connectionStatus" class="status-badge disconnected">Disconnected</span>
+        <span id="scannerStatus" class="status-badge idle">Idle</span>
+      </div>
+    </header>
+
+    <!-- Left Sidebar -->
+    <aside class="sidebar">
+      <!-- Identity Hub -->
+      <section class="sidebar-section">
+        <div class="sidebar-header">
+          <h2>Identity Hub</h2>
+        </div>
+        <div class="identity-hub">
+          <div id="identityDisplay" class="identity-display">Not initialized</div>
+
+          <div class="form-group">
+            <label for="gameName">Game Name</label>
+            <input type="text" id="gameName" value="KKTP Chat" placeholder="Your game name">
+          </div>
+
+          <div class="form-group">
+            <label for="uptimeSeconds">Uptime (seconds)</label>
+            <input type="number" id="uptimeSeconds" value="3600" min="60" step="60">
+          </div>
+
+          <button id="btnBroadcast" class="btn btn-primary" style="width: 100%" disabled>
+            Broadcast Discovery
+          </button>
+          <div id="broadcastStatus" class="broadcast-status">Ready to broadcast</div>
+        </div>
+      </section>
+
+      <!-- Peer Discovery -->
+      <section class="sidebar-section" style="flex: 1; display: flex; flex-direction: column;">
+        <div class="sidebar-header">
+          <h2>Discovered Peers</h2>
+          <span id="peerCount" class="count-badge">0</span>
+        </div>
+        <div id="peerList" class="sidebar-content">
+          <div class="empty-state">No peers discovered yet...</div>
+        </div>
+      </section>
+
+      <!-- Active Sessions -->
+      <section class="sidebar-section" style="flex: 1; display: flex; flex-direction: column;">
+        <div class="sidebar-header">
+          <h2>Active Sessions</h2>
+          <span id="sessionCount" class="count-badge">0</span>
+        </div>
+        <div id="sessionList" class="sidebar-content">
+          <div class="empty-state">No active sessions</div>
+        </div>
+      </section>
+    </aside>
+
+    <!-- Main Chat Area -->
+    <main class="main-content">
+      <div class="chat-header">
+        <h2 id="chatHeader">No Session Selected</h2>
+        <button id="btnCloseSession" class="btn btn-danger btn-small" disabled>
+          Close Session
+        </button>
+      </div>
+
+      <div id="chatMessages" class="chat-messages">
+        <div class="empty-state">Select a session to view messages</div>
+      </div>
+
+      <div class="chat-input">
+        <input
+          type="text"
+          id="messageInput"
+          placeholder="Type a message..."
+          disabled
+        >
+        <button id="btnSend" class="btn btn-primary" disabled>Send</button>
+      </div>
+    </main>
+
+    <!-- Right Panel - Event Log -->
+    <aside class="right-panel">
+      <div class="log-header">
+        <h2>Event Log</h2>
+      </div>
+      <div id="eventLog" class="event-log"></div>
+    </aside>
+  </div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
