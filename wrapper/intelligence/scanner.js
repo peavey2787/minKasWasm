@@ -38,6 +38,7 @@ export class KaspaBlockScanner {
   #blockListener = null;
   #reconnectHandler = null;
   #lastBlockTime = null;
+  #pendingBlockEnrichment = new Set();
   indexer = null;
 
   /**
@@ -185,12 +186,10 @@ export class KaspaBlockScanner {
 
       this.#lastBlockTime = Date.now();
 
-      // Index blocks (but never store the full block w/ tx array).
-      this._indexBlockIfNeeded(block);
+      const txCount = this._processBlockTransactions(block, matches);
 
-      // CRITICAL: Always iterate and free tx WASM objects.
-      // Even if we aren't matching/indexing, we must release tx objects to prevent WASM memory growth.
-      this._processBlockTransactions(block, matches);
+      // Index blocks (but never store the full block w/ tx array).
+      this._indexBlockIfNeeded(block, txCount);
 
       if (block) {
         for (const subscriber of this.#blockSubscribers) {
@@ -213,41 +212,86 @@ export class KaspaBlockScanner {
 
   _processBlockTransactions(block, matches) {
     const txs = block?.transactions;
-    if (!Array.isArray(txs) || txs.length === 0) return;
+    if (!txs) return null;
 
     const hasPrefix = this.#prefixes.size > 0;
-    const hasAddresses = Array.isArray(this.addresses) && this.addresses.length > 0;
+    const hasAddresses =
+      Array.isArray(this.addresses) && this.addresses.length > 0;
     const shouldMatch = hasPrefix || hasAddresses;
     const indexerActive = !!this.indexer?.active;
 
-    for (const tx of txs) {
-      try {
-        // Matching is only meaningful if we have prefixes and/or addresses.
-        if (shouldMatch) {
-          const { matchObj, isMatch } = this._analyzeTransaction(tx, block);
-          if (isMatch) {
-            matches.push(matchObj);
-            this._indexMatchingTransactionIfNeeded(matchObj);
-            for (const subscriber of this.#matchSubscribers) {
-              try {
-                subscriber(block, matchObj);
-              } catch (err) {
-                console.error("Match subscriber error", err);
+    let txCount = 0;
+
+    const isIterable = typeof txs?.[Symbol.iterator] === "function";
+    if (isIterable) {
+      for (const tx of txs) {
+        txCount++;
+        try {
+          // Matching is only meaningful if we have prefixes and/or addresses.
+          if (shouldMatch) {
+            const { matchObj, isMatch } = this._analyzeTransaction(tx, block);
+            if (isMatch) {
+              matches.push(matchObj);
+              this._indexMatchingTransactionIfNeeded(matchObj);
+              for (const subscriber of this.#matchSubscribers) {
+                try {
+                  subscriber(block, matchObj);
+                } catch (err) {
+                  console.error("Match subscriber error", err);
+                }
               }
             }
           }
-        }
 
-        // Indexing "all transactions" is independent of matching.
-        if (indexerActive) {
-          this._indexAllTransactionIfNeeded(tx, block);
-        }
-      } finally {
-        if (tx && typeof tx.free === "function") {
-          tx.free(); // free WASM tx object
+          // Indexing "all transactions" is independent of matching.
+          if (indexerActive) {
+            this._indexAllTransactionIfNeeded(tx, block);
+          }
+        } finally {
+          if (tx && typeof tx.free === "function") {
+            tx.free(); // free WASM tx object
+          }
         }
       }
+      return txCount;
     }
+
+    // Fallback for array-like but non-iterable
+    if (typeof txs.length === "number") {
+      for (let i = 0; i < txs.length; i++) {
+        const tx = txs[i];
+        txCount++;
+        try {
+          // Matching is only meaningful if we have prefixes and/or addresses.
+          if (shouldMatch) {
+            const { matchObj, isMatch } = this._analyzeTransaction(tx, block);
+            if (isMatch) {
+              matches.push(matchObj);
+              this._indexMatchingTransactionIfNeeded(matchObj);
+              for (const subscriber of this.#matchSubscribers) {
+                try {
+                  subscriber(block, matchObj);
+                } catch (err) {
+                  console.error("Match subscriber error", err);
+                }
+              }
+            }
+          }
+
+          // Indexing "all transactions" is independent of matching.
+          if (indexerActive) {
+            this._indexAllTransactionIfNeeded(tx, block);
+          }
+        } finally {
+          if (tx && typeof tx.free === "function") {
+            tx.free(); // free WASM tx object
+          }
+        }
+      }
+      return txCount;
+    }
+
+    return null;
   }
 
   _analyzeTransaction(tx, block) {
@@ -372,7 +416,7 @@ export class KaspaBlockScanner {
     }
   }
 
-  _indexBlockIfNeeded(block) {
+  _indexBlockIfNeeded(block, txCountOverride = null) {
     if (!this.indexer.active) return;
     if (
       this.indexer.matchMode === MatchMode.ALL ||
@@ -380,8 +424,76 @@ export class KaspaBlockScanner {
       (this.indexer.matchMode === MatchMode.CUSTOM &&
         this.indexer.indexAllBlocks)
     ) {
-      this.indexer.addBlock(dehydrateBlock(block));
+      const summary = dehydrateBlock(block);
+      if (summary) {
+        const headerCountRaw =
+          block?.header?.transactionCount ??
+          block?.header?.txCount ??
+          block?.transactionCount ??
+          block?.txCount ??
+          null;
+
+        const headerCount = Number(headerCountRaw);
+        const hasHeaderCount = Number.isFinite(headerCount);
+
+        if (Number.isFinite(txCountOverride)) {
+          summary.txCount = txCountOverride;
+        } else if (hasHeaderCount) {
+          summary.txCount = headerCount;
+        }
+      }
+      this.indexer.addBlock(summary);
+
+      const needsEnrichment =
+        summary?.hash &&
+        (!Number.isFinite(summary?.txCount) || summary?.txCount <= 0);
+      if (needsEnrichment) {
+        this._enrichBlockTxCount(summary.hash);
+      }
     }
+  }
+
+  async _enrichBlockTxCount(hash) {
+    if (!hash || this.#pendingBlockEnrichment.has(hash)) return;
+    this.#pendingBlockEnrichment.add(hash);
+
+    try {
+      const full = await this._fetchBlockWithTransactions(hash);
+      const txs = full?.transactions;
+      const txCount = Array.isArray(txs) && txs.length > 0 ? txs.length : null;
+
+      if (txCount != null) {
+        const summary = dehydrateBlock(full);
+        if (summary) summary.txCount = txCount;
+        this.indexer.addBlock(summary);
+      }
+    } catch (err) {
+      console.error("Block enrichment failed:", err);
+    } finally {
+      this.#pendingBlockEnrichment.delete(hash);
+    }
+  }
+
+  async _fetchBlockWithTransactions(hash) {
+    const c = this.client;
+
+    if (c && typeof c.getBlock === "function") {
+      try {
+        return await c.getBlock({ hash, includeTransactions: true });
+      } catch {}
+    }
+    if (c && typeof c.getBlockByHash === "function") {
+      try {
+        return await c.getBlockByHash(hash);
+      } catch {}
+    }
+    if (c && typeof c.getBlockWithTransactions === "function") {
+      try {
+        return await c.getBlockWithTransactions(hash);
+      } catch {}
+    }
+
+    return null;
   }
 
   /**
@@ -404,7 +516,10 @@ export class KaspaBlockScanner {
       (typeof this.client?.isConnected === "function" &&
         this.client.isConnected()) ||
       this.client?.connected === true;
-    if (isConnected && typeof this.client?.unsubscribeBlockAdded === "function") {
+    if (
+      isConnected &&
+      typeof this.client?.unsubscribeBlockAdded === "function"
+    ) {
       this.client.unsubscribeBlockAdded();
     }
     this.#blockSubscribers.clear();
