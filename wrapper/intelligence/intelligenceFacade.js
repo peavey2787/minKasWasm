@@ -28,7 +28,7 @@ export class IntelligenceFacade {
    */
   constructor(client, scannerOptions = {}, indexerOptions = {}) {
     this.client = client;
-    this._callbacks = {};
+    this._subscribers = new Map();
 
     const onIndexerUpdate = (event) => {
       this._handleIndexerUpdate(event);
@@ -92,42 +92,56 @@ export class IntelligenceFacade {
   };
 
   _trigger(name, data) {
-    if (typeof this._callbacks[name] === "function") {
-      this._callbacks[name](data);
+    const subs = this._subscribers.get(name);
+    if (!subs || subs.size === 0) return;
+    for (const cb of subs) {
+      try {
+        cb(data);
+      } catch (err) {
+        console.error(`IntelligenceFacade ${name} subscriber error`, err);
+      }
     }
   }
 
+  _getSubscriberSet(name) {
+    if (!this._subscribers.has(name)) {
+      this._subscribers.set(name, new Set());
+    }
+    return this._subscribers.get(name);
+  }
+
+  _addSubscriber(name, cb) {
+    if (typeof cb !== "function") return () => {};
+    const set = this._getSubscriberSet(name);
+    set.add(cb);
+    return () => set.delete(cb);
+  }
+
   onNewBlock(cb) {
-    this._callbacks.onNewBlock = cb;
-    return this;
+    // Now only registers once.
+    // Fires when Indexer confirms it has the block in memory.
+    return this._addSubscriber("onNewBlock", cb);
   }
   onNewTransaction(cb) {
-    this._callbacks.onNewTransaction = cb;
-    return this;
+    return this._addSubscriber("onNewTransaction", cb);
   }
   onNewTransactionMatch(cb) {
-    this._callbacks.onNewTransactionMatch = cb;
-    return this;
+    return this._addSubscriber("onNewTransactionMatch", cb);
   }
   onCachedBlock(cb) {
-    this._callbacks.onCachedBlock = cb;
-    return this;
+    return this._addSubscriber("onCachedBlock", cb);
   }
   onCachedTransaction(cb) {
-    this._callbacks.onCachedTransaction = cb;
-    return this;
+    return this._addSubscriber("onCachedTransaction", cb);
   }
   onCachedTransactionMatch(cb) {
-    this._callbacks.onCachedTransactionMatch = cb;
-    return this;
+    return this._addSubscriber("onCachedTransactionMatch", cb);
   }
   onEvict(cb) {
-    this._callbacks.onEvict = cb;
-    return this;
+    return this._addSubscriber("onEvict", cb);
   }
   onCacheEvict(cb) {
-    this._callbacks.onCacheEvict = cb;
-    return this;
+    return this._addSubscriber("onCacheEvict", cb);
   }
 
   async init() {
@@ -339,5 +353,9 @@ export class IntelligenceFacade {
     this._activeTasks.abort();
     this.scanner.stop();
     this.indexer.stop();
+    for (const set of this._subscribers.values()) {
+      set.clear();
+    }
+    this._subscribers.clear();
   }
 }
