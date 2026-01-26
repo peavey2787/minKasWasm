@@ -2,9 +2,9 @@
 // All handler functions for DAG walk demo UI
 
 import * as elements from './dom_elements.js';
-import { KaspaPortal } from '../../wrapper/kaspaPortal.js';
+import { kaspaPortal } from '../../wrapper/kaspaPortal.js';
 
-const portal = new KaspaPortal();
+const portal = kaspaPortal;
 let statsTimer = null;
 let runStartedAtMs = 0;
 let stats = null;
@@ -186,7 +186,8 @@ export async function handleConnectClick() {
 
   setStatus('Connecting...');
   try {
-    await portal.connect(usePublicResolver ? null : url, networkId);
+    await portal.init();
+    await portal.connect({ rpcUrl: usePublicResolver ? null : url, networkId });
     setStatus('Connected');
     appendLog(`[OK] Connected (network=${networkId}${usePublicResolver ? ', resolver' : `, node=${url || '(empty)'}`}).`);
   } catch (err) {
@@ -240,7 +241,7 @@ export async function handleRunClick() {
 
   try {
     if (mode === 'walk_to_present') {
-      await portal.intelligence.syncFrom(startHash, appendLog, { maxSeconds, minTimestamp });
+      await portal.syncFrom(startHash, appendLog, { maxSeconds, minTimestamp });
 
       setResult(
         `syncFrom (walkDagToPresent) complete. See logs for details.`
@@ -252,7 +253,7 @@ export async function handleRunClick() {
       const searchText = elements.getSearchTextInput().value;
       const matchMode = elements.getMatchModeSelect().value;
 
-      const match = await portal.intelligence.findPayload(startHash, searchText, matchMode, { maxSeconds, minTimestamp, logFn: appendLog });
+      const match = await portal.findPayload(startHash, searchText, matchMode, { maxSeconds, minTimestamp, logFn: appendLog });
 
       if (!match) {
         setResult('scanDagForward: no match found.');
@@ -306,7 +307,7 @@ export async function handleRunClick() {
         return cleaned.toLowerCase().includes(targetValue.toLowerCase());
       };
 
-      const match = await portal.intelligence.findHistorical(startHash, matchFn, { maxSeconds, maxDepth, logFn: appendLog });
+      const match = await portal.findHistorical(startHash, matchFn, { maxSeconds, maxDepth, logFn: appendLog });
 
       if (!match) {
         setResult('scanDagBackward: no match found.');
