@@ -1,6 +1,6 @@
 // kktp-core/stateMachine.js
 import { establishSession } from "./integrity/handshake.js";
-import { pack, unpack } from "./messenger.js";
+import { pack, unpack } from "./kktpCodec.js";
 
 export const KKTP_STATES = {
   INIT: "INIT",
