@@ -237,7 +237,7 @@ export async function closeWallet() {
  */
 export async function createWallet({
   password,
-  filename = DEFAULT_FILENAME,
+  walletFilename = DEFAULT_FILENAME,
   userHint = "",
   mnemonic = null,
   storeMnemonic = false,
@@ -249,7 +249,7 @@ export async function createWallet({
 
   // 1. Set wallet secret and filename
   walletSecret = password;
-  filename = filename || DEFAULT_FILENAME;
+  filename = walletFilename || DEFAULT_FILENAME;
 
   // 2. Try to open the wallet (if it exists)
   try {
@@ -290,7 +290,7 @@ export async function createWallet({
     // If wallet doesn't exist, create a new one
     return await _createNewWallet({
       password,
-      filename,
+      walletFilename,
       userHint,
       mnemonic,
       storeMnemonic,
@@ -312,7 +312,7 @@ export async function createWallet({
  */
 async function _createNewWallet({
   password,
-  filename = DEFAULT_FILENAME,
+  walletFilename = DEFAULT_FILENAME,
   userHint = "",
   mnemonic = null,
   storeMnemonic = false,
@@ -324,6 +324,7 @@ async function _createNewWallet({
   const mnemonicPhrase = mnemonic || _generateMnemonic(24);
 
   // 2. Create wallet file
+  filename = walletFilename;
   try {
     const descriptor = await wallet.walletCreate({
       filename,

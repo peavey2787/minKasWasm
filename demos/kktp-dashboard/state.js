@@ -3,6 +3,8 @@ export const dashboardState = {
   // Identity
   myKeys: null, // { sig: { publicKey, privateKey }, dh: { publicKey, privateKey } }
   myPubSig: null,
+  walletAddress: null,
+  walletBalance: null,
 
   // Discovery
   discoveredPeers: new Map(), // sid -> discovery anchor
@@ -26,6 +28,8 @@ export const dashboardState = {
 export function resetState() {
   dashboardState.myKeys = null;
   dashboardState.myPubSig = null;
+  dashboardState.walletAddress = null;
+  dashboardState.walletBalance = null;
   dashboardState.discoveredPeers.clear();
   dashboardState.broadcastedDiscovery = null;
   dashboardState.activeSessionId = null;
@@ -50,23 +54,18 @@ export function setActiveSession(mailboxId) {
 /**
  * Add a discovered peer
  */
-export function addDiscoveredPeer(discovery) {
-  // Don't add our own discovery
-  if (dashboardState.myPubSig && discovery.pub_sig === dashboardState.myPubSig) {
-    return false;
-  }
+export function addDiscoveredPeer(discovery, { isSelf = false } = {}) {
+  if (!discovery?.sid) return false;
 
-  // Don't add duplicates
-  if (dashboardState.discoveredPeers.has(discovery.sid)) {
-    return false;
-  }
-
-  dashboardState.discoveredPeers.set(discovery.sid, {
+  const existing = dashboardState.discoveredPeers.get(discovery.sid);
+  const entry = {
     discovery,
-    discoveredAt: Date.now(),
-  });
+    discoveredAt: existing?.discoveredAt ?? Date.now(),
+    isSelf,
+  };
 
-  return true;
+  dashboardState.discoveredPeers.set(discovery.sid, entry);
+  return !existing;
 }
 
 /**
@@ -80,5 +79,7 @@ export function removeDiscoveredPeer(sid) {
  * Get all discovered peers
  */
 export function getDiscoveredPeers() {
-  return Array.from(dashboardState.discoveredPeers.values());
+  return Array.from(dashboardState.discoveredPeers.values()).filter(
+    (p) => p?.discovery?.pub_sig,
+  );
 }

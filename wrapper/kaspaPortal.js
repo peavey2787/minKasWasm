@@ -1,5 +1,13 @@
 import { KKTPProtocol } from "../kktp/protocol/kktpProtocol.js";
-import { canonicalize } from "../kktp/protocol/integrity/canonical.js";
+import {
+  canonicalize,
+  prepareForSigning,
+} from "../kktp/protocol/integrity/canonical.js";
+import {
+  discoveryValidator,
+  responseValidator,
+  sessionEndValidator,
+} from "../kktp/protocol/integrity/validator.js";
 import { TransportFacade } from "./transport/transportFacade.js";
 import { IdentityFacade } from "./identity/identityFacade.js";
 import {
@@ -582,20 +590,13 @@ export class KaspaPortal {
 
   // --- KKTP Convenience Methods ---
 
-  _createKktpContext(isInitiator) {
-    const keyIndex = this._kktpKeyIndex++;
-    const sm = new KKTPStateMachine(this, isInitiator, keyIndex);
-    const protocol = new KKTPProtocol(sm);
-    return { sm, protocol, keyIndex };
-  }
-
   /**
    * Broadcast a signed discovery anchor and register as pending.
    * @param {Object} meta - Discovery meta object
    * @param {Object} [options] - { amount, toAddress }
    */
   async broadcastDiscovery(meta, options = {}) {
-    const { amount = "0.001", toAddress } = options;
+    const { amount = "1", toAddress } = options;
 
     const ctx = this._createKktpContext(true);
     const { discovery } = await ctx.protocol.createDiscoveryAnchor(meta);
@@ -606,8 +607,8 @@ export class KaspaPortal {
       createdAt: Date.now(),
     });
 
-    const payload = `KKTP:ANCHOR:${canonicalize(discovery)}`;
-    const address = toAddress ?? (await this.identity.getReceiveAddress());
+    const payload = this._buildAnchorPayload(discovery);
+    const address = toAddress ?? (await this.identity.address);
 
     await this.send({
       toAddress: address,
@@ -624,21 +625,25 @@ export class KaspaPortal {
    * @param {Object} [options] - { amount, toAddress }
    */
   async connectToPeer(discoveryAnchor, options = {}) {
-    const { amount = "0.001", toAddress } = options;
+    const { amount = "1", toAddress } = options;
 
     const ctx = this._createKktpContext(false);
-    const { response } = await ctx.protocol.createResponseAnchor(discoveryAnchor);
+    const { response } =
+      await ctx.protocol.createResponseAnchor(discoveryAnchor);
 
     const mailboxId = ctx.protocol.sm.kktp.mailboxId;
     this._kktpSessions.set(mailboxId, {
       ...ctx,
       discovery: discoveryAnchor,
       response,
+      messages: [],
+      peerPubSig: discoveryAnchor.pub_sig,
+      isInitiator: false,
       createdAt: Date.now(),
     });
 
-    const payload = `KKTP:ANCHOR:${canonicalize(response)}`;
-    const address = toAddress ?? (await this.identity.getReceiveAddress());
+    const payload = this._buildAnchorPayload(response);
+    const address = toAddress ?? (await this.identity.address);
 
     await this.send({
       toAddress: address,
@@ -656,16 +661,18 @@ export class KaspaPortal {
    * @param {Object} [options] - { amount, toAddress }
    */
   async sendMessage(mailboxId, plaintext, options = {}) {
-    const { amount = "0.001", toAddress } = options;
+    const { amount = "1", toAddress } = options;
 
     const session = this._kktpSessions.get(mailboxId);
     if (!session) {
-      throw new Error(`KaspaPortal: No KKTP session for mailboxId ${mailboxId}`);
+      throw new Error(
+        `KaspaPortal: No KKTP session for mailboxId ${mailboxId}`,
+      );
     }
 
     const canonicalMessage = session.protocol.createMessageAnchor(plaintext);
     const payload = `KKTP:${mailboxId}:${canonicalMessage}`;
-    const address = toAddress ?? (await this.identity.getReceiveAddress());
+    const address = toAddress ?? (await this.identity.address);
 
     await this.send({
       toAddress: address,
@@ -673,7 +680,50 @@ export class KaspaPortal {
       payload,
     });
 
+    session.messages = session.messages || [];
+    session.messages.push({
+      id: crypto.randomUUID(),
+      direction: session.sm.isInitiator ? "AtoB" : "BtoA",
+      plaintext,
+      timestamp: Date.now(),
+      status: "pending",
+      isOutbound: true,
+    });
+
     return { payload };
+  }
+
+  /**
+   * Process an incoming KKTP payload (anchor or message).
+   * @param {string} rawPayload
+   * @returns {Promise<Object|null>}
+   */
+  async processIncomingPayload(rawPayload) {
+    const parsed = this._parseKKTPPayload(rawPayload);
+    if (!parsed) return null;
+
+    if (parsed.type === "anchor") {
+      return await this._handleIncomingAnchor(parsed.anchor);
+    }
+
+    if (parsed.type === "message") {
+      return this._handleIncomingMessage(parsed.mailboxId, parsed.message);
+    }
+
+    return null;
+  }
+
+  /**
+   * Close and remove a KKTP session by mailboxId.
+   * @param {string} mailboxId
+   * @returns {boolean}
+   */
+  closeSession(mailboxId) {
+    const session = this._kktpSessions.get(mailboxId);
+    if (!session) return false;
+    session.sm.terminate();
+    this._kktpSessions.delete(mailboxId);
+    return true;
   }
 
   /**
@@ -681,10 +731,155 @@ export class KaspaPortal {
    * @returns {Array<Object>} Session contexts with mailboxId
    */
   getSessions() {
-    return Array.from(this._kktpSessions.entries()).map(([mailboxId, session]) => ({
-      mailboxId,
-      ...session,
-    }));
+    return Array.from(this._kktpSessions.entries()).map(
+      ([mailboxId, session]) => ({
+        mailboxId,
+        ...session,
+      }),
+    );
+  }
+
+  _createKktpContext(isInitiator) {
+    const keyIndex = this._kktpKeyIndex++;
+    const sm = new KKTPStateMachine(this, isInitiator, keyIndex);
+    const protocol = new KKTPProtocol(sm);
+    return { sm, protocol, keyIndex };
+  }
+
+  _buildAnchorPayload(anchor) {
+    return `KKTP:ANCHOR:${canonicalize(anchor)}`;
+  }
+
+  _parseKKTPPayload(rawPayload) {
+    if (!rawPayload || !rawPayload.startsWith("KKTP:")) {
+      return null;
+    }
+
+    if (rawPayload.startsWith("KKTP:ANCHOR:")) {
+      const jsonStr = rawPayload.substring("KKTP:ANCHOR:".length);
+      try {
+        const anchor = JSON.parse(jsonStr);
+        return { type: "anchor", anchor };
+      } catch {
+        return null;
+      }
+    }
+
+    const parts = rawPayload.split(":");
+    if (parts.length >= 3) {
+      const mailboxId = parts[1];
+      const jsonStr = parts.slice(2).join(":");
+      try {
+        const message = JSON.parse(jsonStr);
+        return { type: "message", mailboxId, message };
+      } catch {
+        return null;
+      }
+    }
+
+    return null;
+  }
+
+  async _verifyAnchorSignature(anchor) {
+    const isResponse = anchor.type === "response";
+    const sigField = isResponse ? "sig_resp" : "sig";
+    const pubKeyField = isResponse ? "pub_sig_resp" : "pub_sig";
+
+    const signature = anchor[sigField];
+    const pubKey = anchor[pubKeyField];
+
+    if (!signature || !pubKey) return false;
+
+    const body = canonicalize(
+      prepareForSigning(anchor, {
+        omitKeys: [sigField],
+        excludeMeta: anchor.type === "discovery",
+      }),
+    );
+
+    return await this.crypto.verifyMessage(pubKey, body, signature);
+  }
+
+  async _handleIncomingAnchor(anchor) {
+    if (anchor.type === "discovery") {
+      discoveryValidator.validate(anchor);
+    } else if (anchor.type === "response") {
+      responseValidator.validate(anchor);
+    } else if (anchor.type === "session_end") {
+      sessionEndValidator.validate(anchor);
+    } else {
+      throw new Error(`Unknown anchor type: ${anchor.type}`);
+    }
+
+    const isValidSig = await this._verifyAnchorSignature(anchor);
+    if (!isValidSig) {
+      throw new Error("Invalid anchor signature");
+    }
+
+    if (anchor.type === "discovery") {
+      return { type: "discovery", anchor };
+    }
+
+    if (anchor.type === "response") {
+      const pending = this._kktpPendingDiscoveries.get(anchor.sid);
+      if (pending && anchor.initiator_pub_sig === pending.discovery.pub_sig) {
+        await pending.protocol.processIncoming(anchor);
+
+        const mailboxId = pending.sm.kktp.mailboxId;
+        this._kktpSessions.set(mailboxId, {
+          ...pending,
+          response: anchor,
+          messages: [],
+          peerPubSig: anchor.pub_sig_resp,
+          isInitiator: true,
+          createdAt: Date.now(),
+        });
+
+        this._kktpPendingDiscoveries.delete(anchor.sid);
+        return { type: "session_established", mailboxId, response: anchor };
+      }
+
+      return { type: "response", anchor };
+    }
+
+    if (anchor.type === "session_end") {
+      const sessionEntry = Array.from(this._kktpSessions.entries()).find(
+        ([, s]) => s?.discovery?.sid === anchor.sid,
+      );
+      if (sessionEntry) {
+        const [mailboxId, session] = sessionEntry;
+        session.sm.terminate();
+        this._kktpSessions.delete(mailboxId);
+        return { type: "session_end", mailboxId, reason: anchor.reason };
+      }
+      return { type: "session_end", mailboxId: null, reason: anchor.reason };
+    }
+
+    return null;
+  }
+
+  _handleIncomingMessage(mailboxId, msgObject) {
+    const session = this._kktpSessions.get(mailboxId);
+    if (!session) {
+      return { type: "message_ignored", mailboxId };
+    }
+
+    const plaintexts = session.sm.receiveMessage(msgObject);
+    if (plaintexts && plaintexts.length > 0) {
+      session.messages = session.messages || [];
+      for (const plaintext of plaintexts) {
+        session.messages.push({
+          id: crypto.randomUUID(),
+          direction: msgObject.direction,
+          plaintext,
+          timestamp: Date.now(),
+          status: "confirmed",
+          isOutbound: false,
+        });
+      }
+    }
+
+    return { type: "messages", mailboxId, messages: plaintexts || [] };
   }
 }
 

@@ -65,6 +65,46 @@ export function updateIdentityDisplay(pubSig) {
 }
 
 /**
+ * Update wallet address display (truncated)
+ */
+export function updateWalletAddress(address) {
+  const el = elements.walletAddress;
+  if (!el) return;
+
+  if (address) {
+    el.textContent = `Address: ${truncateAddress(address)}`;
+    el.title = address;
+  } else {
+    el.textContent = "Address: —";
+    el.title = "";
+  }
+}
+
+/**
+ * Update wallet balance display
+ */
+export function updateWalletBalance(balanceText) {
+  const el = elements.walletBalance;
+  if (!el) return;
+
+  if (balanceText) {
+    el.textContent = `Balance: ${balanceText} KAS`;
+  } else {
+    el.textContent = "Balance: —";
+  }
+}
+
+/**
+ * Update copy button feedback
+ */
+export function setCopyStatus(text, isDisabled = false) {
+  const btn = elements.btnCopyAddress;
+  if (!btn) return;
+  btn.textContent = text;
+  btn.disabled = isDisabled;
+}
+
+/**
  * Update broadcast status
  */
 export function updateBroadcastStatus(status, type = "info") {
@@ -92,17 +132,24 @@ export function renderPeerList(onConnect) {
   list.innerHTML = "";
 
   if (peers.length === 0) {
-    list.innerHTML = '<div class="empty-state">No peers discovered yet...</div>';
+    list.innerHTML =
+      '<div class="empty-state">No peers discovered yet...</div>';
     return;
   }
 
-  for (const { discovery, discoveredAt } of peers) {
-    const item = document.createElement("div");
-    item.className = "peer-item";
-
-    const pubSigShort = `${discovery.pub_sig.substring(0, 8)}...`;
+  for (const peer of peers) {
+    if (!peer?.discovery?.pub_sig) {
+      console.warn("Skipping peer with missing pub_sig", peer);
+      continue;
+    }
+    const { discovery, discoveredAt, isSelf } = peer;
+    const labelPrefix = isSelf ? "(SELF) " : "";
+    const pubSigShort = `${labelPrefix}${discovery.pub_sig.substring(0, 8)}...`;
     const gameInfo = discovery.meta?.game || "Unknown";
     const timeAgo = formatTimeAgo(discoveredAt);
+
+    const item = document.createElement("div");
+    item.className = "peer-item";
 
     item.innerHTML = `
       <div class="peer-info">
@@ -145,7 +192,9 @@ export function renderSessionList(sessions, activeId, onSelect) {
     item.dataset.mailboxId = session.mailboxId;
 
     const peerShort = `${session.peerPubSig.substring(0, 8)}...`;
-    const unread = session.messages.filter(m => !m.isOutbound && !m.read).length;
+    const unread = session.messages.filter(
+      (m) => !m.isOutbound && !m.read,
+    ).length;
     const role = session.isInitiator ? "I" : "R";
 
     item.innerHTML = `
@@ -154,7 +203,7 @@ export function renderSessionList(sessions, activeId, onSelect) {
         <span class="session-role">[${role}]</span>
         ${unread > 0 ? `<span class="unread-badge">${unread}</span>` : ""}
       </div>
-      <span class="session-status ${session.stateMachine.state.toLowerCase()}">${session.stateMachine.state}</span>
+      <span class="session-status ${session.sm.state.toLowerCase()}">${session.sm.state}</span>
     `;
 
     item.addEventListener("click", () => onSelect(session.mailboxId));
@@ -171,7 +220,8 @@ export function renderChatMessages(session) {
   if (!container) return;
 
   if (!session) {
-    container.innerHTML = '<div class="empty-state">Select a session to view messages</div>';
+    container.innerHTML =
+      '<div class="empty-state">Select a session to view messages</div>';
     if (header) header.textContent = "No Session Selected";
     return;
   }
@@ -184,7 +234,8 @@ export function renderChatMessages(session) {
   container.innerHTML = "";
 
   if (session.messages.length === 0) {
-    container.innerHTML = '<div class="empty-state">No messages yet. Say hello!</div>';
+    container.innerHTML =
+      '<div class="empty-state">No messages yet. Say hello!</div>';
     return;
   }
 
@@ -243,4 +294,14 @@ function escapeHtml(text) {
   const div = document.createElement("div");
   div.textContent = text;
   return div.innerHTML;
+}
+
+function truncateAddress(address) {
+  if (!address) return "";
+
+  // Force it to a string so .slice exists
+  const addrStr = address.toString();
+
+  if (addrStr.length <= 16) return addrStr;
+  return `${addrStr.slice(0, 8)}...${addrStr.slice(-6)}`;
 }

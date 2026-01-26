@@ -12,6 +12,9 @@ export const elements = {
   get uptimeSeconds() { return $("uptimeSeconds"); },
   get btnBroadcast() { return $("btnBroadcast"); },
   get broadcastStatus() { return $("broadcastStatus"); },
+  get walletAddress() { return $("walletAddress"); },
+  get btnCopyAddress() { return $("btnCopyAddress"); },
+  get walletBalance() { return $("walletBalance"); },
 
   // Peer Discovery
   get peerList() { return $("peerList"); },
