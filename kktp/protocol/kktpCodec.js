@@ -1,6 +1,7 @@
 // kktp-core/messenger.js
 import { constructAAD } from "./integrity/aad.js";
 import { mailboxMessageValidator } from "./integrity/validator.js";
+import { canonicalize } from "./integrity/canonical.js";
 import { bytesToHex, hexToBytes, normalizeKey } from "./utils/conversions.js";
 import { xchacha20poly1305 } from "https://esm.sh/@noble/ciphers/chacha";
 

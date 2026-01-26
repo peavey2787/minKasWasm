@@ -33,6 +33,11 @@ export const SearchMode = Object.freeze({
  */
 export class KaspaBlockScanner {
   #prefixes = new Set();
+  #blockSubscribers = new Set();
+  #matchSubscribers = new Set();
+  #blockListener = null;
+  #reconnectHandler = null;
+  #lastBlockTime = null;
   indexer = null;
 
   /**
@@ -55,10 +60,14 @@ export class KaspaBlockScanner {
     } = {},
   ) {
     this.client = client;
-    this.blockSubscription = null;
     this.scanning = false;
-    this.onBlock = onBlock; // callback(block, matches)
-    this.onMatch = onMatch; // callback(block, matches)
+
+    if (typeof onBlock === "function") {
+      this.#blockSubscribers.add(onBlock);
+    }
+    if (typeof onMatch === "function") {
+      this.#matchSubscribers.add(onMatch);
+    }
 
     // Initialize with provided prefixes
     if (Array.isArray(prefixes)) {
@@ -114,25 +123,67 @@ export class KaspaBlockScanner {
     this.addresses = this.addresses.filter((a) => a !== address);
   }
 
+  subscribeBlock(fn) {
+    if (typeof fn !== "function") return () => {};
+    this.#blockSubscribers.add(fn);
+    return () => this.#blockSubscribers.delete(fn);
+  }
+
+  subscribeMatch(fn) {
+    if (typeof fn !== "function") return () => {};
+    this.#matchSubscribers.add(fn);
+    return () => this.#matchSubscribers.delete(fn);
+  }
+
+  checkHealth() {
+    if (!this.scanning) return true;
+    if (!this.#lastBlockTime) return false;
+    return Date.now() - this.#lastBlockTime <= 60_000;
+  }
+
+  get status() {
+    return {
+      scanning: this.scanning,
+      matchSubscribers: this.#matchSubscribers.size,
+      blockSubscribers: this.#blockSubscribers.size,
+      prefixes: this.#prefixes.size,
+      lastBlockTime: this.#lastBlockTime,
+      health: this.checkHealth(),
+    };
+  }
+
   // --- Modularized scanning logic ---
   async start(onBlock) {
     if (!this.client) throw new Error("Kaspa client required");
+    if (this.scanning) return;
     this.scanning = true;
+    this.#lastBlockTime = Date.now();
     if (onBlock && typeof onBlock === "function") {
-      this.onBlock = onBlock;
+      this.#blockSubscribers.add(onBlock);
     }
-    if (this.blockSubscription) {
+    if (this.#blockListener) {
       this.client.removeEventListener(
         BlockScannerEvent.BLOCK_ADDED,
-        this.blockSubscription,
+        this.#blockListener,
       );
-      this.blockSubscription = null;
+      this.#blockListener = null;
     }
     await this.client.subscribeBlockAdded();
 
-    this.blockSubscription = (event) => {
+    if (!this.#reconnectHandler) {
+      this.#reconnectHandler = () => {
+        if (this.scanning) {
+          this.client.subscribeBlockAdded();
+        }
+      };
+      this.client.addEventListener("connect", this.#reconnectHandler);
+    }
+
+    const listener = (event) => {
       const block = event.data.block;
       const matches = [];
+
+      this.#lastBlockTime = Date.now();
 
       // Index blocks (but never store the full block w/ tx array).
       this._indexBlockIfNeeded(block);
@@ -141,14 +192,22 @@ export class KaspaBlockScanner {
       // Even if we aren't matching/indexing, we must release tx objects to prevent WASM memory growth.
       this._processBlockTransactions(block, matches);
 
-      if (block && typeof this.onBlock === "function") {
-        this.onBlock(block, matches);
+      if (block) {
+        for (const subscriber of this.#blockSubscribers) {
+          try {
+            subscriber(block, matches);
+          } catch (err) {
+            console.error("Block subscriber error", err);
+          }
+        }
       }
     };
 
+    this.#blockListener = listener;
+
     this.client.addEventListener(
       BlockScannerEvent.BLOCK_ADDED,
-      this.blockSubscription,
+      this.#blockListener,
     );
   }
 
@@ -169,8 +228,12 @@ export class KaspaBlockScanner {
           if (isMatch) {
             matches.push(matchObj);
             this._indexMatchingTransactionIfNeeded(matchObj);
-            if (this.onMatch && typeof this.onMatch === "function") {
-              this.onMatch(block, matchObj);
+            for (const subscriber of this.#matchSubscribers) {
+              try {
+                subscriber(block, matchObj);
+              } catch (err) {
+                console.error("Match subscriber error", err);
+              }
             }
           }
         }
@@ -326,14 +389,26 @@ export class KaspaBlockScanner {
    */
   stop() {
     this.scanning = false;
-    if (this.blockSubscription) {
+    if (this.#blockListener) {
       this.client.removeEventListener(
         BlockScannerEvent.BLOCK_ADDED,
-        this.blockSubscription,
+        this.#blockListener,
       );
-      this.blockSubscription = null;
+      this.#blockListener = null;
     }
-    this.onBlock = null;
+    if (this.#reconnectHandler) {
+      this.client.removeEventListener("connect", this.#reconnectHandler);
+      this.#reconnectHandler = null;
+    }
+    const isConnected =
+      (typeof this.client?.isConnected === "function" &&
+        this.client.isConnected()) ||
+      this.client?.connected === true;
+    if (isConnected && typeof this.client?.unsubscribeBlockAdded === "function") {
+      this.client.unsubscribeBlockAdded();
+    }
+    this.#blockSubscribers.clear();
+    this.#matchSubscribers.clear();
     this.#prefixes = new Set();
     this.addresses = [];
     this.searchMode = SearchMode.INCLUDES;
