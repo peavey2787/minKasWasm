@@ -3,7 +3,7 @@ import { constructAAD } from "./aad.js";
 import { xchacha20poly1305 } from "https://esm.sh/@noble/ciphers/chacha";
 import { blake2b } from "https://esm.sh/@noble/hashes@1.3.0/blake2b";
 import { kaspaPortal } from "../../../wrapper/kaspaPortal.js";
-
+import { canonicalize } from "./canonical.js";
 /**
  * Computes VRF input hash per §6.1: H(pub_sig || pub_dh || sid)
  * Hashing prevents canonicalization attacks from string concatenation.
@@ -56,10 +56,13 @@ export class AnchorFactory {
     const { sig: _, meta: __, ...signablePart } = anchor;
 
     // 3. Canonicalize (RFC 8785 / JCS)
-    const messageToSign = new TextEncoder().encode(canonicalize(signablePart));
+    const messageToSign = canonicalize(signablePart);
 
-    // 4. Sign using the private key (Assuming sig.sign method exists)
-    anchor.sig = await sig.sign(messageToSign);
+    // 4. Sign using the private key
+    anchor.sig = await kaspaPortal.crypto.signMessage(
+      sig.privateKey,
+      messageToSign,
+    );
 
     return anchor;
   }
@@ -82,13 +85,32 @@ export class AnchorFactory {
       vrf_proof: null,
     };
 
-    // ... VRF Logic ... (Keep your existing vrfData logic here)
-    response.vrf_value = vrfData.finalOutput;
-    response.vrf_proof = proofHex;
+    const vrfInputHash = computeVrfInputHash(
+      discovery.pub_sig,
+      discovery.pub_dh,
+      sig.publicKey,
+      dh.publicKey,
+      discovery.sid,
+    );
+
+    try {
+      const vrfData = await kaspaPortal.prove({ seedInput: vrfInputHash });
+      response.vrf_value = vrfData.finalOutput;
+      response.vrf_proof = bytesToHex(
+        new TextEncoder().encode(JSON.stringify(vrfData.proof)),
+      );
+    } catch {
+      // VRF is optional per deployment; keep nulls if not supported
+      response.vrf_value = null;
+      response.vrf_proof = null;
+    }
 
     // COMPLIANCE §5.3: Canonicalize everything EXCEPT sig_resp
-    const messageToSign = new TextEncoder().encode(canonicalize(response));
-    response.sig_resp = await sig.sign(messageToSign);
+    const messageToSign = canonicalize(response);
+    response.sig_resp = await kaspaPortal.crypto.signMessage(
+      sig.privateKey,
+      messageToSign,
+    );
 
     return response;
   }
@@ -135,8 +157,11 @@ export class AnchorFactory {
     };
 
     // COMPLIANCE §5.5: Sign the end signal
-    const messageToSign = new TextEncoder().encode(canonicalize(anchor));
-    anchor.sig = await sig.sign(messageToSign);
+    const messageToSign = canonicalize(anchor);
+    anchor.sig = await kaspaPortal.crypto.signMessage(
+      sig.privateKey,
+      messageToSign,
+    );
 
     return anchor;
   }
