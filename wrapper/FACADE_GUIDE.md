@@ -12,7 +12,7 @@
 ## Introduction
 The **KaspaPortal Framework** applies the **Facade Pattern** to provide a single, developer‑friendly entry point for Kaspa operations. Instead of wiring multiple low‑level components, you interact with one global facade (`kaspaPortal`) that **orchestrates transport, identity, intelligence, crypto, VRF, and KKTP**.
 
-This guide focuses on the high‑level system only. The low‑level WASM SDK is documented separately: [**./LOW_LEVEL_SDK.md**](./wrapper/LOW_LEVEL_SDK.md).
+This guide focuses on the high‑level system only. The low‑level WASM SDK is documented separately: [**./LOW_LEVEL_SDK.md**](./LOW_LEVEL_SDK.md).
 
 ---
 
@@ -213,9 +213,9 @@ This framework sits **above** the low‑level WASM SDK (see **./LOW_LEVEL_SDK.md
 ## File Reference
 - Global facade: [wrapper/kaspaPortal.js](wrapper/kaspaPortal.js)
 - Component facades:
-  - [wrapper/transport/transportFacade.js](wrapper/transport/transportFacade.js)
-  - [wrapper/identity/identityFacade.js](wrapper/identity/identityFacade.js)
-  - [wrapper/intelligence/intelligenceFacade.js](wrapper/intelligence/intelligenceFacade.js)
-  - [wrapper/crypto/cryptoFacade.js](wrapper/crypto/cryptoFacade.js)
-  - [wrapper/vrf/vrfFacade.js](wrapper/vrf/vrfFacade.js)
-- KKTP Protocol: [kktp/protocol/kktpProtocol.js](kktp/protocol/kktpProtocol.js)
+  - [wrapper/transport/transportFacade.js](./transport/transportFacade.js)
+  - [wrapper/identity/identityFacade.js](./identity/identityFacade.js)
+  - [wrapper/intelligence/intelligenceFacade.js](./intelligence/intelligenceFacade.js)
+  - [wrapper/crypto/cryptoFacade.js](./crypto/cryptoFacade.js)
+  - [wrapper/vrf/vrfFacade.js](./vrf/vrfFacade.js)
+- KKTP Protocol: [../kktp/protocol/kktpProtocol.js](../kktp/protocol/kktpProtocol.js)
