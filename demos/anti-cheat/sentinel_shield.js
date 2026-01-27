@@ -231,7 +231,7 @@ export class SentinelShield {
         if (resetBtn) {
           resetBtn.classList.remove('hidden');
         }
-        this._renderResults(results);
+        this._renderResults(results, false, true); // Pass isInconclusive flag
         break;
 
       default:
@@ -246,19 +246,45 @@ export class SentinelShield {
   /**
    * Render audit results
    */
-  _renderResults(results, isTampered = false) {
+  _renderResults(results, isTampered = false, isInconclusive = false) {
     const panel = $(this.resultsPanelId);
     if (!panel || !results) return;
 
     const sessionId = results.sessionId?.slice(0, 8) || '--------';
-    const statusClass = isTampered ? 'tampered' : 'verified';
-    const statusIcon = isTampered ? '❌' : '✅';
-    const statusText = isTampered ? 'TAMPER DETECTED' : 'AUDIT PASSED';
+
+    let statusClass, statusIcon, statusText;
+    if (isTampered) {
+      statusClass = 'tampered';
+      statusIcon = '❌';
+      statusText = 'TAMPER DETECTED';
+    } else if (isInconclusive) {
+      statusClass = 'inconclusive';
+      statusIcon = '⚠️';
+      statusText = 'AUDIT INCONCLUSIVE';
+    } else {
+      statusClass = 'verified';
+      statusIcon = '✅';
+      statusText = 'AUDIT PASSED';
+    }
 
     const identityStatus = this._formatCheckStatus(results.identity);
     const integrityStatus = this._formatCheckStatus(results.integrity);
     const randomnessStatus = this._formatCheckStatus(results.randomness);
     const stateStatus = this._formatCheckStatus(results.state);
+
+    // Count passed vs skipped pillars
+    const pillars = [results.identity, results.integrity, results.randomness, results.state];
+    const passedCount = pillars.filter(p => p.status === CheckResult.PASS).length;
+    const skippedCount = pillars.filter(p => p.status === CheckResult.SKIP).length;
+
+    let conclusionHtml;
+    if (isTampered) {
+      conclusionHtml = '⚠️ <strong>WARNING:</strong> This game state has been compromised. Do not trust the outcome.';
+    } else if (isInconclusive || skippedCount > 0) {
+      conclusionHtml = `🔍 <strong>Incomplete:</strong> ${passedCount}/4 pillars verified. ${skippedCount} pillar(s) lacked sufficient data.`;
+    } else {
+      conclusionHtml = '🔒 <strong>Conclusion:</strong> This game state is mathematically certain.';
+    }
 
     panel.innerHTML = `
       <div class="audit-result-header ${statusClass}">
@@ -301,10 +327,7 @@ export class SentinelShield {
       </div>
 
       <div class="audit-conclusion ${statusClass}">
-        ${isTampered
-          ? '⚠️ <strong>WARNING:</strong> This game state has been compromised. Do not trust the outcome.'
-          : '🔒 <strong>Conclusion:</strong> This game state is mathematically certain.'
-        }
+        ${conclusionHtml}
       </div>
     `;
 
@@ -337,7 +360,9 @@ export class SentinelShield {
       return check.details?.reason || 'Not audited';
     }
     if (check.status === CheckResult.PASS) {
-      return `Schnorr Signature matches Wallet ${check.details?.walletAddress || 'N/A'}`;
+      // Prefer PubKey for spectator mode (no local wallet)
+      const identity = check.details?.pubKey || check.details?.walletAddress || 'Unknown';
+      return `Schnorr Signature Valid — PubKey ${identity}`;
     }
     if (check.status === CheckResult.FAIL) {
       return 'Signature verification FAILED';
@@ -353,11 +378,25 @@ export class SentinelShield {
       return check.details?.reason || 'Not audited';
     }
     const d = check.details;
+    const hasSchnorr = (d.schnorrValidated + d.schnorrFailed) > 0;
+    const hasAead = (d.aeadValidated + d.aeadFailed) > 0;
     if (check.status === CheckResult.PASS) {
-      return `${d.validated}/${d.audited} XChaCha20-Poly1305 Tags Validated`;
+      if (hasSchnorr && !hasAead) {
+        return `${d.schnorrValidated}/${d.audited} Schnorr Move Signatures Verified`;
+      }
+      if (hasAead) {
+        return `${d.aeadValidated}/${d.audited} XChaCha20-Poly1305 Tags Validated`;
+      }
+      return `${d.validated}/${d.audited} Integrity Checks Verified`;
     }
     if (check.status === CheckResult.FAIL) {
-      return `${d.failed}/${d.audited} tags FAILED verification`;
+      if (hasSchnorr && !hasAead) {
+        return `${d.schnorrFailed}/${d.audited} Schnorr Signatures FAILED verification`;
+      }
+      if (hasAead) {
+        return `${d.aeadFailed}/${d.audited} tags FAILED verification`;
+      }
+      return `${d.failed}/${d.audited} checks FAILED verification`;
     }
     return d.error || 'Error during verification';
   }

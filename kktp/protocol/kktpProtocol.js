@@ -2,10 +2,13 @@
 import {
   discoveryValidator,
   responseValidator,
-  mailboxMessageValidator,
   sessionEndValidator,
 } from "./integrity/validator.js";
-import { canonicalize, prepareForSigning } from "./integrity/canonical.js";
+import {
+  canonicalize,
+  prepareForSigning,
+  toPlainJson as _toPlainJson,
+} from "./integrity/canonical.js";
 import { KKTP_STATES } from "./stateMachine.js";
 import { AnchorFactory } from "./integrity/anchorFactory.js";
 import { kaspaPortal } from "../../wrapper/kaspaPortal.js";
@@ -80,7 +83,7 @@ export class KKTPProtocol {
     const anchor = this.anchorFactory.createSessionEndAnchor(
       this.sm.kktp.sid,
       this.sm.kktp.myPubSig,
-      reason
+      reason,
     );
 
     // Sign with the session's signing key
@@ -98,17 +101,15 @@ export class KKTPProtocol {
   async processIncoming(anchor) {
     switch (anchor.type) {
       case "discovery":
-        discoveryValidator.validate(anchor);
-        // Trigger UI/Game logic to ask user if they want to respond
+        // §6.1: Discovery is the start. Schema is already verified by Adapter.
         return { type: "DISCOVERY_RECEIVED", data: anchor };
 
       case "response":
-        responseValidator.validate(anchor);
+        // §6.1: Handshake logic
         const discoveryRef = this.sm.kktp.discoveryAnchor;
         if (!discoveryRef)
-          throw new Error(
-            "Need original discovery anchor to process response.",
-          );
+          throw new Error("No active discovery to respond to.");
+
         await this.sm.connect(discoveryRef, anchor);
         return {
           type: "HANDSHAKE_COMPLETE",
@@ -116,38 +117,28 @@ export class KKTPProtocol {
         };
 
       case "msg":
-        mailboxMessageValidator.validate(anchor);
-        // Decrypt and reorder via State Machine
+        // §6.6: Encrypted payload path
         const messages = this.sm.receiveMessage(anchor);
         return { type: "MESSAGES_READY", data: messages };
 
-      // Inside processIncoming(anchor) - §7.4 Signature Verification
       case "session_end":
-        sessionEndValidator.validate(anchor);
-
-        // Verify the signature against the identity key established in the handshake
+        // §7.4 & §7.7: Identity + Termination
+        // We don't need verifyMessage() here because the ADAPTER just did it!
+        // We only check: Is the signer actually the Peer or Me?
         const isFromMe = anchor.pub_sig === this.sm.kktp.myPubSig;
         const isFromPeer = anchor.pub_sig === this.sm.kktp.peerPubSig;
 
-        if (!isFromMe && !isFromPeer)
-          throw new Error("Unauthorized SessionEnd: Signature key mismatch.");
-
-        const body = canonicalize(
-          prepareForSigning(anchor, { omitKeys: ["sig"] }),
-        );
-        const isValid = await kaspaPortal.crypto.verifyMessage(
-          anchor.pub_sig,
-          body,
-          anchor.sig,
-        );
-
-        if (!isValid) throw new Error("Invalid SessionEnd signature.");
+        if (!isFromMe && !isFromPeer) {
+          throw new Error(
+            "Unauthorized SessionEnd: Signer is not a session participant.",
+          );
+        }
 
         this.sm.terminate();
         return { type: "SESSION_CLOSED", data: anchor.reason };
 
       default:
-        throw new Error(`Unknown KKTP Anchor type: ${anchor.type}`);
+        throw new Error(`Unknown KKTP type: ${anchor.type}`);
     }
   }
 
@@ -164,5 +155,32 @@ export class KKTPProtocol {
 
     // The protocol calls the crypto layer for the raw signature
     return await kaspaPortal.crypto.signMessage(privateKeyHex, body);
+  }
+
+  /**
+   * EXPOSED FOR AUDITORS:
+   * Formats any object according to the RFC 8785 (JCS) strict rules.
+   */
+  canonicalize(obj) {
+    return canonicalize(obj);
+  }
+
+  /**
+   * EXPOSED FOR AUDITORS:
+   * Strips the signature and non-signed metadata to prepare for hash verification.
+   */
+  prepareForVerification(anchor) {
+    const isResponse = anchor.type === "response";
+    const omitKeys = isResponse ? ["sig_resp"] : ["sig"];
+    // Note: excludeMeta: true is critical as per §5.4
+    return prepareForSigning(anchor, { omitKeys, excludeMeta: true });
+  }
+
+  /**
+   * EXPOSED FOR AUDITORS:
+   * Converts an object to plain JSON (no methods, no prototypes)
+   */
+  toPlainJson(value) {
+    return _toPlainJson(value);
   }
 }

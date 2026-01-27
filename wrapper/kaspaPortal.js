@@ -347,7 +347,8 @@ export class KaspaPortal {
    */
   async getAllCachedMatchingTransactions() {
     this._ensureIntelligence();
-    return await (this.intelligence.indexer?.getAllCachedMatchingTransactions() || Promise.resolve([]));
+    return await (this.intelligence.indexer?.getAllCachedMatchingTransactions() ||
+      Promise.resolve([]));
   }
 
   /**
@@ -814,6 +815,28 @@ export class KaspaPortal {
         ...session,
       }),
     );
+  }
+
+  /**
+   * Prepares a KKTP anchor for verification via KKTP Protocol.
+   */
+  prepareForVerification(anchor) {
+    return this.kktpProtocol.prepareForVerification(anchor);
+  }
+
+  /**
+   * RFC 8785 (JCS) Canonicalization via KKTP Protocol.
+   */
+  canonicalize(obj) {
+    return this.kktpProtocol.canonicalize(obj);
+  }
+
+  /**
+   * EXPOSED FOR AUDITORS:
+   * Converts an object to plain JSON (no methods, no prototypes)
+   */
+  toPlainJson(value) {
+    return this.kktpProtocol.toPlainJson(value);
   }
 
   _createKktpContext(isInitiator) {

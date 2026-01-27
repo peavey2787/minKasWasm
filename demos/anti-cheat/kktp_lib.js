@@ -1,22 +1,16 @@
-import { blake2b } from 'https://esm.sh/@noble/hashes@1.3.3/blake2b';
-import { hkdf } from 'https://esm.sh/@noble/hashes@1.3.3/hkdf';
-import * as ed from 'https://esm.sh/@noble/ed25519@1.7.3';
-import { xchacha20poly1305 } from 'https://esm.sh/@noble/ciphers@0.4.0/chacha';
-export { bytesToHex, hexToBytes } from 'https://esm.sh/@noble/hashes@1.3.3/utils';
-import { bytesToHex, hexToBytes } from 'https://esm.sh/@noble/hashes@1.3.3/utils';
-
-// --- Canonical JSON (RFC 8785 subset) ---
-export function canonicalStringify(obj) {
-  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
-    return JSON.stringify(obj);
-  }
-  const keys = Object.keys(obj).sort();
-  const parts = keys.map(key => {
-    const val = canonicalStringify(obj[key]);
-    return `${JSON.stringify(key)}:${val}`;
-  });
-  return `{${parts.join(',')}}`;
-}
+import { blake2b } from "https://esm.sh/@noble/hashes@1.3.3/blake2b";
+import { hkdf } from "https://esm.sh/@noble/hashes@1.3.3/hkdf";
+import * as ed from "https://esm.sh/@noble/ed25519@1.7.3";
+import { xchacha20poly1305 } from "https://esm.sh/@noble/ciphers@0.4.0/chacha";
+export {
+  bytesToHex,
+  hexToBytes,
+} from "https://esm.sh/@noble/hashes@1.3.3/utils";
+import {
+  bytesToHex,
+  hexToBytes,
+} from "https://esm.sh/@noble/hashes@1.3.3/utils";
+import { kaspaPortal } from "../../wrapper/kaspaPortal.js";
 
 // --- Helpers ---
 function randomBytes(n) {
@@ -41,7 +35,14 @@ export async function generateSessionKey() {
 }
 
 // --- Anchors ---
-export async function createDiscoveryAnchor(sid, identityKey, sessionKey, meta = {}, vrfValue = null, vrfProof = null) {
+export async function createDiscoveryAnchor(
+  sid,
+  identityKey,
+  sessionKey,
+  meta = {},
+  vrfValue = null,
+  vrfProof = null,
+) {
   const anchor = {
     type: "discovery",
     version: 1,
@@ -50,17 +51,28 @@ export async function createDiscoveryAnchor(sid, identityKey, sessionKey, meta =
     pub_dh: sessionKey.pub,
     vrf_value: vrfValue,
     vrf_proof: vrfProof,
-    meta
+    meta,
   };
 
-  const payload = new TextEncoder().encode(canonicalStringify(anchor));
+  // Use kaspaPortal.prepareForVerification to strip meta, then canonicalize
+  const forSigning = kaspaPortal.prepareForVerification(anchor);
+  const payloadStr = kaspaPortal.canonicalize(forSigning);
+  const payload = new TextEncoder().encode(payloadStr);
   const sig = await ed.sign(payload, identityKey.priv);
   anchor.sig = bytesToHex(sig);
+  // Persist exact bytes that were signed (for audit verification)
+  anchor.signed_body = payloadStr;
 
   return anchor;
 }
 
-export async function createResponseAnchor(discoveryAnchor, identityKey, sessionKey, vrfValue = null, vrfProof = null) {
+export async function createResponseAnchor(
+  discoveryAnchor,
+  identityKey,
+  sessionKey,
+  vrfValue = null,
+  vrfProof = null,
+) {
   const anchor = {
     type: "response",
     version: 1,
@@ -70,32 +82,52 @@ export async function createResponseAnchor(discoveryAnchor, identityKey, session
     pub_sig_resp: identityKey.pub,
     pub_dh_resp: sessionKey.pub,
     vrf_value: vrfValue || discoveryAnchor.vrf_value,
-    vrf_proof: vrfProof || discoveryAnchor.vrf_proof || null
+    vrf_proof: vrfProof || discoveryAnchor.vrf_proof || null,
   };
 
-  const payload = new TextEncoder().encode(canonicalStringify(anchor));
+  // Use kaspaPortal.prepareForVerification to strip sig_resp, then canonicalize
+  const forSigning = kaspaPortal.prepareForVerification(anchor);
+  const payloadStr = kaspaPortal.canonicalize(forSigning);
+  const payload = new TextEncoder().encode(payloadStr);
   const sig = await ed.sign(payload, identityKey.priv);
   anchor.sig_resp = bytesToHex(sig);
+  // Persist exact bytes that were signed (for audit verification)
+  anchor.signed_body = payloadStr;
 
   return anchor;
 }
 
-export async function createSessionEndAnchor(sid, identityKey, reason = "Game Over") {
+export async function createSessionEndAnchor(
+  sid,
+  identityKey,
+  reason = "Game Over",
+) {
   const anchor = {
     type: "session_end",
     version: 1,
     sid,
     pub_sig: identityKey.pub,
-    reason
+    reason,
   };
-  const payload = new TextEncoder().encode(canonicalStringify(anchor));
+  const forSigning = kaspaPortal.prepareForVerification(anchor);
+  const payloadStr = kaspaPortal.canonicalize(forSigning);
+  const payload = new TextEncoder().encode(payloadStr);
   const sig = await ed.sign(payload, identityKey.priv);
   anchor.sig = bytesToHex(sig);
+  // Persist exact bytes that were signed (for audit verification)
+  anchor.signed_body = payloadStr;
   return anchor;
 }
 
 // --- Session Derivation ---
-export async function deriveSessionSecrets(isInitiator, myPrivDh, peerPubDh, sid, pubSigA, pubSigB) {
+export async function deriveSessionSecrets(
+  isInitiator,
+  myPrivDh,
+  peerPubDh,
+  sid,
+  pubSigA,
+  pubSigB,
+) {
   const privBytes = hexToBytes(myPrivDh);
   const pubBytes = hexToBytes(peerPubDh);
   const shared = await ed.getSharedSecret(privBytes, pubBytes);
@@ -107,7 +139,11 @@ export async function deriveSessionSecrets(isInitiator, myPrivDh, peerPubDh, sid
   const kSession = hkdf(blake2b, shared, salt, info, 32);
 
   // Mailbox ID: H(pub_sig || pub_sig_resp || sid)
-  const mailboxInput = new Uint8Array([...hexToBytes(pubSigA), ...hexToBytes(pubSigB), ...new TextEncoder().encode(sid)]);
+  const mailboxInput = new Uint8Array([
+    ...hexToBytes(pubSigA),
+    ...hexToBytes(pubSigB),
+    ...new TextEncoder().encode(sid),
+  ]);
   const mailboxId = bytesToHex(hash(mailboxInput));
 
   return { kSession, mailboxId };
@@ -122,27 +158,43 @@ export function derivePublicSessionSecrets(vrfValueHex, sid, pubSigA, pubSigB) {
 
   const kSession = hkdf(blake2b, shared, salt, info, 32);
 
-  const mailboxInput = new Uint8Array([...hexToBytes(pubSigA), ...hexToBytes(pubSigB), ...new TextEncoder().encode(sid)]);
+  const mailboxInput = new Uint8Array([
+    ...hexToBytes(pubSigA),
+    ...hexToBytes(pubSigB),
+    ...new TextEncoder().encode(sid),
+  ]);
   const mailboxId = bytesToHex(hash(mailboxInput));
 
   return { kSession, mailboxId };
 }
 
 // --- Encryption/Decryption ---
-export function encryptMessage(kSession, mailboxId, direction, seq, plaintextObj) {
-  if (typeof mailboxId !== 'string') {
-    throw new Error(`encryptMessage: mailboxId must be a hex string, got ${typeof mailboxId} (${mailboxId})`);
+export function encryptMessage(
+  kSession,
+  mailboxId,
+  direction,
+  seq,
+  plaintextObj,
+) {
+  if (typeof mailboxId !== "string") {
+    throw new Error(
+      `encryptMessage: mailboxId must be a hex string, got ${typeof mailboxId} (${mailboxId})`,
+    );
   }
 
   const nonce = randomBytes(24); // 192-bit
-  const plaintext = new TextEncoder().encode(canonicalStringify(plaintextObj));
+  const plaintext = new TextEncoder().encode(kaspaPortal.canonicalize(plaintextObj));
 
   // AAD: mailbox_id (bytes) || direction (utf8) || seq (u64be)
   const dirBytes = new TextEncoder().encode(direction);
   const seqBytes = new Uint8Array(8);
   new DataView(seqBytes.buffer).setBigUint64(0, BigInt(seq), false); // BigEndian
 
-  const aad = new Uint8Array([...hexToBytes(mailboxId), ...dirBytes, ...seqBytes]);
+  const aad = new Uint8Array([
+    ...hexToBytes(mailboxId),
+    ...dirBytes,
+    ...seqBytes,
+  ]);
 
   const ciphertext = xchacha20poly1305(kSession, nonce, aad).encrypt(plaintext);
 
@@ -154,7 +206,7 @@ export function encryptMessage(kSession, mailboxId, direction, seq, plaintextObj
     direction,
     seq,
     nonce: bytesToHex(nonce),
-    ciphertext: bytesToHex(ciphertext)
+    ciphertext: bytesToHex(ciphertext),
   };
 }
 
@@ -169,7 +221,9 @@ export function decryptMessage(kSession, msgObj) {
   const aad = new Uint8Array([...mailboxIdBytes, ...dirBytes, ...seqBytes]);
 
   try {
-    const plaintextBytes = xchacha20poly1305(kSession, nonce, aad).decrypt(ciphertext);
+    const plaintextBytes = xchacha20poly1305(kSession, nonce, aad).decrypt(
+      ciphertext,
+    );
     const json = new TextDecoder().decode(plaintextBytes);
     return JSON.parse(json);
   } catch (e) {
@@ -181,32 +235,70 @@ export function decryptMessage(kSession, msgObj) {
 // --- Verification ---
 export async function verifyAnchorSignature(anchor) {
   let pubKey, sig;
-  const copy = { ...anchor };
 
-  if (anchor.type === 'discovery') {
+  if (anchor.type === "discovery") {
     pubKey = anchor.pub_sig;
     sig = anchor.sig;
-    delete copy.sig;
-  } else if (anchor.type === 'response') {
+  } else if (anchor.type === "response") {
     pubKey = anchor.pub_sig_resp;
     sig = anchor.sig_resp;
-    delete copy.sig_resp;
-  } else if (anchor.type === 'session_end') {
+  } else if (anchor.type === "session_end") {
     pubKey = anchor.pub_sig;
     sig = anchor.sig;
-    delete copy.sig;
   } else {
     return false;
   }
 
-  const payload = new TextEncoder().encode(canonicalStringify(copy));
-  return await ed.verify(sig, payload, pubKey);
+  if (!pubKey || !sig) {
+    console.warn('[KKTP][verifyAnchorSignature] Missing pubKey or sig', {
+      type: anchor?.type,
+      hasPubKey: !!pubKey,
+      hasSig: !!sig,
+    });
+    return false;
+  }
+
+  let payloadStr = null;
+  if (typeof anchor.signed_body === "string" && anchor.signed_body.length > 0) {
+    payloadStr = anchor.signed_body;
+  } else {
+    // Use kaspaPortal.prepareForVerification to properly strip sig/meta
+    const forVerify = kaspaPortal.prepareForVerification(anchor);
+    payloadStr = kaspaPortal.canonicalize(forVerify);
+  }
+  const payload = new TextEncoder().encode(payloadStr);
+
+  // Normalize types for @noble/ed25519
+  const sigBytes = typeof sig === "string" ? hexToBytes(sig) : sig;
+  const pubBytes = typeof pubKey === "string" ? hexToBytes(pubKey) : pubKey;
+
+  const sigOk = sigBytes instanceof Uint8Array && sigBytes.length === 64;
+  const pubOk = pubBytes instanceof Uint8Array && pubBytes.length === 32;
+
+  console.groupCollapsed('[KKTP][verifyAnchorSignature] Debug');
+  console.log('type:', anchor?.type);
+  console.log('pubKey(hex?) length:', typeof pubKey === 'string' ? pubKey.length : pubBytes?.length);
+  console.log('sig(hex?) length:', typeof sig === 'string' ? sig.length : sigBytes?.length);
+  console.log('pubBytes length:', pubBytes?.length);
+  console.log('sigBytes length:', sigBytes?.length);
+  console.log('payload length:', payload?.length);
+  console.log('payload preview:', payloadStr?.slice?.(0, 160));
+  console.log('JCS-Canonicalized Payload (RFC 8785):', anchor.signed_body ? 'signed_body' : 'reconstructed');
+  console.log('payload hex:', bytesToHex(payload));
+  console.log('sigOk:', sigOk, 'pubOk:', pubOk);
+  console.groupEnd();
+
+  if (!sigOk || !pubOk) return false;
+
+  const verified = await ed.verify(sigBytes, payload, pubBytes);
+  console.log('[KKTP][verifyAnchorSignature] verified:', verified);
+  return verified;
 }
 
 export function buildKKTPPayload(prefix, obj) {
   // KKTP:ANCHOR:<json> or KKTP:<mailbox>:<json>
-  let content = canonicalStringify(obj);
-  if (obj.type === 'msg') {
+  let content = kaspaPortal.canonicalize(obj);
+  if (obj.type === "msg") {
     return `${prefix}${obj.mailbox_id}:${content}`;
   }
   return `${prefix}ANCHOR:${content}`;

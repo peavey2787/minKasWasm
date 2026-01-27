@@ -123,7 +123,7 @@ export async function performKKTPHandshake() {
 
   // 4. Publish Anchors (Bundled for speed in demo, usually separate)
   const prefix = $('payloadPrefix')?.value || 'KKTP';
-  const payload = `${prefix}:ANCHOR:${KKTP.canonicalStringify({ anchors: [discovery, response] })}`;
+  const payload = `${prefix}:ANCHOR:${portal.canonicalize({ anchors: [discovery, response] })}`;
 
   await portal.send({
     amount: '0.2',

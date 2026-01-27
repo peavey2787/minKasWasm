@@ -108,6 +108,7 @@ export const state = {
     responseAnchor: null,       // Response anchor with VRF data
     encryptedMessages: [],      // Array of { ciphertext, nonce, mailbox_id, seq, direction, tag }
     sequences: [],              // All seen sequence numbers for continuity check
+    moveBySeq: new Map(),        // Map<seq, moveChar> for overlap validation
     vrfData: null,              // VRF entropy data { kaspaBlocks, btcBlocks, foldedOutput }
   },
 };
@@ -183,6 +184,7 @@ export function resetSpectatorState() {
     responseAnchor: null,
     encryptedMessages: [],
     sequences: [],
+    moveBySeq: new Map(),
     vrfData: null,
   };
 

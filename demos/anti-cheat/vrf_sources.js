@@ -94,15 +94,45 @@ export async function autoFetchVRF() {
       if (portal.vrf?.generateFoldedEntropy) {
         const result = await portal.vrf.generateFoldedEntropy();
         state.foldedOutput = result.finalOutput;
-        state.vrfProof = result.proof || null;
+
+        const proofEvidence = result.proof?.evidence || {};
+        const kaspaBlocks =
+          Array.isArray(result.kaspaBlocks) && result.kaspaBlocks.length
+            ? result.kaspaBlocks
+            : proofEvidence.kaspaBlocks || proofEvidence.kaspa || [];
+        const btcBlocks =
+          Array.isArray(result.btcBlocks) && result.btcBlocks.length
+            ? result.btcBlocks
+            : proofEvidence.btcBlocks || proofEvidence.btc || [];
+        const sources =
+          Array.isArray(proofEvidence.sources) && proofEvidence.sources.length
+            ? proofEvidence.sources
+            : ['qrng', 'btc', 'kaspa'];
+        const iterations =
+          proofEvidence.iterations ?? result.iterations ?? 2;
+        const timestamp = proofEvidence.timestamp ?? Date.now();
+
+        // Build proof with evidence for spectator verification
+        state.vrfProof = {
+          ...(result.proof || {}),
+          evidence: {
+            kaspaBlocks,
+            btcBlocks,
+            sources,
+            iterations,
+            timestamp,
+          }
+        };
 
         // Store VRF data in audit history for later verification
         if (state.auditHistory) {
           state.auditHistory.vrfData = {
-            kaspaBlocks: result.kaspaBlocks || [],
-            btcBlocks: result.btcBlocks || [],
+            kaspaBlocks,
+            btcBlocks,
             foldedOutput: result.finalOutput,
-            timestamp: Date.now(),
+            sources,
+            iterations,
+            timestamp,
           };
         }
       } else {
@@ -120,15 +150,45 @@ export async function autoFetchVRF() {
     if (portal.vrf?.generatePartialEntropy) {
       const result = await portal.vrf.generatePartialEntropy();
       state.foldedOutput = result.finalOutput;
-      state.vrfProof = result.proof || null;
+
+      const proofEvidence = result.proof?.evidence || {};
+      const kaspaBlocks =
+        Array.isArray(result.kaspaBlocks) && result.kaspaBlocks.length
+          ? result.kaspaBlocks
+          : proofEvidence.kaspaBlocks || proofEvidence.kaspa || [];
+      const btcBlocks =
+        Array.isArray(result.btcBlocks) && result.btcBlocks.length
+          ? result.btcBlocks
+          : proofEvidence.btcBlocks || proofEvidence.btc || [];
+      const sources =
+        Array.isArray(proofEvidence.sources) && proofEvidence.sources.length
+          ? proofEvidence.sources
+          : ['btc', 'kaspa'];
+      const iterations =
+        proofEvidence.iterations ?? result.iterations ?? 2;
+      const timestamp = proofEvidence.timestamp ?? Date.now();
+
+      // Build proof with evidence for spectator verification
+      state.vrfProof = {
+        ...(result.proof || {}),
+        evidence: {
+          kaspaBlocks,
+          btcBlocks,
+          sources,
+          iterations,
+          timestamp,
+        }
+      };
 
       // Store VRF data in audit history for later verification
       if (state.auditHistory) {
         state.auditHistory.vrfData = {
-          kaspaBlocks: result.kaspaBlocks || [],
-          btcBlocks: result.btcBlocks || [],
+          kaspaBlocks,
+          btcBlocks,
           foldedOutput: result.finalOutput,
-          timestamp: Date.now(),
+          sources,
+          iterations,
+          timestamp,
         };
       }
     } else {
@@ -339,6 +399,17 @@ export async function foldSources() {
     }
 
     state.foldedOutput = result;
+
+    // Build proof with evidence for spectator verification
+    state.vrfProof = {
+      evidence: {
+        kaspaBlocks: includeKaspa ? state.kaspaBlocks : [],
+        btcBlocks: includeBtc ? state.btcBlocks : [],
+        sources: sources.map(s => s.name),
+        iterations,
+        timestamp: Date.now(),
+      }
+    };
 
     // Store VRF data in audit history for later verification (manual fold)
     if (state.auditHistory) {

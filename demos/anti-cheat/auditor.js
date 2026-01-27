@@ -1,32 +1,31 @@
 // auditor.js - ManualAuditor: Cryptographic Session Integrity Verification
 // Implements "Don't Trust, Verify" principle for KKTP Anti-Cheat Demo
 
-import { state, portal } from './state.js';
-import * as KKTP from './kktp_lib.js';
-import { bytesToHex, hexToBytes } from './kktp_lib.js';
-import { blake2b } from 'https://esm.sh/@noble/hashes@1.3.3/blake2b';
-import { hkdf } from 'https://esm.sh/@noble/hashes@1.3.3/hkdf';
-import { xchacha20poly1305 } from 'https://esm.sh/@noble/ciphers@0.4.0/chacha';
+import { state, portal } from "./state.js";
+import * as KKTP from "./kktp_lib.js";
+import { hexToBytes } from "./kktp_lib.js";
+import { xchacha20poly1305 } from "https://esm.sh/@noble/ciphers@0.4.0/chacha";
+import * as ed from "https://esm.sh/@noble/ed25519@1.7.3";
 
 /**
  * Audit Result States
  */
 export const AuditState = Object.freeze({
-  IDLE: 'idle',
-  SCANNING: 'scanning',
-  VERIFIED: 'verified',
-  TAMPERED: 'tampered',
-  ERROR: 'error',
+  IDLE: "idle",
+  SCANNING: "scanning",
+  VERIFIED: "verified",
+  TAMPERED: "tampered",
+  ERROR: "error",
 });
 
 /**
  * Individual Check Result
  */
 export const CheckResult = Object.freeze({
-  PASS: 'pass',
-  FAIL: 'fail',
-  SKIP: 'skip',
-  ERROR: 'error',
+  PASS: "pass",
+  FAIL: "fail",
+  SKIP: "skip",
+  ERROR: "error",
 });
 
 /**
@@ -93,29 +92,48 @@ export class ManualAuditor {
     };
 
     try {
+      console.log("[Audit][Trace] vrfData:", state.auditHistory?.vrfData || null);
+      console.log(
+        "[Audit][Trace] responseAnchor:",
+        state.auditHistory?.responseAnchor || null,
+      );
+      console.log(
+        "[Audit][Trace] discoveryAnchor:",
+        state.auditHistory?.discoveryAnchor || null,
+      );
+
       // === PILLAR 1: IDENTITY VERIFICATION ===
       results.identity = await this._checkIdentity();
-      if (this.aborted) throw new Error('Audit aborted');
+      if (this.aborted) throw new Error("Audit aborted");
 
       // === PILLAR 2: MESSAGE INTEGRITY (AEAD Tags) ===
       results.integrity = await this._checkIntegrity(moveCount);
-      if (this.aborted) throw new Error('Audit aborted');
+      if (this.aborted) throw new Error("Audit aborted");
 
       // === PILLAR 3: RANDOMNESS (Entropy Anchor) ===
       results.randomness = await this._checkRandomness();
-      if (this.aborted) throw new Error('Audit aborted');
+      if (this.aborted) throw new Error("Audit aborted");
 
       // === PILLAR 4: STATE CONTINUITY ===
       results.state = await this._checkStateContinuity();
-      if (this.aborted) throw new Error('Audit aborted');
+      if (this.aborted) throw new Error("Audit aborted");
 
       // Determine overall result
-      const checks = [results.identity, results.integrity, results.randomness, results.state];
+      const checks = [
+        results.identity,
+        results.integrity,
+        results.randomness,
+        results.state,
+      ];
 
-      if (checks.some(c => c.status === CheckResult.FAIL)) {
+      if (checks.some((c) => c.status === CheckResult.FAIL)) {
         results.overall = AuditState.TAMPERED;
         this._emit(AuditState.TAMPERED, results);
-      } else if (checks.some(c => c.status === CheckResult.ERROR)) {
+      } else if (checks.some((c) => c.status === CheckResult.ERROR)) {
+        results.overall = AuditState.ERROR;
+        this._emit(AuditState.ERROR, results);
+      } else if (checks.some((c) => c.status === CheckResult.SKIP)) {
+        // Missing critical data => inconclusive, not "certain"
         results.overall = AuditState.ERROR;
         this._emit(AuditState.ERROR, results);
       } else {
@@ -124,9 +142,8 @@ export class ManualAuditor {
       }
 
       return results;
-
     } catch (err) {
-      if (err.message === 'Audit aborted') {
+      if (err.message === "Audit aborted") {
         this._emit(AuditState.IDLE);
         return null;
       }
@@ -152,28 +169,35 @@ export class ManualAuditor {
     };
 
     try {
-      // Check if we have discovery anchor data
       const history = state.auditHistory || {};
       const discoveryAnchor = history.discoveryAnchor;
 
       if (!discoveryAnchor) {
         result.status = CheckResult.SKIP;
-        result.details.reason = 'No discovery anchor in session history';
+        result.details.reason = "No discovery anchor in session history";
         return result;
       }
 
-      result.details.pubKey = discoveryAnchor.pub_sig?.slice(0, 16) + '...';
-      result.details.walletAddress = state.walletAddress
-        ? state.walletAddress.slice(0, 14) + '...'
-        : 'N/A';
+      console.groupCollapsed("[Audit][Identity] Discovery Anchor");
+      console.log("sid:", discoveryAnchor.sid);
+      console.log("pub_sig:", discoveryAnchor.pub_sig?.slice?.(0, 16));
+      console.log("sig:", discoveryAnchor.sig?.slice?.(0, 16));
+      console.log("meta:", discoveryAnchor.meta);
+      console.groupEnd();
 
-      // Verify the anchor signature
+      result.details.pubKey = discoveryAnchor.pub_sig?.slice(0, 16) + "...";
+
+      const addr =
+        typeof state.walletAddress === "string"
+          ? state.walletAddress
+          : state.walletAddress?.address || "";
+      result.details.walletAddress = addr ? addr.slice(0, 14) + "..." : "N/A";
+
       const isValid = await KKTP.verifyAnchorSignature(discoveryAnchor);
       result.details.signatureValid = isValid;
 
       result.status = isValid ? CheckResult.PASS : CheckResult.FAIL;
       return result;
-
     } catch (err) {
       result.status = CheckResult.ERROR;
       result.details.error = err.message;
@@ -193,66 +217,126 @@ export class ManualAuditor {
         audited: 0,
         validated: 0,
         failed: 0,
+        skipped: 0,
         failures: [],
+        schnorrValidated: 0,
+        schnorrFailed: 0,
+        aeadValidated: 0,
+        aeadFailed: 0,
       },
     };
 
     try {
       const history = state.auditHistory || {};
       const messages = history.encryptedMessages || [];
-
       if (messages.length === 0) {
         result.status = CheckResult.SKIP;
-        result.details.reason = 'No encrypted messages in session history';
+        result.details.reason = "No messages to audit";
         return result;
       }
 
       result.details.totalMoves = messages.length;
 
-      // Determine which messages to audit
-      let toAudit = messages;
-      if (moveCount !== 'all' && typeof moveCount === 'number') {
-        toAudit = messages.slice(-moveCount);
-      }
-
+      const toAudit =
+        moveCount === "all" ? messages : messages.slice(-moveCount);
       result.details.audited = toAudit.length;
 
-      // We need the session key to verify tags
-      if (!state.kktp.kSession) {
-        result.status = CheckResult.SKIP;
-        result.details.reason = 'Session key not available for re-verification';
-        return result;
-      }
+      for (const msg of toAudit) {
+        let isValid = false;
 
-      for (let i = 0; i < toAudit.length; i++) {
-        const msg = toAudit[i];
-        const tagValid = await this._verifyAEADTag(msg);
+        switch (msg.type) {
+          case "SCHNORR_MOVE":
+            isValid = await this._verifySchnorrMove(msg);
+            if (isValid) {
+              result.details.schnorrValidated++;
+            } else {
+              result.details.schnorrFailed++;
+            }
+            break;
 
-        if (tagValid) {
+          case "AEAD":
+          default:
+            if (!msg.ciphertext) {
+              result.details.failed++;
+              result.details.failures.push({
+                seq: msg.seq,
+                reason: "No ciphertext",
+              });
+              continue;
+            }
+            if (!state.kktp.kSession) {
+              // Can't verify AEAD without key: skip gracefully
+              result.details.skipped++;
+              continue;
+            }
+            isValid = await this._verifyAEADTag(msg);
+            if (isValid) {
+              result.details.aeadValidated++;
+            } else {
+              result.details.aeadFailed++;
+            }
+            break;
+        }
+
+        if (isValid) {
           result.details.validated++;
-        } else {
+        } else if (msg.type !== "AEAD" || state.kktp.kSession) {
           result.details.failed++;
           result.details.failures.push({
             seq: msg.seq,
-            reason: 'Poly1305 tag mismatch',
+            reason: "Math verification failed",
           });
         }
       }
 
-      if (result.details.failed > 0) {
+      if (result.details.audited === 0) {
+        result.status = CheckResult.SKIP;
+      } else if (result.details.failed > 0) {
         result.status = CheckResult.FAIL;
       } else if (result.details.validated > 0) {
         result.status = CheckResult.PASS;
       } else {
         result.status = CheckResult.SKIP;
       }
-
       return result;
-
     } catch (err) {
       result.status = CheckResult.ERROR;
       result.details.error = err.message;
       return result;
+    }
+  }
+
+  async _verifySchnorrMove(msg) {
+    try {
+      const anchor = msg.anchor || {
+        type: "move",
+        version: 1,
+        sid: state.spectatorSessionId || state.sessionId || "",
+        moves: msg.data,
+        pub_sig: msg.pubKey,
+        sig: msg.signature,
+      };
+
+      const pubKey = anchor.pub_sig || msg.pubKey;
+      const sig = anchor.sig || msg.signature;
+      if (!pubKey || !sig) return false;
+
+      const forVerify = portal.prepareForVerification(anchor);
+      const payload = new TextEncoder().encode(
+        portal.canonicalize(forVerify),
+      );
+
+      const sigBytes = typeof sig === "string" ? hexToBytes(sig) : sig;
+      const pubBytes = typeof pubKey === "string" ? hexToBytes(pubKey) : pubKey;
+
+      if (!(sigBytes instanceof Uint8Array) || sigBytes.length !== 64)
+        return false;
+      if (!(pubBytes instanceof Uint8Array) || pubBytes.length !== 32)
+        return false;
+
+      return await ed.verify(sigBytes, payload, pubBytes);
+    } catch {
+      return false;
     }
   }
 
@@ -296,20 +380,81 @@ export class ManualAuditor {
 
     try {
       const history = state.auditHistory || {};
-      const vrfData = history.vrfData;
+      const responseAnchor = history.responseAnchor || null;
+      const discoveryAnchor = history.discoveryAnchor || null;
 
-      if (!vrfData || !vrfData.kaspaBlocks || vrfData.kaspaBlocks.length === 0) {
+      const pickEvidence = (anchor) => {
+        return (
+          anchor?.vrf_proof?.evidence ||
+          anchor?.vrf_proof?.ev ||
+          anchor?.evidence ||
+          null
+        );
+      };
+
+      const responseEvidence = pickEvidence(responseAnchor) || {};
+      const discoveryEvidence = pickEvidence(discoveryAnchor) || {};
+
+      const vrfData =
+        history.vrfData ||
+        (responseAnchor || discoveryAnchor
+          ? {
+              kaspaBlocks:
+                responseEvidence.kaspaBlocks ||
+                responseEvidence.kaspa ||
+                discoveryEvidence.kaspaBlocks ||
+                discoveryEvidence.kaspa ||
+                [],
+              btcBlocks:
+                responseEvidence.btcBlocks ||
+                responseEvidence.btc ||
+                discoveryEvidence.btcBlocks ||
+                discoveryEvidence.btc ||
+                [],
+              foldedOutput:
+                responseAnchor?.vrf_value ||
+                discoveryAnchor?.vrf_value ||
+                null,
+              sources:
+                responseEvidence.sources ||
+                discoveryEvidence.sources ||
+                [],
+              iterations:
+                responseEvidence.iterations ||
+                discoveryEvidence.iterations ||
+                0,
+              timestamp:
+                responseEvidence.timestamp ||
+                discoveryEvidence.timestamp ||
+                null,
+            }
+          : null);
+
+      const kaspaBlocks =
+        (Array.isArray(vrfData?.kaspaBlocks) && vrfData.kaspaBlocks.length
+          ? vrfData.kaspaBlocks
+          : Array.isArray(vrfData?.kaspa) && vrfData.kaspa.length
+            ? vrfData.kaspa
+            : []) || [];
+
+      if (!kaspaBlocks || kaspaBlocks.length === 0) {
         result.status = CheckResult.SKIP;
-        result.details.reason = 'No VRF entropy data in session history';
+        result.details.reason = "No VRF entropy data in session history";
         return result;
       }
 
-      result.details.vrfValue = state.foldedOutput?.slice(0, 16) + '...';
+      const vrfValue =
+        vrfData?.foldedOutput ||
+        responseAnchor?.vrf_value ||
+        discoveryAnchor?.vrf_value ||
+        state.foldedOutput ||
+        "";
+      result.details.vrfValue = vrfValue ? vrfValue.slice(0, 16) + "..." : null;
 
       // Get the first Kaspa block used in VRF
-      const refBlock = vrfData.kaspaBlocks[0];
+      const refBlock = kaspaBlocks[0];
       result.details.kaspaBlockHeight = refBlock.height || refBlock.blueScore;
-      result.details.kaspaBlockHash = refBlock.hash?.slice(0, 16) + '...';
+      result.details.kaspaBlockHash = refBlock.hash?.slice(0, 16) + "...";
 
       // Fetch from public API to verify
       try {
@@ -323,11 +468,13 @@ export class ManualAuditor {
         if (!response.ok) {
           // Try alternative API
           const altUrl = `https://kaspa-api.io/v1/blocks/${refBlock.hash}`;
-          const altResponse = await fetch(altUrl, { signal: controller.signal });
+          const altResponse = await fetch(altUrl, {
+            signal: controller.signal,
+          });
 
           if (!altResponse.ok) {
             result.status = CheckResult.ERROR;
-            result.details.reason = 'Public API unreachable';
+            result.details.reason = "Public API unreachable";
             return result;
           }
 
@@ -335,18 +482,18 @@ export class ManualAuditor {
           result.details.apiBlockHash = altData.header?.hash || altData.hash;
         } else {
           const data = await response.json();
-          result.details.apiBlockHash = data.header?.hash || data.hash || data.verboseData?.hash;
+          result.details.apiBlockHash =
+            data.header?.hash || data.hash || data.verboseData?.hash;
         }
 
         // Compare hashes
         const match = result.details.apiBlockHash === refBlock.hash;
         result.details.hashMatch = match;
         result.status = match ? CheckResult.PASS : CheckResult.FAIL;
-
       } catch (fetchErr) {
-        if (fetchErr.name === 'AbortError') {
+        if (fetchErr.name === "AbortError") {
           result.status = CheckResult.ERROR;
-          result.details.reason = 'API request timeout (10s)';
+          result.details.reason = "API request timeout (10s)";
         } else {
           result.status = CheckResult.ERROR;
           result.details.reason = `Network error: ${fetchErr.message}`;
@@ -354,7 +501,6 @@ export class ManualAuditor {
       }
 
       return result;
-
     } catch (err) {
       result.status = CheckResult.ERROR;
       result.details.error = err.message;
@@ -373,6 +519,8 @@ export class ManualAuditor {
         totalSequences: 0,
         gaps: [],
         replays: [],
+        overlapValidated: 0,
+        overlapMismatched: 0,
         continuous: null,
       },
     };
@@ -380,10 +528,11 @@ export class ManualAuditor {
     try {
       const history = state.auditHistory || {};
       const sequences = history.sequences || [];
+      const moveBySeq = history.moveBySeq instanceof Map ? history.moveBySeq : null;
 
       if (sequences.length === 0) {
         result.status = CheckResult.SKIP;
-        result.details.reason = 'No sequence data in session history';
+        result.details.reason = "No sequence data in session history";
         return result;
       }
 
@@ -398,7 +547,20 @@ export class ManualAuditor {
 
         // Check for replay
         if (seen.has(seq)) {
-          result.details.replays.push(seq);
+          const moves = moveBySeq ? moveBySeq.get(seq) : null;
+          if (moves instanceof Set) {
+            if (moves.size > 1) {
+              result.details.replays.push(seq);
+              result.details.overlapMismatched++;
+            } else {
+              result.details.overlapValidated++;
+            }
+          } else if (typeof moves === "string") {
+            result.details.overlapValidated++;
+          } else {
+            result.details.replays.push(seq);
+            result.details.overlapMismatched++;
+          }
         }
         seen.add(seq);
 
@@ -416,7 +578,7 @@ export class ManualAuditor {
 
       if (result.details.replays.length > 0) {
         result.status = CheckResult.FAIL;
-        result.details.reason = 'Replay attack detected';
+        result.details.reason = "Replay attack detected";
       } else if (result.details.gaps.length > 0) {
         // Gaps might be network issues, not necessarily tampering
         result.status = CheckResult.PASS; // Soft pass - noted but not failed
@@ -426,7 +588,6 @@ export class ManualAuditor {
       }
 
       return result;
-
     } catch (err) {
       result.status = CheckResult.ERROR;
       result.details.error = err.message;
@@ -440,14 +601,14 @@ export class ManualAuditor {
    */
   async verifyMailboxDerivation() {
     if (!state.foldedOutput || !state.spectatorSessionId) {
-      return { valid: false, reason: 'Missing VRF output or session ID' };
+      return { valid: false, reason: "Missing VRF output or session ID" };
     }
 
     const history = state.auditHistory || {};
     const responseAnchor = history.responseAnchor;
 
     if (!responseAnchor) {
-      return { valid: false, reason: 'No response anchor in history' };
+      return { valid: false, reason: "No response anchor in history" };
     }
 
     // Re-derive using the same HKDF params
@@ -455,7 +616,7 @@ export class ManualAuditor {
       responseAnchor.vrf_value,
       responseAnchor.sid,
       responseAnchor.initiator_pub_sig,
-      responseAnchor.pub_sig_resp
+      responseAnchor.pub_sig_resp,
     );
 
     const currentMailbox = state.kktp.mailboxId;
@@ -463,8 +624,8 @@ export class ManualAuditor {
 
     return {
       valid: match,
-      derivedMailbox: derived.mailboxId?.slice(0, 16) + '...',
-      currentMailbox: currentMailbox?.slice(0, 16) + '...',
+      derivedMailbox: derived.mailboxId?.slice(0, 16) + "...",
+      currentMailbox: currentMailbox?.slice(0, 16) + "...",
     };
   }
 }

@@ -41,7 +41,8 @@
     "version",
     "sid",
     "pub_sig",
-    "reason"
+    "reason",
+    "sig"
   ],
 
   "additionalProperties": false
