@@ -21,7 +21,8 @@
   max-height: 250px;
   overflow-y: auto;
 }
-.scanner-container, .wallet-container {
+.scanner-container,
+.wallet-container {
   margin-bottom: 2rem;
   padding: 1.5rem;
   background: #2d292a;
@@ -32,18 +33,45 @@
   margin-right: auto;
   text-align: center;
 }
-.block.match { border: 2px solid #49eacb; background: #1a191a; margin-bottom: 1rem; }
-.block { border: 1px solid #444; background: #232223; margin-bottom: 1rem; border-radius: 4px; padding: 0.5rem; }
+.block.match {
+  border: 2px solid #49eacb;
+  background: #1a191a;
+  margin-bottom: 1rem;
+}
+.block.match.clickable {
+  cursor: pointer;
+  transition:
+    transform 0.08s ease,
+    box-shadow 0.12s ease,
+    border-color 0.12s ease;
+}
+.block.match.clickable:hover {
+  border-color: #7fffd4;
+  box-shadow: 0 0 0 2px #49eacb33;
+}
+.block.match.clickable:active {
+  transform: scale(0.99);
+}
+.block.match.clickable.copied {
+  box-shadow: 0 0 0 2px #49eacb88 inset;
+}
+.block {
+  border: 1px solid #444;
+  background: #232223;
+  margin-bottom: 1rem;
+  border-radius: 4px;
+  padding: 0.5rem;
+}
 .scanner-controls {
   display: flex;
   flex-direction: column;
   gap: 1rem;
   align-items: flex-start;
   margin-bottom: 1rem;
-}    
+}
 .scanner-controls input[type="text"],
 .scanner-controls select {
-  background: #231F20;
+  background: #231f20;
   color: #49eacb;
   border: 1px solid #49eacb;
   border-radius: 4px;
@@ -52,13 +80,13 @@
   appearance: none;
   outline: none;
   transition: border-color 0.2s;
-}    
+}
 .scanner-controls select:focus {
   border-color: #7fffd4;
   box-shadow: 0 0 0 2px #49eacb44;
-}    
+}
 .scanner-controls select option {
-  background: #231F20;
+  background: #231f20;
   color: #49eacb;
 }
 .checkbox-row {
@@ -89,7 +117,9 @@
   align-items: center;
   width: 100%;
 }
-.wallet-controls input[type="text"] { max-width: 200px; }
+.wallet-controls input[type="text"] {
+  max-width: 200px;
+}
 .scanner-controls input[type="text"],
 .scanner-controls select,
 .scanner-controls button,
@@ -112,5 +142,9 @@
   text-align: center;
   display: block;
 }
-.matches-container { margin-top: 1rem; }
-.matches-container .block { border-color: #49eacb; }
+.matches-container {
+  margin-top: 1rem;
+}
+.matches-container .block {
+  border-color: #49eacb;
+}

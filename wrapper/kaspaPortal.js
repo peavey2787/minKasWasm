@@ -372,10 +372,34 @@ export class KaspaPortal {
 
   /**
    * Sync indexer from a specific block hash to present.
+   * @param {string} startHash
+   * @param {function} [logFn]
+   * @param {Object} [options]
+   * @param {number} [options.maxSeconds=30]
+   * @param {number} [options.minTimestamp=0]
+   * @param {string[]} [options.prefixes] - Plain-text prefixes to match (hex-encoded internally)
+   * @param {function|function[]} [options.onBlock] - Callback(s) for each block
+   * @param {function|function[]} [options.onTransactionMatch] - Callback(s) for prefix matches
    */
-  async syncFrom(startHash, logFn = null, options = {}) {
+  async syncFrom(
+    startHash,
+    logFn = null,
+    {
+      maxSeconds = 30,
+      minTimestamp = 0,
+      prefixes = [],
+      onBlock = [],
+      onTransactionMatch = [],
+    } = {},
+  ) {
     this._ensureIntelligence();
-    return await this.intelligence.syncFrom(startHash, logFn, options);
+    return await this.intelligence.syncFrom(startHash, logFn, {
+      maxSeconds,
+      minTimestamp,
+      prefixes,
+      onBlock,
+      onTransactionMatch,
+    });
   }
 
   /**
