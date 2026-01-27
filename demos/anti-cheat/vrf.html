@@ -9,7 +9,7 @@
 </head>
 <body>
   <div class="container">
-    <h1>KKTP Anti-Cheat Demo <span class="role-badge" style="background:var(--accent);">VRF</span></h1>
+    <h1>KKTP Anti-Cheat Demo <span class="role-badge">VRF</span></h1>
     <p style="text-align:center;color:var(--text-muted);margin-bottom:1.5rem;">
       Verifiable Random Function & NIST Statistical Tests
     </p>
@@ -56,11 +56,11 @@
         <div class="section-header">
           <h2>📊 VRF Sources Configuration</h2>
         </div>
-        
+
         <div class="controls-row">
           <div class="control-group">
             <label for="kaspaBlockCount">Kaspa Blocks (live stream ~10/sec)</label>
-            <input type="number" id="kaspaBlockCount" value="1000" min="1" max="1000000">
+            <input type="number" id="kaspaBlockCount" value="10" min="1" max="1000000">
           </div>
           <div class="control-group">
             <label for="btcBlockCount">Bitcoin Blocks</label>
@@ -125,7 +125,7 @@
         <p style="color:var(--text-muted);font-size:0.9em;">
           Combine entropy sources using cryptographic folding (SHA-256 recursive hashing).
         </p>
-        
+
         <div class="controls-row">
           <label class="checkbox-label">
             <input type="checkbox" id="foldKaspa" checked> Kaspa</label>
@@ -134,7 +134,7 @@
           <label class="checkbox-label">
             <input type="checkbox" id="foldQrng" checked> QRNG</label>
         </div>
-        
+
         <div class="controls-row mt-1">
           <div class="control-group">
             <label for="foldIterations">Folding Iterations</label>

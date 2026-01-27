@@ -134,7 +134,7 @@ export async function handleConnect() {
     try {
       const { address } = await portal.createOrOpenWallet({
         password: 'anticheat-demo',
-        filename: walletFilename,
+        walletFilename,
         userHint: walletHint,
         storeMnemonic: false,
         discoverAddresses: true,
