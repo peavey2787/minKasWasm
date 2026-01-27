@@ -580,8 +580,8 @@ export class KaspaPortal {
    * @param {number} n - Number of blocks/items
    * @returns {Promise<Object>}
    */
-  async fetchBlocks(source, n) {
-    return await this.vrf.fetchBlocks(source, n);
+  async getKaspaBlocks(n) {
+    return await this.vrf.getKaspaBlocks(n);
   }
 
   /**

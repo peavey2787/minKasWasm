@@ -11,6 +11,7 @@ import { NistVerifier } from "./core/nistVerifier.js";
 import { VRFProof } from "./core/models/vrfProof.js";
 import { Block } from "./core/models/Block.js";
 import { hexToUtf8 } from "../../kktp/protocol/utils/conversions.js";
+import { fold } from "./core/folding.js";
 
 export class VRFFacade {
   /**
@@ -254,8 +255,8 @@ export class VRFFacade {
    * @param {number} n - Number of blocks/items
    * @returns {Promise<Object>}
    */
-  async fetchBlocks(source, n) {
-    return await fetchBlocks(source, n);
+  async getKaspaBlocks(n) {
+    return await getKaspaBlocks(n);
   }
 
   /**
