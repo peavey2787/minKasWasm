@@ -34,8 +34,9 @@ The **Sentinel Shield** (built-in auditor) provides a testable implementation of
 
 ## Quick Start
 1. Open `player.html` and `spectator.html` in your browser.
-2. Initialize the session on the Player side.
-3. Use the **Sentinel Shield** on the Spectator side to run a live cryptographic audit.
+2. Connect and search for game sessions on the Spectator side.
+3. Connect, fund the wallet, and then start game on the Player side.
+4. Use the **Sentinel Shield** on the Spectator side to run a live cryptographic audit.
 
 ## Key Architecture
 * **[auditor.js](auditor.js):** The core cryptographic verification engine.
