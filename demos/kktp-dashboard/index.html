@@ -47,6 +47,20 @@
             Broadcast Discovery
           </button>
           <div id="broadcastStatus" class="broadcast-status">Ready to broadcast</div>
+
+          <div class="form-group" style="margin-top: 1rem;">
+            <label for="missedStartHashInput">Missed Messages: Start Block Hash (optional)</label>
+            <input
+              type="text"
+              id="missedStartHashInput"
+              placeholder="Leave empty to use last discovery block"
+            >
+          </div>
+
+          <button id="btnFetchMissed" class="btn btn-secondary" style="width: 100%">
+            Fetch Missed Messages
+          </button>
+          <div id="missedStatus" class="broadcast-status">Ready to scan</div>
         </div>
       </section>
 

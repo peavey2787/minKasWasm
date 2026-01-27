@@ -8,6 +8,7 @@ import {
   canonicalize,
   prepareForSigning,
   toPlainJson as _toPlainJson,
+  strictParseJson
 } from "./integrity/canonical.js";
 import { KKTP_STATES } from "./stateMachine.js";
 import { AnchorFactory } from "./integrity/anchorFactory.js";
@@ -182,5 +183,14 @@ export class KKTPProtocol {
    */
   toPlainJson(value) {
     return _toPlainJson(value);
+  }
+
+  /** EXPOSED FOR AUDITORS:
+   * Strict JSON parsing that rejects non-JSON types.
+   * @param {string} value - JSON string to parse
+   * @returns {any} Parsed JSON object
+   */
+  strictParseJson(value) {
+    return strictParseJson(value);
   }
 }

@@ -1,13 +1,3 @@
-import { KKTPProtocol } from "../kktp/protocol/kktpProtocol.js";
-import {
-  canonicalize,
-  prepareForSigning,
-} from "../kktp/protocol/integrity/canonical.js";
-import {
-  discoveryValidator,
-  responseValidator,
-  sessionEndValidator,
-} from "../kktp/protocol/integrity/validator.js";
 import { TransportFacade } from "./transport/transportFacade.js";
 import { IdentityFacade } from "./identity/identityFacade.js";
 import {
@@ -20,8 +10,8 @@ import {
 } from "./intelligence/intelligenceFacade.js";
 import { CryptoFacade } from "./crypto/cryptoFacade.js";
 import { VRFFacade } from "./vrf/vrfFacade.js";
-import { KKTPStateMachine } from "../kktp/protocol/stateMachine.js";
 import initKaspa from "./kas-wasm/kaspa.js";
+import { SessionManager } from "../kktp/sessionManager.js";
 
 let wasmInitialized = false;
 
@@ -48,19 +38,13 @@ export class KaspaPortal {
     this._connectedPromise = null;
 
     // Initialize sub-facades
-    const sm = new KKTPStateMachine(this, true, 0);
-    this.kktpProtocol = new KKTPProtocol(sm);
     this.transport = new TransportFacade();
     this.identity = new IdentityFacade();
     this.crypto = new CryptoFacade();
     this.vrf = new VRFFacade(false);
     // Initialized on connect()
     this.intelligence = null;
-
-    // KKTP session tracking (multi-session support)
-    this._kktpSessions = new Map(); // mailboxId -> session context
-    this._kktpPendingDiscoveries = new Map(); // sid -> pending context
-    this._kktpKeyIndex = 0;
+    this.sessionManager = new SessionManager(this);
   }
 
   async init() {
@@ -545,11 +529,7 @@ export class KaspaPortal {
    * @returns {Promise<string>} The signature.
    */
   async signAnchor(anchor) {
-    if (!this.identity.wallet?.walletInitialized) {
-      throw new Error("KaspaPortal: Wallet must be initialized.");
-    }
-    const { sig } = await this.generateIdentityKeys(0);
-    return await this.kktpProtocol.signAnchor(anchor, sig.privateKey);
+    return await this.sessionManager.signAnchor(anchor);
   }
 
   /**
@@ -698,27 +678,7 @@ export class KaspaPortal {
    * @param {Object} [options] - { amount, toAddress }
    */
   async broadcastDiscovery(meta, options = {}) {
-    const { amount = "1", toAddress } = options;
-
-    const ctx = this._createKktpContext(true);
-    const { discovery } = await ctx.protocol.createDiscoveryAnchor(meta);
-
-    this._kktpPendingDiscoveries.set(discovery.sid, {
-      ...ctx,
-      discovery,
-      createdAt: Date.now(),
-    });
-
-    const payload = this._buildAnchorPayload(discovery);
-    const address = toAddress ?? (await this.identity.address);
-
-    await this.send({
-      toAddress: address,
-      amount,
-      payload,
-    });
-
-    return { discovery, payload };
+    return await this.sessionManager.broadcastDiscovery(meta, options);
   }
 
   /**
@@ -727,33 +687,7 @@ export class KaspaPortal {
    * @param {Object} [options] - { amount, toAddress }
    */
   async connectToPeer(discoveryAnchor, options = {}) {
-    const { amount = "1", toAddress } = options;
-
-    const ctx = this._createKktpContext(false);
-    const { response } =
-      await ctx.protocol.createResponseAnchor(discoveryAnchor);
-
-    const mailboxId = ctx.protocol.sm.kktp.mailboxId;
-    this._kktpSessions.set(mailboxId, {
-      ...ctx,
-      discovery: discoveryAnchor,
-      response,
-      messages: [],
-      peerPubSig: discoveryAnchor.pub_sig,
-      isInitiator: false,
-      createdAt: Date.now(),
-    });
-
-    const payload = this._buildAnchorPayload(response);
-    const address = toAddress ?? (await this.identity.address);
-
-    await this.send({
-      toAddress: address,
-      amount,
-      payload,
-    });
-
-    return { response, mailboxId, payload };
+    return await this.sessionManager.connectToPeer(discoveryAnchor, options);
   }
 
   /**
@@ -763,36 +697,7 @@ export class KaspaPortal {
    * @param {Object} [options] - { amount, toAddress }
    */
   async sendMessage(mailboxId, plaintext, options = {}) {
-    const { amount = "1", toAddress } = options;
-
-    const session = this._kktpSessions.get(mailboxId);
-    if (!session) {
-      throw new Error(
-        `KaspaPortal: No KKTP session for mailboxId ${mailboxId}`,
-      );
-    }
-
-    const canonicalMessage = session.protocol.createMessageAnchor(plaintext);
-    const payload = `KKTP:${mailboxId}:${canonicalMessage}`;
-    const address = toAddress ?? (await this.identity.address);
-
-    await this.send({
-      toAddress: address,
-      amount,
-      payload,
-    });
-
-    session.messages = session.messages || [];
-    session.messages.push({
-      id: crypto.randomUUID(),
-      direction: session.sm.isInitiator ? "AtoB" : "BtoA",
-      plaintext,
-      timestamp: Date.now(),
-      status: "pending",
-      isOutbound: true,
-    });
-
-    return { payload };
+    return await this.sessionManager.sendMessage(mailboxId, plaintext, options);
   }
 
   /**
@@ -801,18 +706,7 @@ export class KaspaPortal {
    * @returns {Promise<Object|null>}
    */
   async processIncomingPayload(rawPayload) {
-    const parsed = this._parseKKTPPayload(rawPayload);
-    if (!parsed) return null;
-
-    if (parsed.type === "anchor") {
-      return await this._handleIncomingAnchor(parsed.anchor);
-    }
-
-    if (parsed.type === "message") {
-      return this._handleIncomingMessage(parsed.mailboxId, parsed.message);
-    }
-
-    return null;
+    return await this.sessionManager.processIncomingPayload(rawPayload);
   }
 
   /**
@@ -821,11 +715,7 @@ export class KaspaPortal {
    * @returns {boolean}
    */
   closeSession(mailboxId) {
-    const session = this._kktpSessions.get(mailboxId);
-    if (!session) return false;
-    session.sm.terminate();
-    this._kktpSessions.delete(mailboxId);
-    return true;
+    return this.sessionManager.closeSession(mailboxId);
   }
 
   /**
@@ -833,177 +723,118 @@ export class KaspaPortal {
    * @returns {Array<Object>} Session contexts with mailboxId
    */
   getSessions() {
-    return Array.from(this._kktpSessions.entries()).map(
-      ([mailboxId, session]) => ({
-        mailboxId,
-        ...session,
-      }),
-    );
+    return this.sessionManager.getSessions();
+  }
+
+  /** Export KKTP sessions to a snapshot.
+   * @param {Object} [options]
+   * @param {boolean} [options.includeMessages=true] - Whether to include message history
+   * @returns {Object} Snapshot object
+   */
+  exportSessions({ includeMessages = true } = {}) {
+    return this.sessionManager.exportSessions({ includeMessages });
+  }
+
+  /** Configure automatic resume persistence.
+   * @param {Object} options
+   * @param {string} [options.storageKeyPrefix="kktp_resume_"]
+   * @param {function} [options.encryptFn] - Optional encrypt function
+   * @param {number} [options.throttleMs=250]
+   * @param {boolean} [options.includeMessages=true]
+   */
+  configureResumePersistence(options = {}) {
+    return this.sessionManager.configureResumePersistence(options);
+  }
+
+  /** Restore KKTP sessions from a snapshot.
+   * @param {Object} snapshot - Snapshot object from exportSessions()
+   * @param {Object} [options]
+   * @param {boolean} [options.skipExpired=true] - Whether to skip expired sessions
+   * @returns {Promise<Array>} Restored session contexts
+   */
+  async restoreSessions(snapshot, { skipExpired = true } = {}) {
+    return await this.sessionManager.restoreSessions(snapshot, { skipExpired });
+  }
+
+  /** Prune expired sessions from memory.
+   * @param {number} [nowMs=Date.now()]
+   * @returns {number} Number of sessions pruned.
+   */
+  pruneExpiredSessions(nowMs = Date.now()) {
+    return this.sessionManager.pruneExpiredSessions(nowMs);
+  }
+
+  /**
+   * Sovereign Resume: Re-establishes a session and performs handover.
+   * @param {Object} options
+   * @param {string} [options.sid] - Old SID for resume key lookup
+   * @param {string} [options.startHash] - Block hash to start DAG walk
+   * @param {number} [options.maxSeconds=30] - Time budget for each sync phase
+   * @param {function} [options.logFn] - Optional logger
+   * @param {function} [options.decryptFn] - Decrypts the storage blob
+   * @param {function} [options.encryptFn] - Encrypts the storage blob
+   * @param {string} [options.storageKeyPrefix="kktp_resume_"]
+   * @param {Object} [options.meta] - Extra discovery meta
+   * @returns {Promise<Object>}
+   */
+  async resumeSession({
+    sid,
+    startHash,
+    maxSeconds,
+    logFn,
+    decryptFn,
+    encryptFn,
+    storageKeyPrefix,
+    meta,
+  } = {}) {
+    return await this.sessionManager.resumeSession({
+      sid,
+      startHash,
+      maxSeconds,
+      logFn,
+      decryptFn,
+      encryptFn,
+      storageKeyPrefix,
+      meta,
+    });
+  }
+
+  /** Check if a session is expired.
+   * @param {string} mailboxId
+   * @param {number} [nowMs=Date.now()]
+   * @returns {boolean}
+   */
+  isSessionExpired(mailboxId, nowMs = Date.now()) {
+    return this.sessionManager.isSessionExpired(mailboxId, nowMs);
   }
 
   /**
    * Prepares a KKTP anchor for verification via KKTP Protocol.
    */
   prepareForVerification(anchor) {
-    return this.kktpProtocol.prepareForVerification(anchor);
+    return this.sessionManager.prepareForVerification(anchor);
   }
 
-  /**
-   * RFC 8785 (JCS) Canonicalization via KKTP Protocol.
+  /** EXPOSED FOR AUDITORS:
+   * RFC 8785 (JCS) Canonicalization.
    */
   canonicalize(obj) {
-    return this.kktpProtocol.canonicalize(obj);
+    return this.sessionManager.canonicalize(obj);
   }
 
-  /**
-   * EXPOSED FOR AUDITORS:
-   * Converts an object to plain JSON (no methods, no prototypes)
+  /** EXPOSED FOR AUDITORS:
+   * Converts an object to plain JSON.
    */
   toPlainJson(value) {
-    return this.kktpProtocol.toPlainJson(value);
+    return this.sessionManager.toPlainJson(value);
   }
 
-  _createKktpContext(isInitiator) {
-    const keyIndex = this._kktpKeyIndex++;
-    const sm = new KKTPStateMachine(this, isInitiator, keyIndex);
-    const protocol = new KKTPProtocol(sm);
-    return { sm, protocol, keyIndex };
-  }
-
-  _buildAnchorPayload(anchor) {
-    return `KKTP:ANCHOR:${canonicalize(anchor)}`;
-  }
-
-  _parseKKTPPayload(rawPayload) {
-    if (!rawPayload || !rawPayload.startsWith("KKTP:")) {
-      return null;
-    }
-
-    if (rawPayload.startsWith("KKTP:ANCHOR:")) {
-      const jsonStr = rawPayload.substring("KKTP:ANCHOR:".length);
-      try {
-        const anchor = JSON.parse(jsonStr);
-        return { type: "anchor", anchor };
-      } catch {
-        return null;
-      }
-    }
-
-    const parts = rawPayload.split(":");
-    if (parts.length >= 3) {
-      const mailboxId = parts[1];
-      const jsonStr = parts.slice(2).join(":");
-      try {
-        const message = JSON.parse(jsonStr);
-        return { type: "message", mailboxId, message };
-      } catch {
-        return null;
-      }
-    }
-
-    return null;
-  }
-
-  async _verifyAnchorSignature(anchor) {
-    const isResponse = anchor.type === "response";
-    const sigField = isResponse ? "sig_resp" : "sig";
-    const pubKeyField = isResponse ? "pub_sig_resp" : "pub_sig";
-
-    const signature = anchor[sigField];
-    const pubKey = anchor[pubKeyField];
-
-    if (!signature || !pubKey) return false;
-
-    const body = canonicalize(
-      prepareForSigning(anchor, {
-        omitKeys: [sigField],
-        excludeMeta: anchor.type === "discovery",
-      }),
-    );
-
-    return await this.crypto.verifyMessage(pubKey, body, signature);
-  }
-
-  async _handleIncomingAnchor(anchor) {
-    if (anchor.type === "discovery") {
-      discoveryValidator.validate(anchor);
-    } else if (anchor.type === "response") {
-      responseValidator.validate(anchor);
-    } else if (anchor.type === "session_end") {
-      sessionEndValidator.validate(anchor);
-    } else {
-      throw new Error(`Unknown anchor type: ${anchor.type}`);
-    }
-
-    const isValidSig = await this._verifyAnchorSignature(anchor);
-    if (!isValidSig) {
-      throw new Error("Invalid anchor signature");
-    }
-
-    if (anchor.type === "discovery") {
-      return { type: "discovery", anchor };
-    }
-
-    if (anchor.type === "response") {
-      const pending = this._kktpPendingDiscoveries.get(anchor.sid);
-      if (pending && anchor.initiator_pub_sig === pending.discovery.pub_sig) {
-        await pending.protocol.processIncoming(anchor);
-
-        const mailboxId = pending.sm.kktp.mailboxId;
-        this._kktpSessions.set(mailboxId, {
-          ...pending,
-          response: anchor,
-          messages: [],
-          peerPubSig: anchor.pub_sig_resp,
-          isInitiator: true,
-          createdAt: Date.now(),
-        });
-
-        this._kktpPendingDiscoveries.delete(anchor.sid);
-        return { type: "session_established", mailboxId, response: anchor };
-      }
-
-      return { type: "response", anchor };
-    }
-
-    if (anchor.type === "session_end") {
-      const sessionEntry = Array.from(this._kktpSessions.entries()).find(
-        ([, s]) => s?.discovery?.sid === anchor.sid,
-      );
-      if (sessionEntry) {
-        const [mailboxId, session] = sessionEntry;
-        session.sm.terminate();
-        this._kktpSessions.delete(mailboxId);
-        return { type: "session_end", mailboxId, reason: anchor.reason };
-      }
-      return { type: "session_end", mailboxId: null, reason: anchor.reason };
-    }
-
-    return null;
-  }
-
-  _handleIncomingMessage(mailboxId, msgObject) {
-    const session = this._kktpSessions.get(mailboxId);
-    if (!session) {
-      return { type: "message_ignored", mailboxId };
-    }
-
-    const plaintexts = session.sm.receiveMessage(msgObject);
-    if (plaintexts && plaintexts.length > 0) {
-      session.messages = session.messages || [];
-      for (const plaintext of plaintexts) {
-        session.messages.push({
-          id: crypto.randomUUID(),
-          direction: msgObject.direction,
-          plaintext,
-          timestamp: Date.now(),
-          status: "confirmed",
-          isOutbound: false,
-        });
-      }
-    }
-
-    return { type: "messages", mailboxId, messages: plaintexts || [] };
+  /** EXPOSED FOR AUDITORS:
+   * Strict JSON parsing.
+   */
+  strictParseJson(jsonString) {
+    // Call SessionManager, which calls the static/singleton Protocol logic
+    return this.sessionManager.strictParseJson(jsonString);
   }
 }
 

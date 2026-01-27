@@ -191,19 +191,21 @@ export function renderSessionList(sessions, activeId, onSelect) {
     item.className = `session-item ${session.mailboxId === activeId ? "active" : ""}`;
     item.dataset.mailboxId = session.mailboxId;
 
-    const peerShort = `${session.peerPubSig.substring(0, 8)}...`;
-    const unread = session.messages.filter(
+    const peerSig = session.peerPubSig || "unknown";
+    const peerShort = `${peerSig.substring(0, 8)}...`;
+    const unread = (session.messages || []).filter(
       (m) => !m.isOutbound && !m.read,
     ).length;
     const role = session.isInitiator ? "I" : "R";
+    const state = session?.sm?.state || "active";
 
     item.innerHTML = `
       <div class="session-info">
-        <span class="session-peer" title="${session.peerPubSig}">${peerShort}</span>
+        <span class="session-peer" title="${peerSig}">${peerShort}</span>
         <span class="session-role">[${role}]</span>
         ${unread > 0 ? `<span class="unread-badge">${unread}</span>` : ""}
       </div>
-      <span class="session-status ${session.sm.state.toLowerCase()}">${session.sm.state}</span>
+      <span class="session-status ${state.toLowerCase()}">${state}</span>
     `;
 
     item.addEventListener("click", () => onSelect(session.mailboxId));
