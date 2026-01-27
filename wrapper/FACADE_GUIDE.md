@@ -213,9 +213,9 @@ This framework sits **above** the low‑level WASM SDK (see **./LOW_LEVEL_SDK.md
 ## File Reference
 - Global facade: [wrapper/kaspaPortal.js](wrapper/kaspaPortal.js)
 - Component facades:
-  - [/transport/transportFacade.js](wrapper/transport/transportFacade.js)
-  - [/identity/identityFacade.js](wrapper/identity/identityFacade.js)
-  - [/intelligence/intelligenceFacade.js](wrapper/intelligence/intelligenceFacade.js)
-  - [/crypto/cryptoFacade.js](wrapper/crypto/cryptoFacade.js)
-  - [/vrf/vrfFacade.js](wrapper/vrf/vrfFacade.js)
-- KKTP Protocol: [../kktp/protocol/kktpProtocol.js](kktp/protocol/kktpProtocol.js)
+  - [wrapper/transport/transportFacade.js](./transport/transportFacade.js)
+  - [wrapper/identity/identityFacade.js](./identity/identityFacade.js)
+  - [wrapper/intelligence/intelligenceFacade.js](./intelligence/intelligenceFacade.js)
+  - [wrapper/crypto/cryptoFacade.js](./crypto/cryptoFacade.js)
+  - [wrapper/vrf/vrfFacade.js](./vrf/vrfFacade.js)
+- KKTP Protocol: [../kktp/protocol/kktpProtocol.js](../kktp/protocol/kktpProtocol.js)
