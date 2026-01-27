@@ -1,19 +1,19 @@
-import { KaspaPortal, SearchMode } from '../../wrapper/kaspaPortal.js';
-import { $, setStatus, setText, logLine, sleep } from './dom.js';
+import { kaspaPortal, SearchMode } from "../../wrapper/kaspaPortal.js";
+import { $, setStatus, setText, logLine, sleep } from "./dom.js";
 
 const CONFIG = Object.freeze({
-  networkId: 'testnet-10',
+  networkId: "testnet-10",
   nodeUrl: null,
-  walletFilename: 'rapid_tx_wallet',
-  walletPassword: '1234',
-  sendAmountKas: '1',
+  walletFilename: "rapid_tx_wallet",
+  walletPassword: "1234",
+  sendAmountKas: "1",
   sendDelayMs: 800,
-  payloadPrefix: 'RT|',
+  payloadPrefix: "RT|",
   maxBacklog: 25,
 });
 
 const state = {
-  portal: new KaspaPortal(),
+  portal: kaspaPortal,
   address: null,
   running: false,
   sent: 0,
@@ -43,34 +43,40 @@ function buildPayloadWithBacklog(currentMove) {
   const parts = [];
 
   for (const m of state.backlog) {
-    parts.push(formatMoveLine('Prior', m));
+    parts.push(formatMoveLine("Prior", m));
   }
-  parts.push(formatMoveLine('Current', currentMove));
+  parts.push(formatMoveLine("Current", currentMove));
 
-  return CONFIG.payloadPrefix + parts.join(';');
+  return CONFIG.payloadPrefix + parts.join(";");
 }
 
 function extractTxId(sendRes) {
   if (!sendRes) return null;
 
-  const direct = sendRes.transactionId || sendRes.txid || sendRes.txId || sendRes.finalTransactionId || sendRes.id;
-  if (typeof direct === 'string' && direct.length > 10) return direct;
+  const direct =
+    sendRes.transactionId ||
+    sendRes.txid ||
+    sendRes.txId ||
+    sendRes.finalTransactionId ||
+    sendRes.id;
+  if (typeof direct === "string" && direct.length > 10) return direct;
 
   const arr = sendRes.transactionIds || sendRes.txIds || sendRes.ids;
-  if (Array.isArray(arr) && typeof arr[0] === 'string') return arr[0];
+  if (Array.isArray(arr) && typeof arr[0] === "string") return arr[0];
 
-  const nested = sendRes?.summary?.finalTransactionId || sendRes?.summary?.transactionId;
-  if (typeof nested === 'string' && nested.length > 10) return nested;
+  const nested =
+    sendRes?.summary?.finalTransactionId || sendRes?.summary?.transactionId;
+  if (typeof nested === "string" && nested.length > 10) return nested;
 
   return null;
 }
 
 function setLoopUi() {
-  const start = $('btnStart');
-  const stop = $('btnStop');
+  const start = $("btnStart");
+  const stop = $("btnStop");
   if (start) start.disabled = !state.address || state.running;
   if (stop) stop.disabled = !state.running;
-  setText('loopState', state.running ? 'Running' : 'Stopped');
+  setText("loopState", state.running ? "Running" : "Stopped");
 }
 
 async function refreshBalance() {
@@ -78,8 +84,8 @@ async function refreshBalance() {
     const sompi = await state.portal.getBalance();
     // wallet_service also emits balance events, but polling keeps this demo simple.
     const kas = Number(sompi / 100000000n) + Number(sompi % 100000000n) / 1e8;
-    const str = kas.toFixed(8).replace(/0+$/, '').replace(/\.$/, '');
-    setText('bal', `${str} KAS`);
+    const str = kas.toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
+    setText("bal", `${str} KAS`);
   } catch (e) {
     logLine(`Balance refresh failed: ${e?.message || String(e)}`);
   }
@@ -101,21 +107,29 @@ function onScannerBlock(_block, matches) {
     const latencyMs = Date.now() - pending.sentAtMs;
     state.lastLatencyMs = latencyMs;
 
-    setText('received', String(state.received));
-    setText('latency', `${Math.round(latencyMs / 1000)}s`);
+    setText("received", String(state.received));
+    setText("latency", `${Math.round(latencyMs / 1000)}s`);
 
-    const payloadInfo = m?.decodedPayload ? ` payload='${m.decodedPayload}'` : '';
-    logLine(`Received in block: ${txid} (latency ${latencyMs}ms)${payloadInfo}`);
+    const payloadInfo = m?.decodedPayload
+      ? ` payload='${m.decodedPayload}'`
+      : "";
+    logLine(
+      `Received in block: ${txid} (latency ${latencyMs}ms)${payloadInfo}`,
+    );
   }
 }
 
 async function startScanner() {
-  if (!state.portal.client) throw new Error('Scanner start: client not ready.');
-  if (!state.address) throw new Error('Scanner start: address not ready.');
+  if (!state.portal.client) throw new Error("Scanner start: client not ready.");
+  if (!state.address) throw new Error("Scanner start: address not ready.");
 
   const scanner = state.portal.intelligence.scanner;
   if (scanner.scanning) {
-    try { scanner.stop(); } catch { /* ignore */ }
+    try {
+      scanner.stop();
+    } catch {
+      /* ignore */
+    }
   }
 
   scanner.prefix = CONFIG.payloadPrefix;
@@ -123,11 +137,11 @@ async function startScanner() {
   scanner.addresses = [state.address];
 
   await scanner.start(onScannerBlock);
-  logLine('Block scanner started.');
+  logLine("Block scanner started.");
 }
 
 async function sendOnce() {
-  if (!state.address) throw new Error('Send: address not ready.');
+  if (!state.address) throw new Error("Send: address not ready.");
 
   // Create the next move payload.
   const currentMove = { tsMs: Date.now(), seq: ++state.payloadSeq };
@@ -149,7 +163,9 @@ async function sendOnce() {
         state.backlog.splice(0, state.backlog.length - CONFIG.maxBacklog);
       }
 
-      logLine(`Insufficient funds. Backlogging move seq=${currentMove.seq} (backlog=${state.backlog.length}).`);
+      logLine(
+        `Insufficient funds. Backlogging move seq=${currentMove.seq} (backlog=${state.backlog.length}).`,
+      );
     }
     throw err;
   }
@@ -157,21 +173,25 @@ async function sendOnce() {
   const txid = extractTxId(sendRes);
 
   state.sent++;
-  state.lastTxid = txid || '(unknown txid)';
+  state.lastTxid = txid || "(unknown txid)";
 
-  setText('sent', String(state.sent));
-  setText('lastTxid', state.lastTxid);
+  setText("sent", String(state.sent));
+  setText("lastTxid", state.lastTxid);
 
   if (txid) state.pending.set(txid, { sentAtMs: Date.now(), payload });
 
   // Clear any backlog only after we have a txid (i.e., the send is real).
   // If txid is missing, keep backlog intact to be safe.
   if (txid && state.backlog.length > 0) {
-    logLine(`Backlog flushed (${state.backlog.length} prior move(s)) into tx ${txid}.`);
+    logLine(
+      `Backlog flushed (${state.backlog.length} prior move(s)) into tx ${txid}.`,
+    );
     state.backlog = [];
   }
 
-  logLine(`Sent ${CONFIG.sendAmountKas} KAS to self. txid=${state.lastTxid} payload='${payload}'`);
+  logLine(
+    `Sent ${CONFIG.sendAmountKas} KAS to self. txid=${state.lastTxid} payload='${payload}'`,
+  );
 }
 
 async function runLoop() {
@@ -179,7 +199,7 @@ async function runLoop() {
   state.running = true;
   setLoopUi();
 
-  logLine('Send loop started.');
+  logLine("Send loop started.");
 
   while (state.running) {
     try {
@@ -192,7 +212,7 @@ async function runLoop() {
     await sleep(CONFIG.sendDelayMs);
   }
 
-  logLine('Send loop stopped.');
+  logLine("Send loop stopped.");
 }
 
 function stopLoop() {
@@ -201,52 +221,59 @@ function stopLoop() {
 }
 
 async function boot() {
-  setText('net', CONFIG.networkId);
-  setText('sent', '0');
-  setText('received', '0');
-  setText('lastTxid', '--');
-  setText('latency', '--');
+  setText("net", CONFIG.networkId);
+  setText("sent", "0");
+  setText("received", "0");
+  setText("lastTxid", "--");
+  setText("latency", "--");
 
-  setStatus('Connecting…', 'pending');
+  setStatus("Connecting…", "pending");
   logLine(`Connecting to ${CONFIG.networkId}…`);
 
-  await state.portal.connect({ rpcUrl: CONFIG.nodeUrl, networkId: CONFIG.networkId, startIntelligence: false });
+  await state.portal.init();
 
-  setStatus('Opening wallet…', 'pending');
+  await state.portal.connect({
+    rpcUrl: CONFIG.nodeUrl,
+    networkId: CONFIG.networkId,
+    startIntelligence: false,
+    balanceElementId: 'bal',
+  });
+
+  setStatus("Opening wallet…", "pending");
   logLine(`Opening/creating wallet '${CONFIG.walletFilename}'…`);
 
-  const res = await state.portal.identity.createWallet({
+  const res = await state.portal.createOrOpenWallet({
     password: CONFIG.walletPassword,
-    filename: CONFIG.walletFilename,
-    discoverAddresses: false,
+    walletFilename: CONFIG.walletFilename,
     storeMnemonic: false,
   });
 
   state.address = res?.address ? String(res.address) : null;
-  if (!state.address) throw new Error('Wallet did not return a receive address.');
+  if (!state.address)
+    throw new Error("Wallet did not return a receive address.");
 
-  setText('addr', state.address);
+  setText("addr", state.address);
 
   await refreshBalance();
   await startScanner();
 
-  setStatus('Ready', 'connected');
-  logLine('Ready.');
+  setStatus("Ready", "connected");
+  logLine("Ready.");
 
   setLoopUi();
 }
 
 function wireUi() {
-  $('btnStart')?.addEventListener('click', () => {
+  $("btnStart")?.addEventListener("click", () => {
     runLoop().catch((e) => logLine(`Loop error: ${e?.message || String(e)}`));
   });
-  $('btnStop')?.addEventListener('click', stopLoop);
+  $("btnStop")?.addEventListener("click", stopLoop);
 }
 
 wireUi();
 setLoopUi();
 
 boot().catch((e) => {
-  setStatus('Boot failed', 'disconnected');
+  setStatus("Boot failed", "disconnected");
   logLine(`Boot failed: ${e?.message || String(e)}`);
 });
