@@ -13,37 +13,6 @@
     <p style="text-align:center;color:var(--text-muted);margin-bottom:1.5rem;">
       Verifiable Random Function & NIST Statistical Tests
     </p>
-
-    <!-- Connection Section -->
-    <div class="section-card">
-      <div class="section-header">
-        <h2>🔌 Connection</h2>
-        <span id="connectionStatus" class="status-badge disconnected">Disconnected</span>
-      </div>
-      <div class="connection-panel">
-        <div class="control-group">
-          <label for="networkSelect">Network</label>
-          <select id="networkSelect">
-            <option value="mainnet">Mainnet</option>
-            <option value="testnet-10" selected>testnet-10</option>
-            <option value="testnet-11">testnet-11</option>
-            <option value="testnet-12">testnet-12</option>
-          </select>
-        </div>
-        <div class="control-group">
-          <label class="checkbox-label">
-            <input type="checkbox" id="usePublicResolver" checked />
-            Use Public Resolver
-          </label>
-        </div>
-        <div class="control-group">
-          <label for="nodeUrl">Node URL (if not using resolver)</label>
-          <input type="text" id="nodeUrl" placeholder="ws://127.0.0.1:17110" disabled />
-        </div>
-        <button id="connectBtn">Connect</button>
-      </div>
-    </div>
-
     <!-- Tab Navigation -->
     <div class="tab-bar">
       <button class="tab-btn active" data-tab="vrf">VRF Sources</button>

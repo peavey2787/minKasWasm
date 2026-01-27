@@ -186,25 +186,23 @@ export class VRFFacade {
     if (Array.isArray(nistEvidence)) {
       nistEvidence = nistEvidence[0];
     }
-      const rawNistHash =
-        nistEvidence?.outputValue ||
-        nistEvidence?.hash ||
-        proof.qrng?.hash;
-      const cleanNistHash = normalizeHex(rawNistHash);
-      const nistHash =
-        cleanNistHash.length >= 128 ? cleanNistHash.substring(0, 128) : null;
+    const rawNistHash =
+      nistEvidence?.outputValue || nistEvidence?.hash || proof.qrng?.hash;
+    const cleanNistHash = normalizeHex(rawNistHash);
+    const nistHash =
+      cleanNistHash.length >= 128 ? cleanNistHash.substring(0, 128) : null;
     if (!nistHash) throw new Error("Missing NIST entropy for reconstruction.");
 
-      const kaspaBlocks = Array.isArray(proof.kaspa)
-        ? proof.kaspa
-        : Array.isArray(proof.evidence?.kaspa)
-          ? proof.evidence.kaspa
-          : [];
-      const btcBlocks = Array.isArray(proof.btc)
-        ? proof.btc
-        : Array.isArray(proof.evidence?.btc)
-          ? proof.evidence.btc
-          : [];
+    const kaspaBlocks = Array.isArray(proof.kaspa)
+      ? proof.kaspa
+      : Array.isArray(proof.evidence?.kaspa)
+        ? proof.evidence.kaspa
+        : [];
+    const btcBlocks = Array.isArray(proof.btc)
+      ? proof.btc
+      : Array.isArray(proof.evidence?.btc)
+        ? proof.evidence.btc
+        : [];
 
     const makeFinalBlock = (hash, source) =>
       new Block({
@@ -248,6 +246,46 @@ export class VRFFacade {
     );
 
     return result.finalOutput === value;
+  }
+
+  /**
+   * Fetch randomness blocks from various sources.
+   * @param {string} source - 'bitcoin', 'kaspa', 'qrng', 'hybrid'
+   * @param {number} n - Number of blocks/items
+   * @returns {Promise<Object>}
+   */
+  async fetchBlocks(source, n) {
+    return await fetchBlocks(source, n);
+  }
+
+  /**
+   * Fetch Bitcoin blocks.
+   * @param {number} n - Number of blocks
+   * @returns {Promise<Array>}
+   */
+  async getBitcoinBlocks(n) {
+    return await getBitcoinBlocks(n);
+  }
+
+  /**
+   * Fetch QRNG data.
+   * @param {string} provider - 'nist', 'anu', 'qrandom'
+   * @param {number} length - Number of bytes
+   * @returns {Promise<Array>}
+   */
+  async getQRNG(provider, length) {
+    return await getQRNG(provider, length);
+  }
+
+  /**
+   * Fold two sources of randomness.
+   * @param {string} data1 - Hex string
+   * @param {string} data2 - Hex string
+   * @param {Object} options - { iterations }
+   * @returns {Promise<string>} Folded result
+   */
+  async fold(data1, data2, options) {
+    return await fold(data1, data2, options);
   }
 
   /**
