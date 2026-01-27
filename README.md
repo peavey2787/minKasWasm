@@ -1,220 +1,66 @@
-# Kaspa WASM JS Wrapper & Demos
+# 🌀 minKasWasm: The ꓘK Engine Room
 
-This project provides a browser-based Kaspa WASM SDK wrapper and a set of interactive demos. See below for how to use the wrapper modules in your own app.
+> **The high-performance implementation of the Kaspa Keyset Transport Protocol (KKTP) and Recursive Folding Entropy.**
 
-## Demos
+This repository serves as the core technical foundation for [**Kaspa Kinesis (ꓘK)**](https://github.com/peavey2787/KaspaKinesis). It houses the Kaspa WASM SDK integration, the decentralized VRF (Verifiable Randomness Function), and the serverless relay infrastructure.
 
-- Block scanner + wallet + indexer UI: `demos/scanner/scanner.html`
-- DAG walking UI (powered by `wrapper/dag_walk.js`): `demos/dag-walk/dag_walk.html`
+---
 
-## How to Use the Kaspa JS Wrapper
+## 🗺️ Documentation Map
+> ### 📍 Navigation
+> * [🏛️ Facade Guide](./wrapper/FACADE_GUIDE.md)
+> * [🔍 Intelligence Guide](./wrapper/intelligence/README.md)
+> * [🔍 Low Level Guide](./wrapper/LOW_LEVEL_SDK.md)
+> * [📡 KKTP Protocol](./kktp/protocol/KKTP_PROTOCOL.md)
+> * [🛡️ Anti-Cheat Demo](./demos/anti-cheat/README.md)
 
-### Client
+---
 
-1. **Connect to a Kaspa node:**
+## ⚡ Core Technical Pillars
 
-	```js
-	import { connect } from './wrapper/kaspa_client.js';
+### 1. Recursive Folding (Decentralized VRF)
+The implementation of a novel entropy-extraction method. It fetches PoW artifacts directly from the Kaspa BlockDAG and "folds" them into **NIST SP 800-22 compliant randomness**.
+* **Verifiable:** Anyone can replay the fold to prove the seed.
+* **Unbiased:** Entropy is derived from the network's hash power.
 
-	const client = await connect(rpcUrl, networkId, { onDisconnect });
-	// rpcUrl: Node address (or null for resolver)
-	// networkId: e.g. "mainnet", "testnet-10"
-	// onDisconnect: Optional callback for disconnect events
-	```
+### 2. Serverless Relay (KKTP)
+A zero-infrastructure communication layer. By treating the Kaspa DAG as a global "mailbox," `minKasWasm` enables **CGNAT-to-CGNAT connectivity** without the need for STUN/TURN servers or central matchmaking.
 
-### Wallet Management
+### 3. Intelligence Layer
+A high-throughput browser scanner and indexer. It uses **IndexedDB** for persistent state and a prioritized eviction policy to handle real-time BlockDAG data without crashing the browser environment.
 
-2. **Initialize the wallet:**
+---
 
-	```js
-	import { init } from './wrapper/wallet_service.js';
+## 🧪 Interactive Demos
+This repository contains **11+ live demos** showcasing the engine's capabilities:
 
-	init({ rpcClient: client, networkId, balanceElementId, onBalanceChange });
-	// rpcClient: The connected Kaspa client
-	// networkId: Network string
-	// balanceElementId: (optional) DOM element ID to update balance
-	// onBalanceChange: (optional) callback for balance updates
-	```
+* **Sentinel Shield:** A full anti-cheat session demo using KKTP + VRF.
+* **DAG Walker:** Real-time visualization of block traversal.
+* **NIST Dashboard:** Live statistical testing of the Recursive Folding output.
+* **Wallet Scanner:** High-speed payload discovery for decentralized messaging.
 
-3. **Create/Import a wallet:**
+> **Note:** To run demos, serve the root directory via any local web server (e.g., Live Server, Laragon, or Python `http.server`) and navigate to the `/demos` folder.
 
-	```js
-	import { createWallet } from './wrapper/wallet_service.js';
+---
 
-	const { mnemonic, address } = await createWallet({
-	  password,             // Wallet password
-	  filename,             // (optional) Wallet filename
-	  userHint,             // (optional) User hint for wallet
-	  mnemonic,             // (optional) Import mnemonic
-	  storeMnemonic,        // (optional) Store mnemonic in storage
-	  discoverAddresses     // (optional, default true) Scan for used addresses
-	});
-	```
+## 🏗️ Architecture
+This project follows a strict **Layered Facade Pattern** to ensure the complexity of the BlockDAG is accessible without losing granular control.
 
-4. **Send Kaspa:**
+* **WASM Layer:** The raw Rust-to-JS bridge for Kaspa.
+* **Wrapper Layer:** JS classes for specific tasks (Wallet, VRF, Indexer).
+* **Portal Layer:** The `kaspaPortal` singleton—the orchestrator for ꓘK applications.
 
-	```js
-	import { send } from './wrapper/wallet_service.js';
+---
 
-	await send({ amount, toAddress, payload, priorityFeeKas });
-	```
+## 👥 Solo-Driven Innovation
+`minKasWasm` is currently a solo-developed framework, representing a full-stack engineering effort across:
+* **Cryptographic Research** (Recursive Folding)
+* **Protocol Design** (KKTP/IETF Drafts)
+* **Systems Engineering** (WASM / IndexedDB / Networking)
 
-5. **Other wallet functions:**
+---
 
-	```js
-	import { getSpendableBalance, generateNewAddress, generateNewKeypair } from './wrapper/wallet_service.js';
+## 🏛️ Acknowledgments & Mission
+Built for the **Kaspa Ecosystem**. Our goal is to transform the BlockDAG from a simple value-transfer layer into a robust, serverless backbone for the next generation of decentralized interactive systems.
 
-	const balance = await getSpendableBalance();
-	const address = await generateNewAddress();
-	const keypair = await generateNewKeypair(index);
-	```
-
-### Wallet File Management
-
-6. **List all wallets:**
-
-	```js
-	import { getAllWallets } from './wrapper/wallet_service.js';
-
-	const wallets = await getAllWallets();
-	// wallets: Array of { filename, title, ... }
-	```
-
-7. **Delete a wallet by filename:**
-
-	```js
-	import { deleteWalletData } from './wrapper/storage.js';
-
-	await deleteWalletData(filename); // filename: string
-	```
-
-### Block Scanner
-
-8. **Block Scanner usage:**
-
-	```js
-	import { KaspaBlockScanner, SearchMode } from './wrapper/scanner.js';
-	import { MatchMode } from './wrapper/indexer.js';
-
-	// The scanner is coupled with an internal indexer at scanner.indexer
-	const scanner = new KaspaBlockScanner(client, {
-	  prefix: 'test',
-	  mode: SearchMode.INCLUDES,
-	  indexerOptions: {
-	    ttlMinutes: 10,
-	    flushInterval: 5000,
-	    maxSize: 500,
-	    matchMode: MatchMode.ALL,
-	    onIndexerUpdate: (event) => {
-	      // stream indexer events into your UI
-	      // NOTE: *-cached events are batched per flush: event.data is an array.
-	      // In-memory events provide a single entry.
-	    }
-	  }
-	});
-
-	// Start indexing when you want it (optional)
-	scanner.indexer.start();
-
-	await scanner.start((block, matches) => {
-	  // block: full block object
-	  // matches: array of match objects for this block
-	});
-
-	scanner.stop();
-	scanner.indexer.stop();
-	```
-
-### Indexer (Standalone)
-
-The indexer can also be used standalone (without the scanner). See `wrapper/README.md`.
-
-### Walking the DAG
-
-The DAG walker utilities live in `wrapper/dag_walk.js`.
-
-```js
-import { walkDagToPresent, scanDagForward, scanDagBackward } from './wrapper/dag_walk.js';
-
-await walkDagToPresent({
-  client,
-  startHash,
-  maxSeconds: 10,
-  minTimestamp: 0,
-  logFn: console.log,
-  onBlock: (block) => false
-});
-
-const forwardMatch = await scanDagForward({
-  client,
-  startHash,
-  searchText: 'hello',
-  matchMode: 'contains', // exact | prefix | contains | cleaned_contains
-  maxSeconds: 15,
-  minTimestamp: 0,
-  logFn: console.log
-});
-
-const backwardMatch = await scanDagBackward({
-  client,
-  startHash,
-  maxSeconds: 15,
-  maxDepth: 5000, // optional safety limit (or Infinity)
-  logFn: console.log,
-  matchFn: (block, tx) => false
-});
-```
-
-## Testing
-
-Browser-based test dashboard for the DAG walker:
-
-- `tests/walking-the-dag/tests.html`
-
-Included tests:
-
-- `tests/walking-the-dag/test_walk_forward_to_present.js`
-- `tests/walking-the-dag/test_walk_forward_to_match.js` (supports auto payload discovery when match input is blank)
-- `tests/walking-the-dag/test_walk_backward_to_match.js` (supports auto payload discovery when match input is blank)
-
-To run them, serve the repo via a local web server (e.g. Laragon) and open `tests/walking-the-dag/tests.html` in your browser.
-
-### RPC Commands
-
-9. **Run arbitrary RPC commands:**
-
-	```js
-	import { runRpcCommand } from './wrapper/rpc_runner.js';
-
-	const result = await runRpcCommand(client, '{"method":"getInfo","params":{}}');
-	```
-
-### Encryption
-
-10. **Symmetric Encryption usage:**
-
-	```js
-	import { encryptMessage, decryptMessage } from './wrapper/encryption.js';
-
-	// Encrypt
-	const encrypted = encryptMessage(plaintext, password);
-
-	// Decrypt
-	const decrypted = decryptMessage(encrypted, password);
-	```
-
-11. **Diffie–Hellman Encryption usage:**
-
-	```js
-	import { DHSession } from './wrapper/dh_encryption.js';
-
-	const dh = new DHSession();
-	// Initiate handshake
-	const handshakeMsg = dh.initiateHandshake(myPrivateKey, myPublicKey);
-	// Respond to handshake
-	const response = await dh.respondToHandshake(peerPublicKeyHex);
-	// Encrypt
-	const encrypted = dh.encrypt(message);
-	// Decrypt
-	const decrypted = dh.decrypt(encrypted);
-	```
+**[Go to the Facade Guide to get started →](/wrapper/FACADE_GUIDE.md)**

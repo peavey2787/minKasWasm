@@ -1,3 +1,12 @@
+> ### 📍 Navigation
+> * [🏠 Project Hub](../../README.md)
+> * [🏛️ Facade Guide](../FACADE_GUIDE.md)
+> * [🔍 Low Level Guide](../LOW_LEVEL_SDK.md)
+> * [📡 KKTP Protocol](../../kktp/protocol/KKTP_PROTOCOL.md)
+> * [🛡️ Anti-Cheat Demo](../../demos/anti-cheat/README.md)
+
+---
+
 # Kaspa Intelligence Facade (Browser Version)
 
 ## Overview

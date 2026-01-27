@@ -210,9 +210,7 @@ async function boot() {
   setStatus('Connecting…', 'pending');
   logLine(`Connecting to ${CONFIG.networkId}…`);
 
-  await state.portal.connect(CONFIG.nodeUrl, CONFIG.networkId, {
-    startIntelligence: false // We configure and start the scanner manually
-  });
+  await state.portal.connect({ rpcUrl: CONFIG.nodeUrl, networkId: CONFIG.networkId, startIntelligence: false });
 
   setStatus('Opening wallet…', 'pending');
   logLine(`Opening/creating wallet '${CONFIG.walletFilename}'…`);
