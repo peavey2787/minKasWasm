@@ -1,6 +1,6 @@
 # 🌀 minKasWasm: The ꓘK Engine Room
 
-> **The high-performance implementation of the Kaspa Keyset Transport Protocol (KKTP) and Recursive Folding Entropy.**
+> **The high-performance implementation of the Kaspa Kinesis Transport Protocol (KKTP) and Recursive Folding Entropy.**
 
 This repository serves as the core technical foundation for [**Kaspa Kinesis (ꓘK)**](https://github.com/peavey2787/KaspaKinesis). It houses the Kaspa WASM SDK integration, the decentralized VRF (Verifiable Randomness Function), and the serverless relay infrastructure.
 
