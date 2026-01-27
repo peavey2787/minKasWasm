@@ -179,6 +179,79 @@ function getBlockHash(block) {
   return (block?.hash || block?.header?.hash || '').toString();
 }
 
+function parsePrefixesFromUI() {
+  const raw = elements.getPrefixesInput()?.value || '';
+  return raw
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+function decodePayloadSafe(payloadHex) {
+  const decoded = decodeHexUtf8(payloadHex || '');
+  return cleanPrintableAscii(decoded || '');
+}
+
+function safeStringify(obj) {
+  return JSON.stringify(
+    obj,
+    (_, v) => (typeof v === 'bigint' ? v.toString() : v),
+    2
+  );
+}
+
+function showMatchModal(match) {
+  const body = elements.getMatchModalBody();
+  const modal = elements.getMatchModal();
+
+  const payloadHex = match?.tx?.payload || '';
+  const decoded = match?.tx?.decodedPayload || decodePayloadSafe(payloadHex);
+
+  const details = {
+    blockHash: match?.block?.hash || getBlockHash(match.block),
+    txId: match?.tx?.txid || '',
+    blueScore: match?.block?.blueScore ?? match?.tx?.blueScore ?? null,
+    timestamp: match?.block?.timestamp ?? match?.tx?.timestamp ?? null,
+    payloadHex,
+    payloadDecoded: decoded,
+  };
+
+  body.textContent = safeStringify(details);
+  modal.classList.remove('hidden');
+}
+
+function hideMatchModal() {
+  const modal = elements.getMatchModal();
+  if (!modal) return;
+  modal.classList.add('hidden');
+}
+
+function clearMatchesUI() {
+  const list = elements.getMatchesList();
+  if (list) list.innerHTML = '';
+}
+
+function addMatchToUI(match) {
+  const list = elements.getMatchesList();
+  if (!list) return;
+
+  const blockHash = getBlockHash(match?.block);
+  const txId = match?.tx?.txid || '';
+  const payloadHex = match?.tx?.payload || '';
+  const payloadDecoded = decodePayloadSafe(payloadHex);
+
+  const div = document.createElement('div');
+  div.className = 'match-item';
+  div.textContent = `Block: ${blockHash.slice(0, 16)}... | Tx: ${txId.slice(0, 12)}... | Payload: ${payloadDecoded.slice(0, 32)}`;
+  div.onclick = () => showMatchModal(match);
+
+  list.prepend(div);
+}
+
+export function handleCloseModalClick() {
+  hideMatchModal();
+}
+
 export async function handleConnectClick() {
   const url = elements.getNodeInput().value.trim();
   const networkId = elements.getNetworkInput().value.trim();
@@ -210,6 +283,8 @@ export function handleClearClick() {
   stopStatsTimer();
   stats = null;
   setStatsLine('');
+  clearMatchesUI();
+  hideMatchModal();
 }
 
 export async function handleRunClick() {
@@ -224,6 +299,8 @@ export async function handleRunClick() {
   const minTimestamp = parseOptionalNumber(elements.getMinTimestampInput().value, { allowEmpty: true }) ?? 0;
 
   setResult('');
+  clearMatchesUI();
+  hideMatchModal();
 
   if (!/^[a-fA-F0-9]{64}$/.test(startHash)) {
     setResult('Please enter a valid 64-character hex block hash.');
@@ -241,7 +318,22 @@ export async function handleRunClick() {
 
   try {
     if (mode === 'walk_to_present') {
-      await portal.syncFrom(startHash, appendLog, { maxSeconds, minTimestamp });
+      const prefixes = parsePrefixesFromUI();
+
+      await portal.syncFrom(startHash, appendLog, {
+        maxSeconds,
+        minTimestamp,
+        prefixes,
+        onBlock: [],
+        onTransactionMatch: [({ block, tx }) => {
+          stats.matched = true;
+          addMatchToUI({ block, tx });
+          appendLog(
+            `[MATCH] block=${getBlockHash(block).slice(0, 16)}... tx=${(tx?.txid || '').slice(0, 16)}...`,
+          );
+          return false;
+        }],
+      });
 
       setResult(
         `syncFrom (walkDagToPresent) complete. See logs for details.`

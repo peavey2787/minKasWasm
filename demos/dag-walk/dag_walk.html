@@ -58,6 +58,9 @@
       <label for="minTimestampInput">Min Timestamp (unix seconds, optional):</label>
       <input type="number" id="minTimestampInput" min="0" step="1" placeholder="0" />
 
+      <label for="prefixesInput">Payload Prefixes (plain text, one per line):</label>
+      <textarea id="prefixesInput" rows="4" placeholder="e.g. KKTP:ANCHOR:"></textarea>
+
       <div id="forwardOptions" style="display:none;">
         <h3 style="margin: 0.5rem 0;">Forward Match Options</h3>
 
@@ -100,6 +103,20 @@
 
     <div class="output" id="resultDiv"></div>
     <div class="output log" id="logDiv"></div>
+    <div class="output matches" id="matchesDiv">
+      <div class="matches-header">Matches</div>
+      <div id="matchesList"></div>
+    </div>
+  </div>
+
+  <div id="matchModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <span>Match Details</span>
+        <button id="closeModalBtn">Close</button>
+      </div>
+      <pre id="matchModalBody"></pre>
+    </div>
   </div>
 
   <script type="module" src="dag_walk_demo.js"></script>

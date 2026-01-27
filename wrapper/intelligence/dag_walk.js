@@ -1,4 +1,8 @@
-import { dehydrateTx, payloadToHex } from "../utilities/utilities.js";
+import {
+  dehydrateTx,
+  dehydrateBlock,
+  payloadToHex,
+} from "../utilities/utilities.js";
 /**
  * Walks the DAG forward from a starting block hash to the present, invoking a callback for each block.
  * @param {Object} options
@@ -105,10 +109,18 @@ export async function walkDagToPresent({
 
         const shouldBuildBlockCopy = onBlockCbs.length > 0;
 
+        let baseBlock = dehydrateBlock(block);
+        if (!baseBlock) {
+          baseBlock = { hash: blockHash, timestamp: blockTime };
+        }
+        if (!baseBlock.hash) baseBlock.hash = blockHash;
+        if (!Number.isFinite(baseBlock.timestamp) || baseBlock.timestamp === 0) {
+          baseBlock.timestamp = blockTime;
+        }
+
         const safeBlock = shouldBuildBlockCopy
           ? {
-              hash: blockHash,
-              timestamp: blockTime,
+              ...baseBlock,
               transactions: Array.isArray(block.transactions)
                 ? block.transactions.map((tx) =>
                     dehydrateTx({ tx, block }),
@@ -136,11 +148,7 @@ export async function walkDagToPresent({
             if (!isMatch) continue;
 
             const matchTx = dehydrateTx({ tx, block });
-            const matchBlock = safeBlock || {
-              hash: blockHash,
-              timestamp: blockTime,
-              transactions: [],
-            };
+            const matchBlock = safeBlock || baseBlock;
 
             for (const cb of onTxMatchCbs) {
               const shouldStop = cb({ block: matchBlock, tx: matchTx });
