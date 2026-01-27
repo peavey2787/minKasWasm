@@ -389,7 +389,6 @@ button.small {
 }
 
 .tab-btn.active {
-  color: var(--accent);
   border-bottom-color: var(--accent);
 }
 
