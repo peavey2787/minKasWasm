@@ -5,7 +5,7 @@ import {
   prepareForSigning,
   strictParseJson,
 } from "./protocol/integrity/canonical.js";
-import { hexToString } from "../wrapper/utilities/utilities.js";
+import { hexToString, bytesToHex } from "../wrapper/utilities/utilities.js";
 import { SessionPersistence } from "./sessionPersistence.js";
 import {
   buildAnchorPayload,
@@ -15,6 +15,7 @@ import {
   extractResumeState,
   applyResumeState,
   zeroOutSessionKey,
+  deriveSeqFromMessages,
 } from "./smHelpers.js";
 
 export class SessionManager {
@@ -26,11 +27,100 @@ export class SessionManager {
 
     this._kktpSessions = new Map();
     this._kktpPendingDiscoveries = new Map();
+    this._kktpOrphanResponses = new Map();
     this._kktpKeyIndex = 0;
     this._persistConfig = null;
     this._persistQueue = new Set();
     this._persistTimer = null;
     this._persistence = new SessionPersistence();
+
+    // Per-contact baseIndex system for PFS
+    this._nextBaseIndexLoaded = false;
+    this._nextBaseIndex = 100; // Start at 100 to avoid legacy index conflicts
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Per-Contact BaseIndex Allocation (Deterministic PFS)
+  // Branch layout: N = Contact Identity, N+1 = TX Key, N+2 = RX Key
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Allocate a new baseIndex for a contact (increments by 3 for next contact).
+   * Persists the counter to IndexedDB for deterministic resumption.
+   */
+  async _allocateBaseIndex() {
+    // Load persisted counter on first use
+    if (!this._nextBaseIndexLoaded) {
+      const stored = await this._persistence.getMeta("nextBaseIndex");
+      if (typeof stored === "number" && stored >= this._nextBaseIndex) {
+        this._nextBaseIndex = stored;
+      }
+      this._nextBaseIndexLoaded = true;
+    }
+
+    const baseIndex = this._nextBaseIndex;
+    this._nextBaseIndex += 3; // Reserve N, N+1, N+2
+    await this._persistence.setMeta("nextBaseIndex", this._nextBaseIndex);
+    return baseIndex;
+  }
+
+  /**
+   * Ensure a peer record exists; allocate baseIndex if new contact.
+   * @param {string} peerPubSig - The peer's public signing key
+   * @returns {Promise<Object>} - { peerPubSig, baseIndex, usedBranches, ... }
+   */
+  async _ensurePeerRecord(peerPubSig) {
+    if (!peerPubSig) throw new Error("peerPubSig required for peer record");
+
+    let record = await this._persistence.getPeerRecord(peerPubSig);
+    if (record) return record;
+
+    // New contact: allocate a fresh baseIndex branch
+    const baseIndex = await this._allocateBaseIndex();
+    record = {
+      peerPubSig,
+      baseIndex,
+      usedBranches: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    await this._persistence.upsertPeerRecord(record);
+    console.info(
+      `KKTP: allocated baseIndex=${baseIndex} for peer=${peerPubSig.slice(0, 8)}...`,
+    );
+    return record;
+  }
+
+  /**
+   * Prepare a key branch for a session with a specific peer.
+   * For initiator: uses baseIndex+1 (TX), expects peer to use baseIndex+2 (RX)
+   * For responder: uses baseIndex+2 (RX), expects peer to use baseIndex+1 (TX)
+   * @param {string} peerPubSig
+   * @param {boolean} isInitiator
+   * @returns {Promise<{ keyIndex, prederivedKeys }>}
+   */
+  async _prepareKeyBranch(peerPubSig, isInitiator) {
+    const record = await this._ensurePeerRecord(peerPubSig);
+    const base = record.baseIndex;
+
+    // Branch layout: N = identity, N+1 = initiator TX, N+2 = responder RX
+    const keyIndex = isInitiator ? base + 1 : base + 2;
+
+    // Pre-derive keys for this branch
+    const keys = await this.portal.generateIdentityKeys(keyIndex);
+
+    // Mark as used for PFS
+    await this._persistence.markPeerBranchUsed(peerPubSig, keyIndex);
+
+    console.info(
+      `KKTP: prepared branch keyIndex=${keyIndex} (base=${base}) initiator=${isInitiator}`,
+    );
+
+    return {
+      keyIndex,
+      baseIndex: base,
+      prederivedKeys: keys, // { sig: { publicKey, privateKey }, dh: { publicKey, privateKey } }
+    };
   }
 
   // --- KKTP Protocol Helpers ---
@@ -74,12 +164,32 @@ export class SessionManager {
     return this._persistConfig;
   }
 
+  forcePersistAllSessions() {
+    if (!this._persistConfig) return;
+    for (const mailboxId of this._kktpSessions.keys()) {
+      this._persistQueue.add(mailboxId);
+    }
+    void this._flushPersistQueue();
+  }
+
   // --- Session Lifecycle ---
 
   async broadcastDiscovery(meta, options = {}) {
-    const { amount = "1", toAddress } = options;
+    const { amount = "1", toAddress, peerPubSig } = options;
 
+    // For broadcast discovery (no specific peer yet), use legacy index allocation
+    // When a response comes in, we'll know the peer and can set up proper branches
     const ctx = this._createKktpContext(true);
+
+    // If we know the target peer, prepare their branch
+    if (peerPubSig) {
+      const branch = await this._prepareKeyBranch(peerPubSig, true);
+      ctx.keyIndex = branch.keyIndex;
+      ctx.baseIndex = branch.baseIndex;
+      ctx.sm.keyIndex = branch.keyIndex;
+      ctx.sm.kktp.prederivedKeys = branch.prederivedKeys;
+    }
+
     const { discovery } = await ctx.protocol.createDiscoveryAnchor(meta);
 
     this._kktpPendingDiscoveries.set(discovery.sid, {
@@ -87,6 +197,9 @@ export class SessionManager {
       discovery,
       createdAt: Date.now(),
     });
+    console.info(
+      `KKTP: pending discovery sid=${discovery.sid?.slice(0, 8)}... pending=${this._kktpPendingDiscoveries.size}`,
+    );
 
     const payload = buildAnchorPayload(discovery);
     const address = toAddress ?? (await this.portal.identity.address);
@@ -103,7 +216,17 @@ export class SessionManager {
   async connectToPeer(discoveryAnchor, options = {}) {
     const { amount = "1", toAddress } = options;
 
-    const ctx = this._createKktpContext(false);
+    // Prepare branch for this specific peer (responder role)
+    const peerPubSig = discoveryAnchor.pub_sig;
+    const branch = await this._prepareKeyBranch(peerPubSig, false);
+
+    const ctx = this._createKktpContext(false, branch.keyIndex);
+    ctx.baseIndex = branch.baseIndex;
+    ctx.sm.kktp.prederivedKeys = branch.prederivedKeys;
+    console.info(
+      `KKTP: connectToPeer peer=${peerPubSig.slice(0, 8)}... base=${branch.baseIndex} keyIndex=${branch.keyIndex}`,
+    );
+
     const { response } =
       await ctx.protocol.createResponseAnchor(discoveryAnchor);
 
@@ -180,8 +303,37 @@ export class SessionManager {
     return null;
   }
 
+  async _loadResumeStateForSid(sid) {
+    if (!sid || !this._persistConfig?.storageKeyPrefix) return null;
+    try {
+      const rec = await this._persistence.getResumeRecord(
+        this._persistConfig.storageKeyPrefix,
+        sid,
+      );
+      if (!rec?.data || typeof rec.data !== "string") return null;
+
+      let parsed = null;
+      try {
+        parsed = strictParseJson(rec.data);
+      } catch {
+        try {
+          parsed = JSON.parse(rec.data);
+        } catch {
+          parsed = null;
+        }
+      }
+
+      if (parsed?.K_session || parsed?.mailbox_id) return parsed;
+    } catch {
+      // no-op
+    }
+    return null;
+  }
+
   async restoreSessions(snapshot, { skipExpired = true } = {}) {
     if (!snapshot || !Array.isArray(snapshot.sessions)) return;
+
+    console.info(`KKTP: restoreSessions count=${snapshot.sessions.length}`);
 
     for (const s of snapshot.sessions) {
       if (!s || !s.discovery) continue;
@@ -189,21 +341,107 @@ export class SessionManager {
       const expectedEndMs = getExpectedEndMs(s.discovery, s.createdAt);
       if (skipExpired && expectedEndMs && Date.now() > expectedEndMs) continue;
 
-      const ctx = this._createKktpContext(!!s.isInitiator, s.keyIndex);
+      const sid = s.discovery?.sid || s.response?.sid || null;
+      let resumeState = s.resumeState || null;
+      if (!resumeState && sid) {
+        resumeState = await this._loadResumeStateForSid(sid);
+        if (resumeState) {
+          console.info("KKTP: loaded resume state from blob");
+        }
+      }
+
+      // --- Deterministic key derivation using peer registry ---
+      const peerPubSig = s.peerPubSig || s.discovery?.pub_sig;
+      let keyIndex = s.keyIndex;
+      let baseIndex = s.baseIndex;
+
+      if (peerPubSig && (keyIndex == null || baseIndex == null)) {
+        try {
+          const peerRecord = await this._persistence.getPeerRecord(peerPubSig);
+          if (peerRecord) {
+            baseIndex = peerRecord.baseIndex;
+            keyIndex = s.isInitiator ? baseIndex + 1 : baseIndex + 2;
+            console.info(
+              `KKTP: restore using peerRecord baseIndex=${baseIndex} keyIndex=${keyIndex}`,
+            );
+          }
+        } catch (err) {
+          console.warn(`KKTP: failed to lookup peer record: ${err?.message}`);
+        }
+      }
+
+      const ctx = this._createKktpContext(!!s.isInitiator, keyIndex);
+      ctx.baseIndex = baseIndex;
+
+      if (s.myDhPriv) ctx.sm.kktp.myDhPriv = s.myDhPriv;
+      if (s.myPrivSig) ctx.sm.kktp.myPrivSig = s.myPrivSig;
+
+      if (!ctx.sm.kktp.myDhPriv || !ctx.sm.kktp.myPrivSig) {
+        const fallbackIndex = Number.isInteger(keyIndex)
+          ? keyIndex
+          : s.isInitiator
+            ? 0
+            : 1;
+        try {
+          const keys = await this.portal.generateIdentityKeys(fallbackIndex);
+          ctx.sm.kktp.myDhPriv = ctx.sm.kktp.myDhPriv || keys.dh.privateKey;
+          ctx.sm.kktp.myPrivSig = ctx.sm.kktp.myPrivSig || keys.sig.privateKey;
+          console.info(
+            `KKTP: re-derived keys for restore (idx=${fallbackIndex})`,
+          );
+        } catch (err) {
+          console.warn(
+            `KKTP: failed to re-derive keys for restore: ${err?.message || err}`,
+          );
+        }
+      }
 
       if (s.isInitiator) {
+        console.info(
+          `KKTP: restore initiator sid=${s.discovery.sid?.slice(0, 8)}...`,
+        );
+        if (!ctx.sm.kktp.discoveryAnchor) {
+          ctx.sm.kktp.discoveryAnchor = s.discovery;
+        }
         this._kktpPendingDiscoveries.set(s.discovery.sid, {
           ...ctx,
           discovery: s.discovery,
           createdAt: s.createdAt || Date.now(),
         });
 
+        const orphan = this._kktpOrphanResponses.get(s.discovery.sid);
+        if (orphan && !s.response) {
+          console.info(
+            `KKTP: applying orphan response sid=${s.discovery.sid?.slice(0, 8)}...`,
+          );
+          s.response = orphan;
+          this._kktpOrphanResponses.delete(s.discovery.sid);
+        }
+
         if (s.response) {
           try {
             await ctx.protocol.processIncoming(s.response);
-          } catch {
-            this._kktpPendingDiscoveries.delete(s.discovery.sid);
+          } catch (err) {
+            console.warn(
+              `KKTP: restore failed response sid=${s.discovery.sid?.slice(0, 8)}...`,
+              err?.message || err,
+            );
             continue;
+          }
+
+          if (resumeState) {
+            applyResumeState(ctx, resumeState);
+            console.info("KKTP: applied resume state (initiator)");
+          } else if (Array.isArray(s.messages) && s.messages.length > 0) {
+            const derived = deriveSeqFromMessages(s.messages);
+            ctx.sm.kktp.outboundSeq = derived.outboundSeq;
+            ctx.sm.kktp.inboundSeq = {
+              AtoB: derived.inboundSeq_AtoB,
+              BtoA: derived.inboundSeq_BtoA,
+            };
+            console.info(
+              `KKTP: derived seq (initiator) out=${derived.outboundSeq} AtoB=${derived.inboundSeq_AtoB} BtoA=${derived.inboundSeq_BtoA}`,
+            );
           }
 
           const mailboxId = ctx.sm?.kktp?.mailboxId || s.mailboxId;
@@ -218,15 +456,43 @@ export class SessionManager {
           });
 
           this._kktpPendingDiscoveries.delete(s.discovery.sid);
+          console.info(
+            `KKTP: restored session mailbox=${mailboxId?.slice(0, 8)}...`,
+          );
         }
       } else {
         try {
+          console.info(
+            `KKTP: restore responder sid=${s.discovery.sid?.slice(0, 8)}...`,
+          );
+          if (!ctx.sm.kktp.discoveryAnchor) {
+            ctx.sm.kktp.discoveryAnchor = s.discovery;
+          }
           await ctx.protocol.processIncoming(s.discovery);
           if (s.response) {
             await ctx.protocol.processIncoming(s.response);
           }
-        } catch {
+        } catch (err) {
+          console.warn(
+            `KKTP: restore responder failed sid=${s.discovery.sid?.slice(0, 8)}...`,
+            err?.message || err,
+          );
           continue;
+        }
+
+        if (resumeState) {
+          applyResumeState(ctx, resumeState);
+          console.info("KKTP: applied resume state (responder)");
+        } else if (Array.isArray(s.messages) && s.messages.length > 0) {
+          const derived = deriveSeqFromMessages(s.messages);
+          ctx.sm.kktp.outboundSeq = derived.outboundSeq;
+          ctx.sm.kktp.inboundSeq = {
+            AtoB: derived.inboundSeq_AtoB,
+            BtoA: derived.inboundSeq_BtoA,
+          };
+          console.info(
+            `KKTP: derived seq (responder) out=${derived.outboundSeq} AtoB=${derived.inboundSeq_AtoB} BtoA=${derived.inboundSeq_BtoA}`,
+          );
         }
 
         const mailboxId = s.mailboxId || ctx.sm?.kktp?.mailboxId;
@@ -239,8 +505,15 @@ export class SessionManager {
           isInitiator: false,
           createdAt: s.createdAt || Date.now(),
         });
+        console.info(
+          `KKTP: restored responder mailbox=${mailboxId?.slice(0, 8)}...`,
+        );
       }
     }
+
+    console.info(
+      `KKTP: restoreSessions complete sessions=${this._kktpSessions.size} pending=${this._kktpPendingDiscoveries.size} orphans=${this._kktpOrphanResponses.size}`,
+    );
   }
 
   closeSession(mailboxId) {
@@ -262,19 +535,64 @@ export class SessionManager {
   }
 
   exportSessions({ includeMessages = true } = {}) {
+    const toHexIfBytes = (value) => {
+      if (typeof value === "string") return value;
+      if (value instanceof Uint8Array) return bytesToHex(value);
+      return null;
+    };
     const sessions = [];
     for (const [mailboxId, s] of this._kktpSessions.entries()) {
+      const kktp = s?.sm?.kktp || {};
+      const myDhPriv = toHexIfBytes(kktp.myDhPriv);
+      const myPrivSig = toHexIfBytes(kktp.myPrivSig);
+      const resumeState = extractResumeState(s);
+
       sessions.push({
         mailboxId,
         keyIndex: s.keyIndex,
+        baseIndex: s.baseIndex ?? null,
         isInitiator: !!s.isInitiator,
         createdAt: s.createdAt || Date.now(),
         discovery: s.discovery || null,
         response: s.response || null,
         peerPubSig: s.peerPubSig || null,
         messages: includeMessages ? s.messages || [] : [],
+        myDhPriv,
+        myPrivSig,
+        resumeState, // <-- NEW: includes K_session + seq counters
       });
     }
+    for (const [sid, pending] of this._kktpPendingDiscoveries.entries()) {
+      const alreadyExported = sessions.some(
+        (entry) => entry.discovery?.sid === sid,
+      );
+      if (alreadyExported) continue;
+      const kktp = pending?.sm?.kktp || {};
+      const myDhPriv = toHexIfBytes(kktp.myDhPriv);
+      const myPrivSig = toHexIfBytes(kktp.myPrivSig);
+      sessions.push({
+        mailboxId: null,
+        keyIndex: pending.keyIndex ?? null,
+        baseIndex: pending.baseIndex ?? null, // Per-contact branch base
+        isInitiator: true,
+        createdAt: pending.createdAt || Date.now(),
+        discovery: pending.discovery || null,
+        response: null,
+        peerPubSig: null,
+        messages: [],
+        myDhPriv,
+        myPrivSig,
+      });
+    }
+    console.info(
+      "KKTP: exportSessions",
+      JSON.stringify({
+        activeCount: this._kktpSessions.size,
+        pendingCount: this._kktpPendingDiscoveries.size,
+        totalCount: sessions.length,
+        includeMessages,
+      }),
+    );
     return {
       version: 1,
       savedAt: Date.now(),
@@ -331,11 +649,13 @@ export class SessionManager {
         resumeData = strictParseJson(raw);
       }
     } catch (err) {
-      throw new Error(`resumeSession: decrypt failed: ${err.message}`);
+      // Corrupt blob - return status instead of throwing so caller can fallback
+      return { status: "decrypt_failed", error: err.message };
     }
 
     if (!resumeData?.mailbox_id || !resumeData?.K_session) {
-      throw new Error("resumeSession: invalid resume blob");
+      // Invalid blob - return status instead of throwing so caller can fallback
+      return { status: "invalid_resume_blob" };
     }
 
     const oldMailboxId = resumeData.mailbox_id;
@@ -589,12 +909,27 @@ export class SessionManager {
     }
 
     if (anchor.type === "discovery") {
+      console.info(`KKTP: discovery anchor sid=${anchor.sid?.slice(0, 8)}...`);
       return { type: "discovery", anchor };
     }
 
     if (anchor.type === "response") {
+      const existing = this._findSessionByDiscoverySid(anchor.sid);
+      if (existing) {
+        console.info(
+          `KKTP: response already applied sid=${anchor.sid?.slice(0, 8)}...`,
+        );
+        return { type: "response_duplicate", mailboxId: existing.mailboxId };
+      }
+      console.info(`KKTP: response anchor sid=${anchor.sid?.slice(0, 8)}...`);
+      console.info(
+        `KKTP: pending discoveries=${this._kktpPendingDiscoveries.size}`,
+      );
       const pending = this._kktpPendingDiscoveries.get(anchor.sid);
       if (pending && anchor.initiator_pub_sig === pending.discovery.pub_sig) {
+        if (!pending.sm.kktp.discoveryAnchor) {
+          pending.sm.kktp.discoveryAnchor = pending.discovery;
+        }
         await pending.protocol.processIncoming(anchor);
 
         const mailboxId = pending.sm.kktp.mailboxId;
@@ -610,10 +945,16 @@ export class SessionManager {
         this._schedulePersist(mailboxId);
 
         this._kktpPendingDiscoveries.delete(anchor.sid);
+        console.info(
+          `KKTP: session established mailbox=${mailboxId?.slice(0, 8)}...`,
+        );
         return { type: "session_established", mailboxId, response: anchor };
       }
-
-      return { type: "response", anchor };
+      this._kktpOrphanResponses.set(anchor.sid, anchor);
+      console.info(
+        `KKTP: buffered response for sid ${anchor.sid.slice(0, 8)}...`,
+      );
+      return { type: "response_orphan", anchor };
     }
 
     if (anchor.type === "session_end") {
@@ -642,7 +983,28 @@ export class SessionManager {
     const plaintexts = session.sm.receiveMessage(msgObject);
     if (plaintexts && plaintexts.length > 0) {
       session.messages = session.messages || [];
+
       for (const plaintext of plaintexts) {
+        // If this is our own outbound message confirming, upgrade the pending entry
+        const pendingIndex = session.messages.findIndex(
+          (m) =>
+            m.isOutbound === true &&
+            m.status === "pending" &&
+            m.plaintext === plaintext &&
+            m.direction === msgObject.direction,
+        );
+
+        if (pendingIndex >= 0) {
+          const pending = session.messages[pendingIndex];
+          session.messages[pendingIndex] = {
+            ...pending,
+            status: "confirmed",
+            timestamp: pending.timestamp || Date.now(),
+          };
+          continue;
+        }
+
+        // Otherwise, add as a new inbound message
         session.messages.push({
           id: crypto.randomUUID(),
           direction: msgObject.direction,
@@ -708,7 +1070,7 @@ export class SessionManager {
     const { storageKeyPrefix, encryptFn, includeMessages } =
       this._persistConfig;
 
-    const resumeState = this._extractResumeState(session);
+    const resumeState = extractResumeState(session);
     if (!includeMessages) {
       resumeState.messages = [];
     }

@@ -23,9 +23,14 @@ export class KKTPProtocol {
   /**
    * PHASE 1: Create a Discovery Anchor
    * Delegates to factory for complex construction/VRF/Versioning.
+   * Uses prederivedKeys if available (per-contact branch system), otherwise derives fresh.
    */
   async createDiscoveryAnchor(meta) {
-    const keys = await kaspaPortal.generateIdentityKeys(0);
+    // Use pre-derived keys from branch system if available, otherwise derive fresh
+    const keys = this.sm.kktp.prederivedKeys
+      ? this.sm.kktp.prederivedKeys
+      : await kaspaPortal.generateIdentityKeys(this.sm.keyIndex);
+
     this.sm.kktp.myDhPriv = keys.dh.privateKey;
     this.sm.kktp.myPrivSig = keys.sig.privateKey; // Store for SessionEnd signing (§5.5)
 
@@ -45,9 +50,14 @@ export class KKTPProtocol {
 
   /**
    * PHASE 2: Create a Response Anchor
+   * Uses prederivedKeys if available (per-contact branch system), otherwise derives fresh.
    */
   async createResponseAnchor(discovery) {
-    const keys = await kaspaPortal.generateIdentityKeys(1);
+    // Use pre-derived keys from branch system if available, otherwise derive fresh
+    const keys = this.sm.kktp.prederivedKeys
+      ? this.sm.kktp.prederivedKeys
+      : await kaspaPortal.generateIdentityKeys(this.sm.keyIndex);
+
     this.sm.kktp.myDhPriv = keys.dh.privateKey;
     this.sm.kktp.myPrivSig = keys.sig.privateKey; // Store for SessionEnd signing (§5.5)
 

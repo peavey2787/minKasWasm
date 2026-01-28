@@ -69,7 +69,6 @@ export async function walkDagToPresent({
       logFn(`[END] Time budget exceeded (maxSeconds=${maxSeconds}).`);
       break;
     }
-    logFn(`[RPC] getBlocks({ lowHash: ${lowHash} })`);
     let resp;
     try {
       resp = await client.getBlocks({
@@ -91,7 +90,7 @@ export async function walkDagToPresent({
       logFn(`[DEBUG] Response: ${JSON.stringify(resp)}`);
       break;
     }
-    logFn(`[INFO] Received ${resp.blocks.length} blocks for hash: ${lowHash}`);
+
     try {
       for (const block of resp.blocks) {
         if (Date.now() >= deadline) {
@@ -102,7 +101,6 @@ export async function walkDagToPresent({
         }
         processed++;
         const blockHash = block.hash || block.header?.hash || "";
-        logFn(`[INFO] Block ${processed}: ${blockHash}`);
 
         const blockTime = Number(block.verboseData?.timestamp || 0);
         if (blockTime < minTimestamp) continue;
@@ -172,9 +170,6 @@ export async function walkDagToPresent({
       }
     } finally {
       // --- THIS IS THE FINAL SWEEP ---
-      logFn(
-        `[CLEANUP] Freeing transactions for ${resp.blocks.length} blocks...`,
-      );
       for (const block of resp.blocks) {
         if (block.transactions) {
           for (const tx of block.transactions) {
@@ -491,7 +486,6 @@ export async function scanDagForward({
   };
 
   const fetchBatch = async (hash) => {
-    logFn(`[RPC] getBlocks({ lowHash: ${hash} })`);
     return client.getBlocks({
       lowHash: hash,
       includeBlocks: true,
@@ -532,9 +526,6 @@ export async function scanDagForward({
       }
 
       processedBatches++;
-      logFn(
-        `[INFO] Received ${resp.blocks.length} blocks for hash: ${lowHash} (batch ${processedBatches})`,
-      );
 
       const lastBlock = resp.blocks[resp.blocks.length - 1];
       const nextLowHash = (
@@ -740,7 +731,6 @@ export async function scanDagBackward({
     const block = resp.block;
     processed++;
     const blockHash = block.hash || block.header?.hash || "";
-    logFn(`[INFO] Block ${processed}: ${blockHash}`);
 
     try {
       // 1. Check block match

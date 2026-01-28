@@ -7,6 +7,10 @@ import {
   responseValidator,
   sessionEndValidator,
 } from "./protocol/integrity/validator.js";
+import {
+  bytesToHex,
+  hexToBytes,
+} from "../wrapper/utilities/utilities.js";
 
 export function normalizeEpochMs(value) {
   const n = Number(value);
@@ -117,12 +121,29 @@ export function validateAnchorOrThrow(anchor) {
 }
 
 export function extractResumeState(session) {
-  const k = session?.sm?.kktp || {};
+  const kktp = session?.sm?.kktp || {};
+
+  // Serialize sessionKey (Uint8Array) to hex for JSON persistence
+  // Exact field name from stateMachine.js: kktp.sessionKey
+  let sessionKeyHex = null;
+  const rawKey = kktp.sessionKey;
+  if (rawKey instanceof Uint8Array && rawKey.length > 0) {
+    sessionKeyHex = bytesToHex(rawKey);
+  } else if (typeof rawKey === "string" && rawKey.length > 0) {
+    sessionKeyHex = rawKey;
+  }
+
+  // Extract sequence numbers - exact field names from stateMachine.js
+  const outboundSeq = kktp.outboundSeq ?? 0;
+  const inboundSeqAtoB = kktp.inboundSeq?.AtoB ?? 0;
+  const inboundSeqBtoA = kktp.inboundSeq?.BtoA ?? 0;
+
   return {
-    mailbox_id: session?.sm?.kktp?.mailboxId || session?.mailboxId || "",
-    K_session: k.sessionKey || k.K_session || null,
-    last_seq_AtoB: k.seqAtoB ?? k.last_seq_AtoB ?? null,
-    last_seq_BtoA: k.seqBtoA ?? k.last_seq_BtoA ?? null,
+    mailbox_id: kktp.mailboxId || session?.mailboxId || "",
+    K_session: sessionKeyHex,
+    outboundSeq,
+    inboundSeq_AtoB: inboundSeqAtoB,
+    inboundSeq_BtoA: inboundSeqBtoA,
     keyIndex: session?.keyIndex ?? null,
     remote_pub_sig: session?.peerPubSig || null,
     isInitiator: !!session?.isInitiator,
@@ -133,19 +154,60 @@ export function extractResumeState(session) {
   };
 }
 
-export function applyResumeState(ctx, resume) {
-  const k = ctx?.sm?.kktp;
-  if (!k) return;
+export function deriveSeqFromMessages(messages = []) {
+  const outboundSeq = messages.filter((m) => m?.isOutbound).length;
 
-  if (resume.mailbox_id) k.mailboxId = resume.mailbox_id;
-  if (resume.K_session) k.sessionKey = resume.K_session;
-  if (resume.last_seq_AtoB != null) k.seqAtoB = resume.last_seq_AtoB;
-  if (resume.last_seq_BtoA != null) k.seqBtoA = resume.last_seq_BtoA;
+  const inboundSeqAtoB = messages.filter(
+    (m) => m?.direction === "AtoB" && m?.status === "confirmed",
+  ).length;
+
+  const inboundSeqBtoA = messages.filter(
+    (m) => m?.direction === "BtoA" && m?.status === "confirmed",
+  ).length;
+
+  return {
+    outboundSeq,
+    inboundSeq_AtoB: inboundSeqAtoB,
+    inboundSeq_BtoA: inboundSeqBtoA,
+  };
+}
+
+export function applyResumeState(ctx, resume) {
+  const kktp = ctx?.sm?.kktp;
+  if (!kktp) return;
+
+  // Restore mailboxId
+  if (resume.mailbox_id) kktp.mailboxId = resume.mailbox_id;
+
+  // Deserialize K_session from hex string back to Uint8Array
+  // Exact field name from stateMachine.js: kktp.sessionKey
+  if (resume.K_session) {
+    if (resume.K_session instanceof Uint8Array) {
+      kktp.sessionKey = resume.K_session;
+    } else if (typeof resume.K_session === "string") {
+      kktp.sessionKey = hexToBytes(resume.K_session);
+    }
+  }
+
+  // Restore sequence numbers - exact field names from stateMachine.js
+  if (resume.outboundSeq != null) kktp.outboundSeq = resume.outboundSeq;
+  if (resume.inboundSeq_AtoB != null || resume.inboundSeq_BtoA != null) {
+    kktp.inboundSeq = kktp.inboundSeq || { AtoB: 0, BtoA: 0 };
+    if (resume.inboundSeq_AtoB != null) {
+      kktp.inboundSeq.AtoB = resume.inboundSeq_AtoB;
+    }
+    if (resume.inboundSeq_BtoA != null) {
+      kktp.inboundSeq.BtoA = resume.inboundSeq_BtoA;
+    }
+  }
 }
 
 export function zeroOutSessionKey(session) {
-  const k = session?.sm?.kktp;
-  if (!k) return;
-  if (typeof k.sessionKey === "string") k.sessionKey = "";
-  else k.sessionKey = null;
+  const kktp = session?.sm?.kktp;
+  if (!kktp) return;
+  // Securely zeroize the sessionKey
+  if (kktp.sessionKey instanceof Uint8Array) {
+    kktp.sessionKey.fill(0);
+  }
+  kktp.sessionKey = null;
 }

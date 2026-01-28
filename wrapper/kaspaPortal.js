@@ -746,6 +746,10 @@ export class KaspaPortal {
     return this.sessionManager.configureResumePersistence(options);
   }
 
+  forcePersistAllSessions() {
+    return this.sessionManager.forcePersistAllSessions();
+  }
+
   /** Restore KKTP sessions from a snapshot.
    * @param {Object} snapshot - Snapshot object from exportSessions()
    * @param {Object} [options]

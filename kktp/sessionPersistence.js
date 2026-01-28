@@ -1,15 +1,122 @@
 export class SessionPersistence {
   constructor({
     dbName = "KKTP_DB",
-    version = 2,
+    version = 1,
     sessionStore = "sessions",
     snapshotStore = "dashboard_snapshots",
+    peerStore = "peer_registry",
+    metaStore = "meta",
   } = {}) {
     this.dbName = dbName;
     this.version = version;
     this.sessionStore = sessionStore;
     this.snapshotStore = snapshotStore;
+    this.peerStore = peerStore;
+    this.metaStore = metaStore;
     this._dbPromise = null;
+    this._recreatedOnce = false;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Peer Registry: Per-contact baseIndex allocation with PFS
+
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Upsert a peer record (keyed by peerPubSig).
+   * @param {Object} record - { peerPubSig, baseIndex, usedBranches: [], createdAt, updatedAt }
+   */
+  async upsertPeerRecord(record) {
+    if (typeof indexedDB === "undefined" || !record?.peerPubSig) return false;
+    const db = await this._openDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(this.peerStore, "readwrite");
+      const store = tx.objectStore(this.peerStore);
+      store.put({ ...record, updatedAt: Date.now() });
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  }
+
+  /**
+   * Get a peer record by peerPubSig.
+   */
+  async getPeerRecord(peerPubSig) {
+    if (typeof indexedDB === "undefined" || !peerPubSig) return null;
+    const db = await this._openDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(this.peerStore, "readonly");
+      const store = tx.objectStore(this.peerStore);
+      const req = store.get(peerPubSig);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  /**
+   * Get all peer records.
+   */
+  async getAllPeerRecords() {
+    if (typeof indexedDB === "undefined") return [];
+    const db = await this._openDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(this.peerStore, "readonly");
+      const store = tx.objectStore(this.peerStore);
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  /**
+   * Mark a branch index as "used" for PFS (never reuse).
+   * @param {string} peerPubSig
+   * @param {number} branchIndex - The TX or RX index used
+   */
+  async markPeerBranchUsed(peerPubSig, branchIndex) {
+    if (!peerPubSig || branchIndex == null) return false;
+    const record = await this.getPeerRecord(peerPubSig);
+    if (!record) return false;
+    const usedBranches = new Set(record.usedBranches || []);
+    usedBranches.add(branchIndex);
+    record.usedBranches = [...usedBranches];
+    return await this.upsertPeerRecord(record);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Meta Store: Global counters (e.g., nextBaseIndex)
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Get a meta value by key.
+   */
+  async getMeta(key) {
+    if (typeof indexedDB === "undefined" || !key) return null;
+    const db = await this._openDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(this.metaStore, "readonly");
+      const store = tx.objectStore(this.metaStore);
+      const req = store.get(key);
+      req.onsuccess = () => resolve(req.result?.value ?? null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  /**
+   * Set a meta value by key.
+   */
+  async setMeta(key, value) {
+    if (typeof indexedDB === "undefined" || !key) return false;
+    const db = await this._openDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(this.metaStore, "readwrite");
+      const store = tx.objectStore(this.metaStore);
+      store.put({ key, value, updatedAt: Date.now() });
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
   }
 
   async putResumeRecord(record) {
@@ -93,8 +200,11 @@ export class SessionPersistence {
     this._dbPromise = new Promise((resolve, reject) => {
       const request = indexedDB.open(this.dbName, this.version);
 
-      request.onupgradeneeded = () => {
+      request.onupgradeneeded = (event) => {
         const db = request.result;
+        const oldVersion = event.oldVersion || 0;
+
+        // Version 1 stores
         if (!db.objectStoreNames.contains(this.sessionStore)) {
           const store = db.createObjectStore(this.sessionStore, {
             keyPath: "sid",
@@ -111,9 +221,47 @@ export class SessionPersistence {
           });
           snapshotStore.createIndex("savedAt", "savedAt", { unique: false });
         }
+
+        // Version 2 stores: peer_registry + meta
+        if (oldVersion < 2) {
+          if (
+            this.peerStore &&
+            !db.objectStoreNames.contains(this.peerStore)
+          ) {
+            const peerStore = db.createObjectStore(this.peerStore, {
+              keyPath: "peerPubSig",
+            });
+            peerStore.createIndex("baseIndex", "baseIndex", { unique: true });
+            peerStore.createIndex("updatedAt", "updatedAt", { unique: false });
+          }
+          if (
+            this.metaStore &&
+            !db.objectStoreNames.contains(this.metaStore)
+          ) {
+            db.createObjectStore(this.metaStore, { keyPath: "key" });
+          }
+        }
       };
 
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => {
+        const db = request.result;
+        const hasPeers = db.objectStoreNames.contains(this.peerStore);
+        const hasMeta = db.objectStoreNames.contains(this.metaStore);
+
+        if ((!hasPeers || !hasMeta) && !this._recreatedOnce) {
+          this._recreatedOnce = true;
+          db.close();
+          const del = indexedDB.deleteDatabase(this.dbName);
+          del.onsuccess = () => {
+            this._dbPromise = null;
+            this._openDb().then(resolve).catch(reject);
+          };
+          del.onerror = () => reject(del.error);
+          return;
+        }
+
+        resolve(db);
+      };
       request.onerror = () => reject(request.error);
     });
 
