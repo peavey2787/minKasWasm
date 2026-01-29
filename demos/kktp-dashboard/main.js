@@ -10,6 +10,7 @@ import { elements } from "./dom.js";
 import { saveSessionSnapshot } from "./storage.js";
 import { recoverSessionsOnLoad, handleFetchMissed } from "./sync.js";
 import { handleIncomingMatch, handleIncomingEvent } from "./events.js";
+import { buildAnchorPayload } from "../../kktp/smHelpers.js";
 import {
   logEvent,
   updateConnectionStatus,
@@ -360,27 +361,47 @@ async function handleSendMessage() {
 /**
  * Handle close session
  */
-function handleCloseSession() {
+async function handleCloseSession() {
   if (!dashboardState.activeSessionId) return;
 
   const mailboxId = dashboardState.activeSessionId;
-  if (!kaspaPortal.isSessionExpired(mailboxId)) {
-    logEvent(
-      "Session can only be closed by a valid session_end anchor or expiry.",
-      "info",
-    );
+  if (dashboardState.closingSessions.has(mailboxId)) {
+    logEvent("Session close already in progress.", "info");
     return;
   }
 
-  kaspaPortal.closeSession(mailboxId);
-  scheduleSessionSave();
+  const session = getSession(mailboxId);
+  if (!session?.protocol?.createEndAnchor) {
+    logEvent("Unable to close: session protocol unavailable.", "error");
+    return;
+  }
 
-  dashboardState.activeSessionId = null;
+  dashboardState.closingSessions.add(mailboxId);
   setChatEnabled(false);
-  renderChatMessages(null);
   refreshSessionList();
 
-  logEvent(`Session ${mailboxId.substring(0, 8)}... closed`, "info");
+  try {
+    logEvent("Broadcasting session_end anchor...", "info");
+    const endAnchor = await session.protocol.createEndAnchor("user_closed");
+    const payload = buildAnchorPayload(endAnchor);
+    const address = dashboardState.walletAddress || kaspaPortal.identity.address;
+
+    await kaspaPortal.send({
+      toAddress: address,
+      amount: "1",
+      payload,
+    });
+
+    logEvent(
+      `Session close broadcast for ${mailboxId.substring(0, 8)}...`,
+      "success",
+    );
+    scheduleSessionSave();
+  } catch (err) {
+    dashboardState.closingSessions.delete(mailboxId);
+    setChatEnabled(true);
+    logEvent(`Session close failed: ${err.message}`, "error");
+  }
 }
 
 /**

@@ -139,24 +139,16 @@ export class AnchorFactory {
    */
   async createSessionEndAnchor(
     sid,
-    sig,
+    pubSig,
     reason = "Session terminated by user",
   ) {
     const anchor = {
       type: "session_end",
       version: 1,
       sid: sid,
-      pub_sig: sig.publicKey,
+      pub_sig: pubSig,
       reason: reason,
     };
-
-    // COMPLIANCE §5.5: Sign the end signal
-    const messageToSign = canonicalize(anchor);
-    anchor.sig = await kaspaPortal.crypto.signMessage(
-      sig.privateKey,
-      messageToSign,
-    );
-
     return anchor;
   }
 }

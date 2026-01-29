@@ -8,11 +8,12 @@ import {
   canonicalize,
   prepareForSigning,
   toPlainJson as _toPlainJson,
-  strictParseJson
+  strictParseJson,
 } from "./integrity/canonical.js";
 import { KKTP_STATES } from "./stateMachine.js";
 import { AnchorFactory } from "./integrity/anchorFactory.js";
 import { kaspaPortal } from "../../wrapper/kaspaPortal.js";
+import { bytesToHex } from "./utils/conversions.js";
 
 export class KKTPProtocol {
   constructor(stateMachine) {
@@ -91,13 +92,31 @@ export class KKTPProtocol {
    * PHASE 4: Terminate (§5.5, §7.7)
    */
   async createEndAnchor(reason = "finished") {
-    const anchor = this.anchorFactory.createSessionEndAnchor(
+    let priv = this.sm.kktp.myPrivSig;
+    let pub = this.sm.kktp.myPubSig;
+
+    // Normalize or re-derive if missing/invalid
+    if (!priv || (typeof priv !== "string" && !(priv instanceof Uint8Array))) {
+      const keys = this.sm.kktp.prederivedKeys
+        ? this.sm.kktp.prederivedKeys
+        : await kaspaPortal.generateIdentityKeys(this.sm.keyIndex);
+      priv = keys.sig.privateKey;
+      pub = keys.sig.publicKey;
+    }
+
+    if (priv instanceof Uint8Array) {
+      priv = bytesToHex(priv);
+    }
+
+    this.sm.kktp.myPrivSig = priv;
+    this.sm.kktp.myPubSig = pub;
+
+    const anchor = await this.anchorFactory.createSessionEndAnchor(
       this.sm.kktp.sid,
       this.sm.kktp.myPubSig,
       reason,
     );
 
-    // Sign with the session's signing key
     anchor.sig = await this.signAnchor(anchor, this.sm.kktp.myPrivSig);
 
     sessionEndValidator.validate(anchor);

@@ -121,6 +121,9 @@ export function handleIncomingEvent(event, deps = {}) {
       break;
     case "session_end":
       logEvent(`Session ended: ${event.reason}`, "info");
+      if (event.mailboxId) {
+        dashboardState.closingSessions?.delete(event.mailboxId);
+      }
       if (
         event.mailboxId &&
         event.mailboxId === dashboardState.activeSessionId
