@@ -15,6 +15,9 @@ export const elements = {
   get walletAddress() { return $("walletAddress"); },
   get btnCopyAddress() { return $("btnCopyAddress"); },
   get walletBalance() { return $("walletBalance"); },
+  get missedStartHashInput() { return $("missedStartHashInput"); },
+  get btnFetchMissed() { return $("btnFetchMissed"); },
+  get missedStatus() { return $("missedStatus"); },
 
   // Peer Discovery
   get peerList() { return $("peerList"); },

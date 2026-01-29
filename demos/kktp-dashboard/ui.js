@@ -26,27 +26,38 @@ export function updateConnectionStatus(isConnected, networkId = "") {
 
   if (isConnected) {
     el.textContent = `Connected: ${networkId}`;
-    el.className = "status-badge connected";
+    el.className = "badge rounded-pill text-bg-success";
   } else {
     el.textContent = "Disconnected";
-    el.className = "status-badge disconnected";
+    el.className = "badge rounded-pill text-bg-danger";
   }
 }
 
 /**
  * Update scanner status display
  */
-export function updateScannerStatus(isScanning) {
+export function updateScannerStatus(state) {
   const el = elements.scannerStatus;
   if (!el) return;
 
-  if (isScanning) {
-    el.textContent = "Scanning";
-    el.className = "status-badge scanning";
-  } else {
-    el.textContent = "Idle";
-    el.className = "status-badge idle";
+  if (typeof state === "boolean") {
+    state = state ? "ready" : "idle";
   }
+
+  if (state === "syncing") {
+    el.textContent = "Syncing";
+    el.className = "badge rounded-pill text-bg-warning";
+    return;
+  }
+
+  if (state === "ready") {
+    el.textContent = "Ready";
+    el.className = "badge rounded-pill text-bg-success";
+    return;
+  }
+
+  el.textContent = "Idle";
+  el.className = "badge rounded-pill text-bg-secondary";
 }
 
 /**
@@ -59,8 +70,11 @@ export function updateIdentityDisplay(pubSig) {
   if (pubSig) {
     el.textContent = `${pubSig.substring(0, 8)}...${pubSig.substring(pubSig.length - 8)}`;
     el.title = pubSig;
+    el.className = "small text-accent";
   } else {
-    el.textContent = "Not initialized";
+    el.className = "small text-secondary";
+    el.innerHTML =
+      'Fund your wallet via the <a href="https://faucet-tn10.kaspanet.io/" target="_blank" rel="noopener">Testnet-10 faucet</a> — copy the address below and send test KAS.';
   }
 }
 
@@ -69,15 +83,37 @@ export function updateIdentityDisplay(pubSig) {
  */
 export function updateWalletAddress(address) {
   const el = elements.walletAddress;
+  const btn = elements.btnCopyAddress;
   if (!el) return;
 
   if (address) {
     el.textContent = `Address: ${truncateAddress(address)}`;
     el.title = address;
+    el.classList.remove("wallet-address-wrap");
+    if (btn) btn.disabled = false;
   } else {
     el.textContent = "Address: —";
     el.title = "";
+    el.classList.remove("wallet-address-wrap");
+    if (btn) btn.disabled = true;
   }
+}
+
+/**
+ * Show the full wallet address (wrapped) for manual copy.
+ */
+export function showFullWalletAddress(address) {
+  const el = elements.walletAddress;
+  if (!el) return;
+  if (!address) {
+    el.textContent = "Address: —";
+    el.title = "";
+    el.classList.remove("wallet-address-wrap");
+    return;
+  }
+  el.textContent = `Address: ${address}`;
+  el.title = address;
+  el.classList.add("wallet-address-wrap");
 }
 
 /**
@@ -112,7 +148,20 @@ export function updateBroadcastStatus(status, type = "info") {
   if (!el) return;
 
   el.textContent = status;
-  el.className = `broadcast-status ${type}`;
+  el.className = "small text-center";
+  if (type === "success") el.classList.add("text-success");
+  else if (type === "error") el.classList.add("text-danger");
+  else if (type === "pending") el.classList.add("text-warning");
+  else el.classList.add("text-secondary");
+}
+
+/**
+ * Update missed-scan status
+ */
+export function setMissedStatus(text) {
+  const el = elements.missedStatus;
+  if (!el) return;
+  el.textContent = text || "";
 }
 
 /**
@@ -133,7 +182,7 @@ export function renderPeerList(onConnect) {
 
   if (peers.length === 0) {
     list.innerHTML =
-      '<div class="empty-state">No peers discovered yet...</div>';
+      '<div class="list-group-item text-secondary">No peers discovered yet...</div>';
     return;
   }
 
@@ -149,18 +198,18 @@ export function renderPeerList(onConnect) {
     const timeAgo = formatTimeAgo(discoveredAt);
 
     const item = document.createElement("div");
-    item.className = "peer-item";
+    item.className = "list-group-item d-flex justify-content-between align-items-center";
 
     item.innerHTML = `
-      <div class="peer-info">
-        <span class="peer-id" title="${discovery.pub_sig}">${pubSigShort}</span>
-        <span class="peer-game">${gameInfo}</span>
-        <span class="peer-time">${timeAgo}</span>
+      <div class="d-flex flex-column">
+        <span class="fw-semibold text-accent" title="${discovery.pub_sig}">${pubSigShort}</span>
+        <span class="small text-secondary">${gameInfo}</span>
+        <span class="small text-secondary">${timeAgo}</span>
       </div>
-      <button class="btn-connect" data-sid="${discovery.sid}">Connect</button>
+      <button class="btn btn-primary btn-sm" data-sid="${discovery.sid}">Connect</button>
     `;
 
-    const btn = item.querySelector(".btn-connect");
+    const btn = item.querySelector("button");
     btn.addEventListener("click", () => onConnect(discovery));
 
     list.appendChild(item);
@@ -182,28 +231,38 @@ export function renderSessionList(sessions, activeId, onSelect) {
   list.innerHTML = "";
 
   if (sessions.length === 0) {
-    list.innerHTML = '<div class="empty-state">No active sessions</div>';
+    list.innerHTML = '<div class="list-group-item text-secondary">No active sessions</div>';
     return;
   }
 
   for (const session of sessions) {
     const item = document.createElement("div");
-    item.className = `session-item ${session.mailboxId === activeId ? "active" : ""}`;
+    const isActive = session.mailboxId === activeId;
+    item.className = `list-group-item list-group-item-action d-flex justify-content-between align-items-center ${isActive ? "active" : ""}`;
     item.dataset.mailboxId = session.mailboxId;
 
-    const peerShort = `${session.peerPubSig.substring(0, 8)}...`;
-    const unread = session.messages.filter(
+    const peerSig = session.peerPubSig || "unknown";
+    const peerShort = `${peerSig.substring(0, 8)}...`;
+    const unread = (session.messages || []).filter(
       (m) => !m.isOutbound && !m.read,
     ).length;
     const role = session.isInitiator ? "I" : "R";
+    const state = session?.sm?.state || "active";
+
+    const statusClass =
+      state.toLowerCase() === "active"
+        ? "text-bg-success"
+        : state.toLowerCase() === "faulted"
+          ? "text-bg-danger"
+          : "text-bg-secondary";
 
     item.innerHTML = `
-      <div class="session-info">
-        <span class="session-peer" title="${session.peerPubSig}">${peerShort}</span>
-        <span class="session-role">[${role}]</span>
-        ${unread > 0 ? `<span class="unread-badge">${unread}</span>` : ""}
+      <div class="d-flex align-items-center gap-2">
+        <span class="fw-semibold" title="${peerSig}">${peerShort}</span>
+        <span class="small text-secondary">[${role}]</span>
+        ${unread > 0 ? `<span class="badge rounded-pill text-bg-info">${unread}</span>` : ""}
       </div>
-      <span class="session-status ${session.sm.state.toLowerCase()}">${session.sm.state}</span>
+      <span class="badge rounded-pill ${statusClass}">${state}</span>
     `;
 
     item.addEventListener("click", () => onSelect(session.mailboxId));
@@ -221,7 +280,7 @@ export function renderChatMessages(session) {
 
   if (!session) {
     container.innerHTML =
-      '<div class="empty-state">Select a session to view messages</div>';
+      '<div class="text-secondary text-center">Select a session to view messages</div>';
     if (header) header.textContent = "No Session Selected";
     return;
   }
@@ -235,7 +294,7 @@ export function renderChatMessages(session) {
 
   if (session.messages.length === 0) {
     container.innerHTML =
-      '<div class="empty-state">No messages yet. Say hello!</div>';
+      '<div class="text-secondary text-center">No messages yet. Say hello!</div>';
     return;
   }
 

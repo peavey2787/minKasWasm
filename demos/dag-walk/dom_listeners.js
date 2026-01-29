@@ -9,4 +9,5 @@ export function attachListeners() {
   elements.getRunBtn().onclick = handlers.handleRunClick;
   elements.getClearBtn().onclick = handlers.handleClearClick;
   elements.getModeSelect().onchange = handlers.handleModeChange;
+  elements.getCloseModalBtn().onclick = handlers.handleCloseModalClick;
 }

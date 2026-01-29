@@ -1,111 +1,188 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>KKTP Dashboard - Live Kaspa Messaging</title>
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+  >
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
-  <div class="dashboard">
-    <!-- Header -->
-    <header class="header">
-      <h1>🔐 KKTP Dashboard</h1>
-      <div class="header-status">
-        <span id="connectionStatus" class="status-badge disconnected">Disconnected</span>
-        <span id="scannerStatus" class="status-badge idle">Idle</span>
-      </div>
-    </header>
-
-    <!-- Left Sidebar -->
-    <aside class="sidebar">
-      <!-- Identity Hub -->
-      <section class="sidebar-section">
-        <div class="sidebar-header">
-          <h2>Identity Hub</h2>
+<body class="vh-100 d-flex flex-column">
+  <header class="border-bottom">
+    <div class="container-fluid py-2">
+      <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+        <div class="d-flex align-items-center gap-2">
+          <h1 class="h5 mb-0">🔐 KKTP Dashboard</h1>
+          <span id="connectionStatus" class="badge rounded-pill text-bg-danger">Disconnected</span>
+          <span id="scannerStatus" class="badge rounded-pill text-bg-secondary">Idle</span>
         </div>
-        <div class="identity-hub">
-          <div id="identityDisplay" class="identity-display">Not initialized</div>
-
-          <div class="wallet-row">
-            <span id="walletAddress" class="wallet-address">Address: —</span>
-            <button id="btnCopyAddress" class="btn btn-secondary btn-small" disabled>Copy</button>
-          </div>
-          <div id="walletBalance" class="wallet-balance">Balance: —</div>
-
-          <div class="form-group">
-            <label for="gameName">Game Name</label>
-            <input type="text" id="gameName" value="KKTP Chat" placeholder="Your game name">
-          </div>
-
-          <div class="form-group">
-            <label for="uptimeSeconds">Uptime (seconds)</label>
-            <input type="number" id="uptimeSeconds" value="3600" min="60" step="60">
-          </div>
-
-          <button id="btnBroadcast" class="btn btn-primary" style="width: 100%" disabled>
-            Broadcast Discovery
+        <div class="d-flex align-items-center gap-2">
+          <button
+            class="btn btn-outline-light btn-sm d-lg-none"
+            type="button"
+            data-bs-toggle="offcanvas"
+            data-bs-target="#offcanvasSidebar"
+            aria-controls="offcanvasSidebar"
+          >
+            Peers & Sessions
           </button>
-          <div id="broadcastStatus" class="broadcast-status">Ready to broadcast</div>
+          <button
+            class="btn btn-outline-light btn-sm d-lg-none"
+            type="button"
+            data-bs-toggle="offcanvas"
+            data-bs-target="#offcanvasLog"
+            aria-controls="offcanvasLog"
+          >
+            Event Log
+          </button>
         </div>
-      </section>
-
-      <!-- Peer Discovery -->
-      <section class="sidebar-section" style="flex: 1; display: flex; flex-direction: column;">
-        <div class="sidebar-header">
-          <h2>Discovered Peers</h2>
-          <span id="peerCount" class="count-badge">0</span>
-        </div>
-        <div id="peerList" class="sidebar-content">
-          <div class="empty-state">No peers discovered yet...</div>
-        </div>
-      </section>
-
-      <!-- Active Sessions -->
-      <section class="sidebar-section" style="flex: 1; display: flex; flex-direction: column;">
-        <div class="sidebar-header">
-          <h2>Active Sessions</h2>
-          <span id="sessionCount" class="count-badge">0</span>
-        </div>
-        <div id="sessionList" class="sidebar-content">
-          <div class="empty-state">No active sessions</div>
-        </div>
-      </section>
-    </aside>
-
-    <!-- Main Chat Area -->
-    <main class="main-content">
-      <div class="chat-header">
-        <h2 id="chatHeader">No Session Selected</h2>
-        <button id="btnCloseSession" class="btn btn-danger btn-small" disabled>
-          Close Session
-        </button>
       </div>
+    </div>
+  </header>
 
-      <div id="chatMessages" class="chat-messages">
-        <div class="empty-state">Select a session to view messages</div>
-      </div>
-
-      <div class="chat-input">
-        <input
-          type="text"
-          id="messageInput"
-          placeholder="Type a message..."
-          disabled
+  <main class="container-fluid flex-grow-1 d-flex py-2">
+    <div class="row flex-grow-1 w-100 g-2">
+      <!-- Sidebar (offcanvas on mobile, static on lg) -->
+      <div class="col-lg-3">
+        <div
+          class="offcanvas offcanvas-start offcanvas-lg h-100"
+          tabindex="-1"
+          id="offcanvasSidebar"
+          aria-labelledby="offcanvasSidebarLabel"
+          data-bs-scroll="true"
+          data-bs-backdrop="true"
         >
-        <button id="btnSend" class="btn btn-primary" disabled>Send</button>
-      </div>
-    </main>
+          <div class="offcanvas-header d-lg-none">
+            <h5 id="offcanvasSidebarLabel" class="mb-0">Peers & Sessions</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body p-0 p-lg-0 d-flex flex-column gap-2 h-100">
+            <div class="card">
+              <div class="card-header">Identity Hub</div>
+              <div class="card-body d-flex flex-column gap-2">
+                <div id="identityDisplay" class="small text-secondary">
+                  Fund your wallet via the
+                  <a href="https://faucet.kaspanet.io/" target="_blank" rel="noopener">Testnet-10 faucet</a>
+                  — copy the address below and send test KAS.
+                </div>
 
-    <!-- Right Panel - Event Log -->
-    <aside class="right-panel">
-      <div class="log-header">
-        <h2>Event Log</h2>
-      </div>
-      <div id="eventLog" class="event-log"></div>
-    </aside>
-  </div>
+                <div class="d-flex align-items-center justify-content-between gap-2">
+                  <span id="walletAddress" class="small text-secondary text-truncate">Address: —</span>
+                  <button id="btnCopyAddress" class="btn btn-outline-light btn-sm" disabled>Copy</button>
+                </div>
+                <div id="walletBalance" class="small text-secondary">Balance: —</div>
 
+                <div>
+                  <label for="gameName" class="form-label small text-secondary">Game Name</label>
+                  <input type="text" id="gameName" value="KKTP Chat" class="form-control form-control-sm" placeholder="Your game name">
+                </div>
+
+                <div>
+                  <label for="uptimeSeconds" class="form-label small text-secondary">Uptime (seconds)</label>
+                  <input type="number" id="uptimeSeconds" value="3600" min="60" step="60" class="form-control form-control-sm">
+                </div>
+
+                <button id="btnBroadcast" class="btn btn-primary w-100" disabled>
+                  Broadcast Discovery
+                </button>
+                <div id="broadcastStatus" class="small text-center">Ready to broadcast</div>
+
+                <div>
+                  <label for="missedStartHashInput" class="form-label small text-secondary">Missed Messages: Start Block Hash (optional)</label>
+                  <input
+                    type="text"
+                    id="missedStartHashInput"
+                    class="form-control form-control-sm"
+                    placeholder="Leave empty to use last discovery block"
+                  >
+                </div>
+
+                <button id="btnFetchMissed" class="btn btn-outline-light w-100">
+                  Fetch Missed Messages
+                </button>
+                <div id="missedStatus" class="small text-center">Ready to scan</div>
+              </div>
+            </div>
+
+            <div class="card flex-grow-1">
+              <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Discovered Peers</span>
+                <span id="peerCount" class="badge rounded-pill text-bg-secondary">0</span>
+              </div>
+              <div id="peerList" class="list-group list-group-flush flex-grow-1 overflow-auto">
+                <div class="list-group-item text-secondary">No peers discovered yet...</div>
+              </div>
+            </div>
+
+            <div class="card flex-grow-1">
+              <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Active Sessions</span>
+                <span id="sessionCount" class="badge rounded-pill text-bg-secondary">0</span>
+              </div>
+              <div id="sessionList" class="list-group list-group-flush flex-grow-1 overflow-auto">
+                <div class="list-group-item text-secondary">No active sessions</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat -->
+      <section class="col-12 col-lg-6 d-flex flex-column">
+        <div class="card flex-grow-1 d-flex flex-column">
+          <div class="card-header d-flex align-items-center justify-content-between">
+            <h2 id="chatHeader" class="h6 mb-0">No Session Selected</h2>
+            <button id="btnCloseSession" class="btn btn-outline-danger btn-sm" disabled>
+              Close Session
+            </button>
+          </div>
+          <div id="chatMessages" class="card-body d-flex flex-column gap-2 overflow-auto">
+            <div class="text-secondary text-center">Select a session to view messages</div>
+          </div>
+          <div class="card-footer">
+            <div class="input-group">
+              <input
+                type="text"
+                id="messageInput"
+                class="form-control"
+                placeholder="Type a message..."
+                disabled
+              >
+              <button id="btnSend" class="btn btn-primary" disabled>Send</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Event Log (offcanvas on mobile, static on lg) -->
+      <div class="col-lg-3">
+        <div
+          class="offcanvas offcanvas-end offcanvas-lg h-100"
+          tabindex="-1"
+          id="offcanvasLog"
+          aria-labelledby="offcanvasLogLabel"
+          data-bs-scroll="true"
+          data-bs-backdrop="true"
+        >
+          <div class="offcanvas-header d-lg-none">
+            <h5 id="offcanvasLogLabel" class="mb-0">Event Log</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body p-0 p-lg-0">
+            <div class="card h-100">
+              <div class="card-header">Event Log</div>
+              <div id="eventLog" class="card-body small font-monospace overflow-auto"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script type="module" src="main.js"></script>
 </body>
 </html>

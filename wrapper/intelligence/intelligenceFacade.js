@@ -216,24 +216,41 @@ export class IntelligenceFacade {
    * Synchronizes the indexer from a specific block hash to the present.
    * @param {string} startHash - The starting block hash.
    * @param {function} logFn - Optional logging function.
-   * @param {Object} options - { maxSeconds, minTimestamp }
+   * @param {Object} options - { maxSeconds, minTimestamp, prefixes, onBlock, onTransactionMatch }
    * @returns {Promise<void>}
    */
   async syncFrom(
     startHash,
     logFn = null,
-    { maxSeconds = 30, minTimestamp = 0 } = {},
+    {
+      maxSeconds = 30,
+      minTimestamp = 0,
+      prefixes = [],
+      onBlock = [],
+      onTransactionMatch = [],
+    } = {},
   ) {
+    const onBlockCbs = Array.isArray(onBlock)
+      ? onBlock
+      : typeof onBlock === "function"
+        ? [onBlock]
+        : [];
+
     return walkDagToPresent({
       client: this.client,
       startHash,
       logFn,
       maxSeconds,
       minTimestamp,
-      onBlock: (block) => {
-        this.indexer.addBlock(block);
-        return false;
-      },
+      prefixes,
+      onBlock: [
+        (block) => {
+          this.indexer.addBlock(block);
+          return false;
+        },
+        ...onBlockCbs,
+      ],
+      onTransactionMatch,
     });
   }
 

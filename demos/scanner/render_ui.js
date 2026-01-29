@@ -22,8 +22,24 @@ export function addBlockToUI(block, match, matchedPayload) {
 
   if (match) {
     const div = document.createElement("div");
-    div.className = "block match";
+    div.className = "block match clickable";
     div.textContent = blockText;
+
+    const fullHash = header?.hash || block?.hash || "";
+    if (fullHash) {
+      div.setAttribute("data-hash", fullHash);
+      div.title = "Click to copy block hash";
+      div.onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(fullHash);
+          div.classList.add("copied");
+          setTimeout(() => div.classList.remove("copied"), 800);
+        } catch {
+          // no-op
+        }
+      };
+    }
+
     const container = elements.getMatchesContainer();
     container.prepend(div);
 
@@ -268,7 +284,7 @@ export function renderInMemoryBlocksSection(blocks) {
     itemClass: "block indexed-block",
     getItemText: (block) => {
       const { hash, blueScore, txCount, timestamp } = getBlockSummary(block);
-      return `Hash: ${hash?.slice(0,6)}... | BlueScore: ${blueScore} | Txs: ${txCount} | Time: ${new Date(timestamp).toLocaleTimeString()}`;
+      return `Hash: ${hash?.slice(0, 6)}... | BlueScore: ${blueScore} | Txs: ${txCount} | Time: ${new Date(timestamp).toLocaleTimeString()}`;
     },
     keyAttr: "data-hash",
     keyGetter: (block) => block?.hash || block?.header?.hash,

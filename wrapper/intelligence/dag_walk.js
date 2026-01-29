@@ -1,4 +1,8 @@
-import { dehydrateTx } from "../utilities/utilities.js";
+import {
+  dehydrateTx,
+  dehydrateBlock,
+  payloadToHex,
+} from "../utilities/utilities.js";
 /**
  * Walks the DAG forward from a starting block hash to the present, invoking a callback for each block.
  * @param {Object} options
@@ -7,7 +11,9 @@ import { dehydrateTx } from "../utilities/utilities.js";
  * @param {number} [options.maxSeconds=30] - Time budget for scanning
  * @param {number} [options.minTimestamp=0] - Minimum block timestamp to consider
  * @param {function} [options.logFn] - Optional logging function
- * @param {function} options.onBlock - Function(block) called for each block; return true to stop walking
+ * @param {function|function[]} [options.onBlock] - Callback(s) called for each block; return true to stop walking
+ * @param {function|function[]} [options.onTransactionMatch] - Callback(s) called on tx match; return true to stop walking
+ * @param {string[]} [options.prefixes] - Plain-text prefixes to match (will be hex-encoded)
  */
 export async function walkDagToPresent({
   client,
@@ -16,6 +22,8 @@ export async function walkDagToPresent({
   minTimestamp = 0,
   logFn,
   onBlock,
+  onTransactionMatch,
+  prefixes = [],
 } = {}) {
   if (!client) throw new Error("walkDagToPresent: client is required");
   if (typeof startHash !== "string" || startHash.length === 0)
@@ -23,6 +31,30 @@ export async function walkDagToPresent({
   let lowHash = startHash;
   let processed = 0;
   logFn = typeof logFn === "function" ? logFn : () => {};
+
+  const onBlockCbs = Array.isArray(onBlock)
+    ? onBlock.filter((cb) => typeof cb === "function")
+    : typeof onBlock === "function"
+      ? [onBlock]
+      : [];
+
+  const onTxMatchCbs = Array.isArray(onTransactionMatch)
+    ? onTransactionMatch.filter((cb) => typeof cb === "function")
+    : typeof onTransactionMatch === "function"
+      ? [onTransactionMatch]
+      : [];
+
+  const normalizeHex = (value) =>
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^0x/, "");
+
+  const normalizedPrefixes = Array.isArray(prefixes)
+    ? prefixes
+        .map((p) => normalizeHex(payloadToHex(p) || ""))
+        .filter((p) => p.length > 0)
+    : [];
 
   const maxSecondsNum = Number(maxSeconds);
   if (!Number.isFinite(maxSecondsNum) || maxSecondsNum <= 0) {
@@ -37,7 +69,6 @@ export async function walkDagToPresent({
       logFn(`[END] Time budget exceeded (maxSeconds=${maxSeconds}).`);
       break;
     }
-    logFn(`[RPC] getBlocks({ lowHash: ${lowHash} })`);
     let resp;
     try {
       resp = await client.getBlocks({
@@ -59,7 +90,7 @@ export async function walkDagToPresent({
       logFn(`[DEBUG] Response: ${JSON.stringify(resp)}`);
       break;
     }
-    logFn(`[INFO] Received ${resp.blocks.length} blocks for hash: ${lowHash}`);
+
     try {
       for (const block of resp.blocks) {
         if (Date.now() >= deadline) {
@@ -70,36 +101,75 @@ export async function walkDagToPresent({
         }
         processed++;
         const blockHash = block.hash || block.header?.hash || "";
-        logFn(`[INFO] Block ${processed}: ${blockHash}`);
 
         const blockTime = Number(block.verboseData?.timestamp || 0);
         if (blockTime < minTimestamp) continue;
 
-        if (typeof onBlock === "function") {
-          // 1. Create the safe copy
-          const safeBlock = {
-            hash: blockHash,
-            timestamp: blockTime,
-            // Use utilities to turn every WASM tx into a plain JS object
-            transactions: Array.isArray(block.transactions)
-              ? block.transactions.map((t) => dehydrateTx(t, block))
-              : [],
-          };
+        const shouldBuildBlockCopy = onBlockCbs.length > 0;
 
-          // 2. Pass the SAFE copy to the callback
-          const shouldStop = onBlock(safeBlock);
+        let baseBlock = dehydrateBlock(block);
+        if (!baseBlock) {
+          baseBlock = { hash: blockHash, timestamp: blockTime };
+        }
+        if (!baseBlock.hash) baseBlock.hash = blockHash;
+        if (!Number.isFinite(baseBlock.timestamp) || baseBlock.timestamp === 0) {
+          baseBlock.timestamp = blockTime;
+        }
 
-          if (shouldStop === true) {
-            logFn("[END] onBlock requested stop.");
-            return;
+        const safeBlock = shouldBuildBlockCopy
+          ? {
+              ...baseBlock,
+              transactions: Array.isArray(block.transactions)
+                ? block.transactions.map((tx) =>
+                    dehydrateTx({ tx, block }),
+                  )
+                : [],
+            }
+          : null;
+
+        if (
+          normalizedPrefixes.length > 0 &&
+          Array.isArray(block.transactions) &&
+          block.transactions.length > 0
+        ) {
+          for (const tx of block.transactions) {
+            const payloadHex = normalizeHex(tx?.payload || "");
+            if (!payloadHex) continue;
+
+            let isMatch = false;
+            for (const prefixHex of normalizedPrefixes) {
+              if (payloadHex.startsWith(prefixHex)) {
+                isMatch = true;
+                break;
+              }
+            }
+            if (!isMatch) continue;
+
+            const matchTx = dehydrateTx({ tx, block });
+            const matchBlock = safeBlock || baseBlock;
+
+            for (const cb of onTxMatchCbs) {
+              const shouldStop = cb({ block: matchBlock, tx: matchTx });
+              if (shouldStop === true) {
+                logFn("[END] onTransactionMatch requested stop.");
+                return;
+              }
+            }
+          }
+        }
+
+        if (shouldBuildBlockCopy) {
+          for (const cb of onBlockCbs) {
+            const shouldStop = cb(safeBlock);
+            if (shouldStop === true) {
+              logFn("[END] onBlock requested stop.");
+              return;
+            }
           }
         }
       }
     } finally {
       // --- THIS IS THE FINAL SWEEP ---
-      logFn(
-        `[CLEANUP] Freeing transactions for ${resp.blocks.length} blocks...`,
-      );
       for (const block of resp.blocks) {
         if (block.transactions) {
           for (const tx of block.transactions) {
@@ -416,7 +486,6 @@ export async function scanDagForward({
   };
 
   const fetchBatch = async (hash) => {
-    logFn(`[RPC] getBlocks({ lowHash: ${hash} })`);
     return client.getBlocks({
       lowHash: hash,
       includeBlocks: true,
@@ -457,9 +526,6 @@ export async function scanDagForward({
       }
 
       processedBatches++;
-      logFn(
-        `[INFO] Received ${resp.blocks.length} blocks for hash: ${lowHash} (batch ${processedBatches})`,
-      );
 
       const lastBlock = resp.blocks[resp.blocks.length - 1];
       const nextLowHash = (
@@ -665,7 +731,6 @@ export async function scanDagBackward({
     const block = resp.block;
     processed++;
     const blockHash = block.hash || block.header?.hash || "";
-    logFn(`[INFO] Block ${processed}: ${blockHash}`);
 
     try {
       // 1. Check block match

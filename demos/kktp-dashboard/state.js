@@ -12,6 +12,10 @@ export const dashboardState = {
 
   // Sessions
   activeSessionId: null, // Currently selected mailboxId
+  closingSessions: new Set(),
+
+  // Deduplication
+  processedTxIds: new Set(),
 
   // UI State
   isConnected: false,
@@ -33,6 +37,8 @@ export function resetState() {
   dashboardState.discoveredPeers.clear();
   dashboardState.broadcastedDiscovery = null;
   dashboardState.activeSessionId = null;
+  dashboardState.closingSessions.clear();
+  dashboardState.processedTxIds.clear();
   dashboardState.isConnected = false;
   dashboardState.isScanning = false;
 }

@@ -2,7 +2,6 @@
  * Strict RFC 8785 (JCS) Canonicalization
  * Core logic for KKTP Signature consistency.
  */
-
 export function canonicalize(value) {
   if (value === null) return "null";
   const t = typeof value;
@@ -117,10 +116,6 @@ function serializeObject(obj) {
 }
 
 /**
- * Protocol Helpers
- */
-
-/**
  * Strips non-JSON types and creates a clean deep-clone POJO.
  */
 export function toPlainJson(value) {
@@ -133,4 +128,31 @@ export function toPlainJson(value) {
     if (child !== undefined) out[key] = child;
   }
   return out;
+}
+
+/**
+ * KKTP-Compliant Strict Parser
+ * Replaces _safeParseJson to satisfy Section 7.9
+ */
+export function strictParseJson(text) {
+  try {
+    // 1. Convert string to object
+    const obj = JSON.parse(text);
+
+    // 2. Convert that object BACK to a string using your canonical rules
+    const verificationString = canonicalize(obj);
+
+    // 3. THE COMPLIANCE CHECK:
+    // If the input 'text' isn't EXACTLY the same as our 'verificationString',
+    // then the sender violated RFC 8785 (extra spaces, wrong order, etc.)
+    if (text !== verificationString) {
+      throw new Error("KKTP Section 7.9 Violation: Non-canonical input detected.");
+    }
+
+    return obj;
+  } catch (e) {
+    // Return null to maintain the 'safe' behavior,
+    // but only if it's actually valid & canonical JSON.
+    return null;
+  }
 }

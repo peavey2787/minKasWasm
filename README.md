@@ -39,7 +39,7 @@ This repository contains **11+ live demos** showcasing the engine's capabilities
 * **NIST Dashboard:** Live statistical testing of the Recursive Folding output.
 * **Wallet Scanner:** High-speed payload discovery for decentralized messaging.
 
-> **Note:** To run demos, serve the root directory via any local web server (e.g., Live Server, Laragon, or Python `http.server`) and navigate to the `/demos` folder.
+> **Note:** To run demos, serve the root directory via any local web server (e.g., Live Server, Laragon, or Python `http.server`) and navigate to the `/minKasWasm` folder.
 
 ---
 
