@@ -966,9 +966,21 @@ export class SessionManager {
         await this._removeResumeState(session);
         session.sm.terminate();
         this._kktpSessions.delete(mailboxId);
-        return { type: "session_end", mailboxId, reason: anchor.reason };
+        return {
+          type: "session_end",
+          mailboxId,
+          reason: anchor.reason,
+          sid: anchor.sid,
+          pub_sig: anchor.pub_sig,
+        };
       }
-      return { type: "session_end", mailboxId: null, reason: anchor.reason };
+      return {
+        type: "session_end",
+        mailboxId: null,
+        reason: anchor.reason,
+        sid: anchor.sid,
+        pub_sig: anchor.pub_sig,
+      };
     }
 
     return null;

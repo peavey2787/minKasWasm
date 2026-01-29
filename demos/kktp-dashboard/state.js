@@ -85,6 +85,18 @@ export function removeDiscoveredPeer(sid) {
 }
 
 /**
+ * Remove discovered peers by public signing key
+ */
+export function removeDiscoveredPeerByPubSig(pubSig) {
+  if (!pubSig) return;
+  for (const [sid, entry] of dashboardState.discoveredPeers.entries()) {
+    if (entry?.discovery?.pub_sig === pubSig) {
+      dashboardState.discoveredPeers.delete(sid);
+    }
+  }
+}
+
+/**
  * Get all discovered peers
  */
 export function getDiscoveredPeers() {

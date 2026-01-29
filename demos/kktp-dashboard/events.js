@@ -4,6 +4,7 @@ import {
   dashboardState,
   addDiscoveredPeer,
   removeDiscoveredPeer,
+  removeDiscoveredPeerByPubSig,
 } from "./state.js";
 import {
   logEvent,
@@ -133,6 +134,12 @@ export function handleIncomingEvent(event, deps = {}) {
       break;
     case "session_end":
       logEvent(`Session ended: ${event.reason}`, "info");
+      if (event.sid) {
+        removeDiscoveredPeer(event.sid);
+      }
+      if (event.pub_sig) {
+        removeDiscoveredPeerByPubSig(event.pub_sig);
+      }
       if (event.mailboxId) {
         dashboardState.closingSessions?.delete(event.mailboxId);
       }
@@ -144,6 +151,7 @@ export function handleIncomingEvent(event, deps = {}) {
         setChatEnabled(false);
         renderChatMessages(null);
       }
+      renderPeerList(deps.handleConnectToPeer);
       deps.refreshSessionList?.();
       break;
     case "response":

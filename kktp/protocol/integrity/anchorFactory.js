@@ -1,9 +1,8 @@
 import { bytesToHex, hexToBytes } from "../utils/conversions.js";
 import { constructAAD } from "./aad.js";
-import { xchacha20poly1305 } from "https://esm.sh/@noble/ciphers/chacha";
+import { xchacha20poly1305 } from "https://esm.sh/v135/@noble/ciphers/chacha";
 import { blake2b } from "https://esm.sh/@noble/hashes@1.3.0/blake2b";
 import { kaspaPortal } from "../../../wrapper/kaspaPortal.js";
-import { canonicalize } from "./canonical.js";
 /**
  * Computes VRF input hash per §6.1: H(pub_sig || pub_dh || sid)
  * Hashing prevents canonicalization attacks from string concatenation.
@@ -30,7 +29,37 @@ export class AnchorFactory {
    * Per §6.1: VRF is optional
    */
   async createDiscovery({ meta, sig, dh }) {
-    const sid = bytesToHex(window.crypto.getRandomValues(new Uint8Array(32)));
+
+    // Primary entropy: VRF via kaspaPortal
+    let sid = null;
+    try {
+      const vrfHex = await kaspaPortal.generateFullRandomness();
+      if (typeof vrfHex === "string" && vrfHex.length >= 64) {
+        sid = vrfHex.slice(0, 64).toLowerCase();
+      }
+    } catch {
+      // ignore
+    }
+
+    // Secondary entropy: partial VRF via kaspaPortal
+    if (!sid) {
+      try {
+        const vrfHex = await kaspaPortal.generatePartialRandomness();
+        if (typeof vrfHex === "string" && vrfHex.length >= 64) {
+          sid = vrfHex.slice(0, 64).toLowerCase();
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // Fallback: randomUUID hashed to 32 bytes
+    if (!sid) {
+      const uuid = crypto.randomUUID();
+      sid = bytesToHex(
+        blake2b(new TextEncoder().encode(uuid), { dkLen: 32 }),
+      );
+    }
 
     // 1. Build the base object with null VRF placeholders
     const anchor = {
