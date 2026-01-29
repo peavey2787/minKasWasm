@@ -26,6 +26,7 @@ import {
   setChatEnabled,
   clearMessageInput,
   setMissedStatus,
+  showFullWalletAddress,
 } from "./ui.js";
 
 // Constants
@@ -73,7 +74,6 @@ function getEventDeps() {
   };
 }
 
-
 /**
  * Initialize the dashboard
  */
@@ -104,15 +104,21 @@ async function init() {
     updateConnectionStatus(true, NETWORK_ID);
     logEvent(`Connected to ${NETWORK_ID}`, "success");
 
+    // Setup event listeners
+    setupEventListeners();
+
     // Create wallet
     logEvent("Opening wallet...", "info");
     await kaspaPortal.createOrOpenWallet({
       password: "kktp-dashboard-wallet",
       walletFilename: "kktp-dashboard-wallet111",
     });
+
     dashboardState.walletAddress = kaspaPortal.identity.address;
     updateWalletAddress(dashboardState.walletAddress);
-    setCopyStatus("Copy", !dashboardState.walletAddress);
+
+    setCopyStatus("Copy", false);
+
     logEvent("Wallet initialized", "success");
 
     const resumePrefix = `kktp_resume_${NETWORK_ID}_${dashboardState.walletAddress}_`;
@@ -123,20 +129,21 @@ async function init() {
       throttleMs: 250,
     });
 
+    updateBroadcastStatus("Syncing history...", "pending");
+    elements.btnBroadcast.disabled = true;
+
     logEvent("Recovering sessions on load...", "info");
     await recoverSessionsOnLoad({
       storageKeyPrefix: resumePrefix,
       networkId: NETWORK_ID,
       walletAddress: dashboardState.walletAddress,
-      handleIncomingEvent: (event) => handleIncomingEvent(event, getEventDeps()),
+      handleIncomingEvent: (event) =>
+        handleIncomingEvent(event, getEventDeps()),
       refreshSessionList,
       scheduleSessionSave,
     });
     logEvent("Recover sessions complete", "success");
     refreshSessionList();
-
-    // Setup event listeners
-    setupEventListeners();
 
     // Start scanning
     logEvent("Starting scanner pipeline...", "info");
@@ -144,6 +151,7 @@ async function init() {
 
     // Enable UI
     elements.btnBroadcast.disabled = false;
+    updateBroadcastStatus("Ready to broadcast", "idle");
     logEvent("Dashboard ready!", "success");
   } catch (err) {
     logEvent(`Initialization failed: ${err.message}`, "error");
@@ -184,7 +192,8 @@ function setupEventListeners() {
   // Fetch missed messages
   elements.btnFetchMissed?.addEventListener("click", () =>
     handleFetchMissed({
-      handleIncomingEvent: (event) => handleIncomingEvent(event, getEventDeps()),
+      handleIncomingEvent: (event) =>
+        handleIncomingEvent(event, getEventDeps()),
       scheduleSessionSave,
     }),
   );
@@ -201,6 +210,7 @@ async function handleCopyAddress() {
   if (!address) return;
 
   try {
+    showFullWalletAddress(address);
     if (navigator?.clipboard?.writeText) {
       await navigator.clipboard.writeText(address);
     } else {
@@ -215,10 +225,11 @@ async function handleCopyAddress() {
       document.body.removeChild(textarea);
     }
 
-    setCopyStatus("Copied!", true);
+    setCopyStatus("Copied!", false);
     setTimeout(() => setCopyStatus("Copy", false), 1200);
   } catch (err) {
-    setCopyStatus("Copy failed", false);
+    showFullWalletAddress(address);
+    setCopyStatus("Copy manually", false);
     logEvent(`Copy failed: ${err.message}`, "error");
   }
 }
@@ -229,7 +240,7 @@ async function handleCopyAddress() {
 async function startScanning() {
   logEvent("Starting DAG scanner...", "info");
   dashboardState.isScanning = true;
-  updateScannerStatus(true);
+  updateScannerStatus("syncing");
 
   kaspaPortal.setPrefixes([KKTP_PREFIX]);
 
@@ -242,9 +253,9 @@ async function startScanning() {
   logEvent("Scanner subscribed to match events", "info");
 
   await kaspaPortal.startScanner();
+  updateScannerStatus("ready");
   logEvent("Scanner started", "success");
 }
-
 
 /**
  * Process a KKTP payload via kaspaPortal
@@ -300,7 +311,6 @@ async function handleBroadcastDiscovery() {
     logEvent(`Broadcast failed: ${err.message}`, "error");
   }
 }
-
 
 /**
  * Handle connect to peer button
@@ -384,7 +394,8 @@ async function handleCloseSession() {
     logEvent("Broadcasting session_end anchor...", "info");
     const endAnchor = await session.protocol.createEndAnchor("user_closed");
     const payload = buildAnchorPayload(endAnchor);
-    const address = dashboardState.walletAddress || kaspaPortal.identity.address;
+    const address =
+      dashboardState.walletAddress || kaspaPortal.identity.address;
 
     await kaspaPortal.send({
       toAddress: address,

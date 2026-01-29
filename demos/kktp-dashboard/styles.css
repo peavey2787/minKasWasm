@@ -32,6 +32,12 @@ body {
   color: #fff;
 }
 
+.wallet-address-wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 #chatMessages {
   min-height: 0;
 }

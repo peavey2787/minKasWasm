@@ -3,7 +3,7 @@ import { kaspaPortal } from "../../wrapper/kaspaPortal.js";
 import { hexToString } from "../../wrapper/utilities/utilities.js";
 import { dashboardState } from "./state.js";
 import { elements } from "./dom.js";
-import { logEvent, setMissedStatus } from "./ui.js";
+import { logEvent, setMissedStatus, updateScannerStatus } from "./ui.js";
 import {
   getStoredDiscoveryBlockHash,
   setStoredDiscoveryBlockHash,
@@ -48,6 +48,8 @@ export async function syncFromStartHash(
 ) {
   if (!startHash) return 0;
 
+  updateScannerStatus("syncing");
+
   logEvent(`[${logPrefix}] Sync start @ ${startHash.slice(0, 8)}...`, "info");
 
   const pendingPayloads = [];
@@ -86,6 +88,7 @@ export async function syncFromStartHash(
     `[${logPrefix}] Sync done. Payloads=${pendingPayloads.length}`,
     "info",
   );
+  updateScannerStatus("ready");
 
   return pendingPayloads.length;
 }

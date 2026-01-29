@@ -36,17 +36,28 @@ export function updateConnectionStatus(isConnected, networkId = "") {
 /**
  * Update scanner status display
  */
-export function updateScannerStatus(isScanning) {
+export function updateScannerStatus(state) {
   const el = elements.scannerStatus;
   if (!el) return;
 
-  if (isScanning) {
-    el.textContent = "Scanning";
-    el.className = "badge rounded-pill text-bg-info";
-  } else {
-    el.textContent = "Idle";
-    el.className = "badge rounded-pill text-bg-secondary";
+  if (typeof state === "boolean") {
+    state = state ? "ready" : "idle";
   }
+
+  if (state === "syncing") {
+    el.textContent = "Syncing";
+    el.className = "badge rounded-pill text-bg-warning";
+    return;
+  }
+
+  if (state === "ready") {
+    el.textContent = "Ready";
+    el.className = "badge rounded-pill text-bg-success";
+    return;
+  }
+
+  el.textContent = "Idle";
+  el.className = "badge rounded-pill text-bg-secondary";
 }
 
 /**
@@ -59,8 +70,11 @@ export function updateIdentityDisplay(pubSig) {
   if (pubSig) {
     el.textContent = `${pubSig.substring(0, 8)}...${pubSig.substring(pubSig.length - 8)}`;
     el.title = pubSig;
+    el.className = "small text-accent";
   } else {
-    el.textContent = "Not initialized";
+    el.className = "small text-secondary";
+    el.innerHTML =
+      'Fund your wallet via the <a href="https://faucet-tn10.kaspanet.io/" target="_blank" rel="noopener">Testnet-10 faucet</a> — copy the address below and send test KAS.';
   }
 }
 
@@ -69,15 +83,37 @@ export function updateIdentityDisplay(pubSig) {
  */
 export function updateWalletAddress(address) {
   const el = elements.walletAddress;
+  const btn = elements.btnCopyAddress;
   if (!el) return;
 
   if (address) {
     el.textContent = `Address: ${truncateAddress(address)}`;
     el.title = address;
+    el.classList.remove("wallet-address-wrap");
+    if (btn) btn.disabled = false;
   } else {
     el.textContent = "Address: —";
     el.title = "";
+    el.classList.remove("wallet-address-wrap");
+    if (btn) btn.disabled = true;
   }
+}
+
+/**
+ * Show the full wallet address (wrapped) for manual copy.
+ */
+export function showFullWalletAddress(address) {
+  const el = elements.walletAddress;
+  if (!el) return;
+  if (!address) {
+    el.textContent = "Address: —";
+    el.title = "";
+    el.classList.remove("wallet-address-wrap");
+    return;
+  }
+  el.textContent = `Address: ${address}`;
+  el.title = address;
+  el.classList.add("wallet-address-wrap");
 }
 
 /**
