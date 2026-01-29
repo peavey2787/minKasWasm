@@ -85,6 +85,21 @@
                   <input type="number" id="uptimeSeconds" value="3600" min="60" step="60" class="form-control form-control-sm">
                 </div>
 
+                <!-- Lobby Controls -->
+                <div id="lobbyControls">
+                  <div class="form-check mb-2">
+                    <input type="checkbox" id="lobbyModeCheckbox" class="form-check-input">
+                    <label for="lobbyModeCheckbox" class="form-check-label small">Host as Lobby</label>
+                  </div>
+                  <div id="lobbyNameGroup" class="mb-2" style="display: none;">
+                    <label for="lobbyNameInput" class="form-label small text-secondary">Lobby Name</label>
+                    <input type="text" id="lobbyNameInput" class="form-control form-control-sm" placeholder="My Lobby">
+                  </div>
+                </div>
+
+                <!-- Lobby Status (shown when in a lobby) -->
+                <div id="lobbyStatus" class="mb-2" style="display: none;"></div>
+
                 <button id="btnBroadcast" class="btn btn-primary w-100" disabled>
                   Broadcast Discovery
                 </button>
@@ -124,6 +139,20 @@
               </div>
               <div id="sessionList" class="list-group list-group-flush flex-grow-1 overflow-auto">
                 <div class="list-group-item text-secondary">No active sessions</div>
+              </div>
+            </div>
+
+            <!-- Lobby Members Section (shown when in a lobby) -->
+            <div id="lobbyMemberSection" class="card" style="display: none;">
+              <div class="card-header d-flex justify-content-between align-items-center">
+                <span>🏠 Lobby Members</span>
+              </div>
+              <div id="lobbyMemberList" class="list-group list-group-flush overflow-auto" style="max-height: 200px;">
+                <div class="list-group-item text-secondary">No members</div>
+              </div>
+              <div class="card-footer d-flex gap-2">
+                <button id="btnLeaveLobby" class="btn btn-outline-warning btn-sm flex-grow-1" style="display: none;">Leave Lobby</button>
+                <button id="btnCloseLobby" class="btn btn-outline-danger btn-sm flex-grow-1" style="display: none;">Close Lobby</button>
               </div>
             </div>
           </div>

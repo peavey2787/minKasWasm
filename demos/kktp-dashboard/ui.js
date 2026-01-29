@@ -2,6 +2,7 @@
 import { elements } from "./dom.js";
 import { dashboardState, getDiscoveredPeers } from "./state.js";
 import { getExpectedEndMs } from "../../kktp/smHelpers.js";
+import { isLobbyDiscovery, extractLobbyInfo } from "../../kktp/lobby/lobbySchemas.js";
 
 /**
  * Log an event to the event log panel
@@ -382,4 +383,285 @@ function truncateAddress(address) {
 
   if (addrStr.length <= 16) return addrStr;
   return `${addrStr.slice(0, 8)}...${addrStr.slice(-6)}`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Lobby UI Functions
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Render the peer discovery list with lobby support
+ */
+export function renderPeerListWithLobbies(onConnect, onJoinLobby) {
+  const list = elements.peerList;
+  const countEl = elements.peerCount;
+  if (!list) return;
+
+  const now = Date.now();
+  const peers = getDiscoveredPeers().filter((peer) => {
+    const discovery = peer?.discovery;
+    if (!discovery) return false;
+    const expectedEndMs = getExpectedEndMs(
+      discovery,
+      discovery?.timestamp || discovery?.time || peer?.discoveredAt,
+    );
+    if (expectedEndMs && now > expectedEndMs) {
+      console.debug("KKTP: purging expired discovery", {
+        sid: discovery.sid,
+        pub_sig: discovery.pub_sig,
+        expectedEndMs,
+        now,
+      });
+      if (discovery.sid) {
+        dashboardState.discoveredPeers.delete(discovery.sid);
+      }
+      return false;
+    }
+    return true;
+  });
+
+  // Separate lobbies and regular peers
+  const lobbies = peers.filter((p) => isLobbyDiscovery(p.discovery));
+  const regularPeers = peers.filter((p) => !isLobbyDiscovery(p.discovery));
+
+  if (countEl) {
+    countEl.textContent = peers.length;
+  }
+
+  list.innerHTML = "";
+
+  if (peers.length === 0) {
+    list.innerHTML =
+      '<div class="list-group-item text-secondary">No peers discovered yet...</div>';
+    return;
+  }
+
+  // Render lobbies first
+  if (lobbies.length > 0) {
+    const lobbyHeader = document.createElement("div");
+    lobbyHeader.className = "list-group-item bg-dark text-secondary small fw-bold";
+    lobbyHeader.textContent = `🏠 Lobbies (${lobbies.length})`;
+    list.appendChild(lobbyHeader);
+
+    for (const peer of lobbies) {
+      const { discovery, discoveredAt, isSelf } = peer;
+      const lobbyInfo = extractLobbyInfo(discovery);
+      const labelPrefix = isSelf ? "(YOUR LOBBY) " : "";
+      const timeAgo = formatTimeAgo(discoveredAt);
+
+      const item = document.createElement("div");
+      item.className = "list-group-item d-flex justify-content-between align-items-center";
+
+      item.innerHTML = `
+        <div class="d-flex flex-column">
+          <span class="fw-semibold text-warning" title="${discovery.pub_sig}">
+            ${labelPrefix}${escapeHtml(lobbyInfo.lobbyName)}
+          </span>
+          <span class="small text-secondary">${lobbyInfo.game} • Max: ${lobbyInfo.maxMembers}</span>
+          <span class="small text-secondary">${timeAgo}</span>
+        </div>
+        ${isSelf ? '' : `<button class="btn btn-warning btn-sm" data-sid="${discovery.sid}">Join</button>`}
+      `;
+
+      if (!isSelf) {
+        const btn = item.querySelector("button");
+        btn.addEventListener("click", () => onJoinLobby(discovery));
+      }
+
+      list.appendChild(item);
+    }
+  }
+
+  // Render regular peers
+  if (regularPeers.length > 0) {
+    const peerHeader = document.createElement("div");
+    peerHeader.className = "list-group-item bg-dark text-secondary small fw-bold";
+    peerHeader.textContent = `👤 Peers (${regularPeers.length})`;
+    list.appendChild(peerHeader);
+
+    for (const peer of regularPeers) {
+      if (!peer?.discovery?.pub_sig) {
+        console.warn("Skipping peer with missing pub_sig", peer);
+        continue;
+      }
+      const { discovery, discoveredAt, isSelf } = peer;
+      const labelPrefix = isSelf ? "(SELF) " : "";
+      const pubSigShort = `${labelPrefix}${discovery.pub_sig.substring(0, 8)}...`;
+      const gameInfo = discovery.meta?.game || "Unknown";
+      const timeAgo = formatTimeAgo(discoveredAt);
+
+      const item = document.createElement("div");
+      item.className = "list-group-item d-flex justify-content-between align-items-center";
+
+      item.innerHTML = `
+        <div class="d-flex flex-column">
+          <span class="fw-semibold text-accent" title="${discovery.pub_sig}">${pubSigShort}</span>
+          <span class="small text-secondary">${gameInfo}</span>
+          <span class="small text-secondary">${timeAgo}</span>
+        </div>
+        <button class="btn btn-primary btn-sm" data-sid="${discovery.sid}">Connect</button>
+      `;
+
+      const btn = item.querySelector("button");
+      btn.addEventListener("click", () => onConnect(discovery));
+
+      list.appendChild(item);
+    }
+  }
+}
+
+/**
+ * Render lobby member list
+ */
+export function renderLobbyMembers(members, isHost) {
+  const list = elements.lobbyMemberList;
+  if (!list) return;
+
+  list.innerHTML = "";
+
+  if (!members || members.length === 0) {
+    list.innerHTML = '<div class="list-group-item text-secondary">No members</div>';
+    return;
+  }
+
+  for (const member of members) {
+    const item = document.createElement("div");
+    item.className = "list-group-item d-flex justify-content-between align-items-center";
+
+    const roleIcon = member.role === "host" ? "👑" : "👤";
+    const pubSigShort = `${member.pubSig.substring(0, 8)}...`;
+
+    item.innerHTML = `
+      <div class="d-flex align-items-center gap-2">
+        <span>${roleIcon}</span>
+        <div class="d-flex flex-column">
+          <span class="fw-semibold">${escapeHtml(member.displayName)}</span>
+          <span class="small text-secondary" title="${member.pubSig}">${pubSigShort}</span>
+        </div>
+      </div>
+      ${isHost && member.role !== "host" ? `<button class="btn btn-danger btn-sm btn-kick" data-pubsig="${member.pubSig}">Kick</button>` : ""}
+    `;
+
+    list.appendChild(item);
+  }
+}
+
+/**
+ * Render lobby chat messages
+ */
+export function renderLobbyChatMessages(messages, myPubSig) {
+  const container = elements.chatMessages;
+  const header = elements.chatHeader;
+  if (!container) return;
+
+  if (!dashboardState.activeLobby) {
+    container.innerHTML =
+      '<div class="text-secondary text-center">Not in a lobby</div>';
+    if (header) header.textContent = "No Lobby";
+    return;
+  }
+
+  if (header) {
+    header.textContent = `Lobby: ${escapeHtml(dashboardState.activeLobby.lobbyName)}`;
+  }
+
+  container.innerHTML = "";
+
+  if (!messages || messages.length === 0) {
+    container.innerHTML =
+      '<div class="text-secondary text-center">No messages yet. Say hello!</div>';
+    return;
+  }
+
+  for (const msg of messages) {
+    const msgEl = document.createElement("div");
+    const isOutbound = msg.senderPubSig === myPubSig;
+    msgEl.className = `message ${isOutbound ? "outbound" : "inbound"}`;
+
+    const time = new Date(msg.timestamp).toLocaleTimeString();
+    const senderName = msg.senderName || `${msg.senderPubSig.substring(0, 8)}...`;
+
+    msgEl.innerHTML = `
+      ${!isOutbound ? `<div class="message-sender small text-accent">${escapeHtml(senderName)}</div>` : ""}
+      <div class="message-content">${escapeHtml(msg.plaintext)}</div>
+      <div class="message-meta">
+        <span class="message-time">${time}</span>
+      </div>
+    `;
+
+    container.appendChild(msgEl);
+  }
+
+  container.scrollTop = container.scrollHeight;
+}
+
+/**
+ * Update lobby status display
+ */
+export function updateLobbyStatus(lobbyInfo) {
+  const el = elements.lobbyStatus;
+  if (!el) return;
+
+  if (!lobbyInfo) {
+    el.innerHTML = '<span class="text-secondary">Not in a lobby</span>';
+    return;
+  }
+
+  const roleText = lobbyInfo.isHost ? "Hosting" : "Member";
+  el.innerHTML = `
+    <div class="d-flex flex-column">
+      <span class="fw-semibold text-warning">${escapeHtml(lobbyInfo.lobbyName)}</span>
+      <span class="small text-secondary">${roleText} • ${lobbyInfo.memberCount}/${lobbyInfo.maxMembers} members</span>
+      <span class="small text-secondary">Key v${lobbyInfo.keyVersion}</span>
+    </div>
+  `;
+}
+
+/**
+ * Toggle lobby mode checkbox state
+ */
+export function setLobbyModeChecked(checked) {
+  const checkbox = elements.lobbyModeCheckbox;
+  if (checkbox) checkbox.checked = checked;
+}
+
+/**
+ * Get lobby name input value
+ */
+export function getLobbyNameInput() {
+  return elements.lobbyNameInput?.value?.trim() || "";
+}
+
+/**
+ * Set lobby name input value
+ */
+export function setLobbyNameInput(value) {
+  const input = elements.lobbyNameInput;
+  if (input) input.value = value;
+}
+
+/**
+ * Show/hide lobby controls based on state
+ */
+export function updateLobbyControlsVisibility(inLobby, isHost) {
+  const lobbyControls = elements.lobbyControls;
+  const lobbyMemberSection = elements.lobbyMemberSection;
+  const btnLeaveLobby = elements.btnLeaveLobby;
+  const btnCloseLobby = elements.btnCloseLobby;
+
+  if (lobbyControls) {
+    lobbyControls.style.display = inLobby ? "none" : "block";
+  }
+
+  if (lobbyMemberSection) {
+    lobbyMemberSection.style.display = inLobby ? "block" : "none";
+  }
+
+  if (btnLeaveLobby) {
+    btnLeaveLobby.style.display = inLobby && !isHost ? "inline-block" : "none";
+  }
+
+  if (btnCloseLobby) {
+    btnCloseLobby.style.display = inLobby && isHost ? "inline-block" : "none";
+  }
 }

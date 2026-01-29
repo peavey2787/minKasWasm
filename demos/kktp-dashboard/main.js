@@ -5,12 +5,16 @@ import {
   setConnected,
   setActiveSession,
   removeDiscoveredPeer,
+  setLobbyMode,
+  setActiveLobby,
+  clearActiveLobby,
 } from "./state.js";
 import { elements } from "./dom.js";
 import { saveSessionSnapshot } from "./storage.js";
 import { recoverSessionsOnLoad, handleFetchMissed } from "./sync.js";
 import { handleIncomingMatch, handleIncomingEvent } from "./events.js";
 import { buildAnchorPayload } from "../../kktp/smHelpers.js";
+import { LobbyManager, LOBBY_STATES } from "../../kktp/lobby/index.js";
 import {
   logEvent,
   updateConnectionStatus,
@@ -21,12 +25,19 @@ import {
   setCopyStatus,
   updateBroadcastStatus,
   renderPeerList,
+  renderPeerListWithLobbies,
   renderSessionList,
   renderChatMessages,
   setChatEnabled,
   clearMessageInput,
   setMissedStatus,
   showFullWalletAddress,
+  renderLobbyMembers,
+  renderLobbyChatMessages,
+  updateLobbyStatus,
+  updateLobbyControlsVisibility,
+  setLobbyModeChecked,
+  getLobbyNameInput,
 } from "./ui.js";
 
 // Constants
@@ -74,6 +85,56 @@ function getEventDeps() {
   };
 }
 
+// Lobby manager instance
+let lobbyManager = null;
+
+/**
+ * Initialize the lobby manager
+ */
+function initLobbyManager() {
+  lobbyManager = new LobbyManager(kaspaPortal.sessionManager, {
+    maxMembers: 16,
+    keyRotationMs: 10 * 60 * 1000, // 10 minutes
+  });
+
+  // Set up lobby event handlers
+  lobbyManager.onMemberJoin((member) => {
+    logEvent(`Lobby: ${member.displayName} joined`, "success");
+    renderLobbyMembers(lobbyManager.members, lobbyManager.isHost);
+    updateLobbyStatus(lobbyManager.lobbyInfo);
+  });
+
+  lobbyManager.onMemberLeave((pubSig, reason) => {
+    logEvent(`Lobby: Member left (${reason})`, "info");
+    renderLobbyMembers(lobbyManager.members, lobbyManager.isHost);
+    updateLobbyStatus(lobbyManager.lobbyInfo);
+  });
+
+  lobbyManager.onGroupMessage((msg) => {
+    logEvent(`Lobby msg from ${msg.senderName || msg.senderPubSig.slice(0, 8)}`, "info");
+    renderLobbyChatMessages(lobbyManager.messageHistory, dashboardState.myPubSig);
+  });
+
+  lobbyManager.onKeyRotation((version) => {
+    logEvent(`Lobby: Key rotated to v${version}`, "info");
+    updateLobbyStatus(lobbyManager.lobbyInfo);
+  });
+
+  lobbyManager.onLobbyClose((reason) => {
+    logEvent(`Lobby closed: ${reason}`, "info");
+    clearActiveLobby();
+    updateLobbyStatus(null);
+    updateLobbyControlsVisibility(false, false);
+    renderPeerListWithLobbies(handleConnectToPeer, handleJoinLobby);
+  });
+
+  lobbyManager.onStateChange((newState, oldState) => {
+    logEvent(`Lobby state: ${oldState} → ${newState}`, "info");
+  });
+
+  dashboardState.lobbyManager = lobbyManager;
+}
+
 /**
  * Initialize the dashboard
  */
@@ -103,6 +164,10 @@ async function init() {
     setConnected(true);
     updateConnectionStatus(true, NETWORK_ID);
     logEvent(`Connected to ${NETWORK_ID}`, "success");
+
+    // Initialize lobby manager
+    initLobbyManager();
+    logEvent("Lobby manager initialized", "success");
 
     // Setup event listeners
     setupEventListeners();
@@ -198,6 +263,46 @@ function setupEventListeners() {
     }),
   );
 
+  // Lobby mode checkbox
+  elements.lobbyModeCheckbox?.addEventListener("change", (e) => {
+    const isLobbyMode = e.target.checked;
+    setLobbyMode(isLobbyMode);
+
+    // Show/hide lobby name input
+    const lobbyNameGroup = elements.lobbyNameGroup;
+    if (lobbyNameGroup) {
+      lobbyNameGroup.style.display = isLobbyMode ? "block" : "none";
+    }
+
+    // Update button text
+    if (elements.btnBroadcast) {
+      elements.btnBroadcast.textContent = isLobbyMode
+        ? "Host Lobby"
+        : "Broadcast Discovery";
+    }
+  });
+
+  // Leave lobby button
+  elements.btnLeaveLobby?.addEventListener("click", handleLeaveLobby);
+
+  // Close lobby button
+  elements.btnCloseLobby?.addEventListener("click", handleCloseLobby);
+
+  // Kick member buttons (delegated)
+  elements.lobbyMemberList?.addEventListener("click", async (e) => {
+    if (e.target.classList.contains("btn-kick")) {
+      const pubSig = e.target.dataset.pubsig;
+      if (pubSig && lobbyManager?.isHost) {
+        try {
+          await lobbyManager.kickMember(pubSig, "Kicked by host");
+          logEvent("Member kicked", "success");
+        } catch (err) {
+          logEvent(`Kick failed: ${err.message}`, "error");
+        }
+      }
+    }
+  });
+
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
       flushLocalState();
@@ -278,25 +383,60 @@ async function handleBroadcastDiscovery() {
     updateBroadcastStatus("Creating anchor...", "pending");
     elements.btnBroadcast.disabled = true;
 
-    const meta = {
-      game: dashboardState.gameName,
-      version: "1.0.0",
-      upTime: dashboardState.uptimeSeconds,
-    };
+    const isLobbyMode = dashboardState.isLobbyMode;
 
-    updateBroadcastStatus("Broadcasting...", "pending");
-    const { discovery } = await kaspaPortal.broadcastDiscovery(meta);
+    if (isLobbyMode) {
+      // Host a lobby
+      const lobbyName = getLobbyNameInput() || `${dashboardState.gameName} Lobby`;
 
-    // Store our identity
-    dashboardState.myPubSig = discovery.pub_sig;
-    dashboardState.broadcastedDiscovery = discovery;
-    updateIdentityDisplay(discovery.pub_sig);
+      updateBroadcastStatus("Hosting lobby...", "pending");
+      const { lobbyId, discovery } = await lobbyManager.hostLobby({
+        lobbyName,
+        gameName: dashboardState.gameName,
+        maxMembers: 16,
+        uptimeSeconds: dashboardState.uptimeSeconds,
+      });
 
-    updateBroadcastStatus("Broadcast sent!", "success");
-    logEvent(
-      `Discovery broadcast: ${discovery.sid.substring(0, 8)}...`,
-      "success",
-    );
+      // Store our identity
+      dashboardState.myPubSig = discovery.pub_sig;
+      dashboardState.broadcastedDiscovery = discovery;
+      updateIdentityDisplay(discovery.pub_sig);
+
+      // Update lobby UI
+      setActiveLobby(lobbyManager.lobbyInfo);
+      updateLobbyStatus(lobbyManager.lobbyInfo);
+      updateLobbyControlsVisibility(true, true);
+      renderLobbyMembers(lobbyManager.members, true);
+
+      // Show lobby status element
+      if (elements.lobbyStatus) {
+        elements.lobbyStatus.style.display = "block";
+      }
+
+      updateBroadcastStatus("Lobby hosted!", "success");
+      logEvent(`Lobby hosted: ${lobbyId.substring(0, 8)}...`, "success");
+    } else {
+      // Regular peer discovery
+      const meta = {
+        game: dashboardState.gameName,
+        version: "1.0.0",
+        upTime: dashboardState.uptimeSeconds,
+      };
+
+      updateBroadcastStatus("Broadcasting...", "pending");
+      const { discovery } = await kaspaPortal.broadcastDiscovery(meta);
+
+      // Store our identity
+      dashboardState.myPubSig = discovery.pub_sig;
+      dashboardState.broadcastedDiscovery = discovery;
+      updateIdentityDisplay(discovery.pub_sig);
+
+      updateBroadcastStatus("Broadcast sent!", "success");
+      logEvent(
+        `Discovery broadcast: ${discovery.sid.substring(0, 8)}...`,
+        "success",
+      );
+    }
 
     setMissedStatus("Waiting for discovery to be mined...");
     scheduleSessionSave();
@@ -344,27 +484,6 @@ async function handleConnectToPeer(discovery) {
     scheduleSessionSave();
   } catch (err) {
     logEvent(`Connection failed: ${err.message}`, "error");
-  }
-}
-
-/**
- * Handle send message
- */
-async function handleSendMessage() {
-  const input = elements.messageInput;
-  const plaintext = input?.value?.trim();
-
-  if (!plaintext || !dashboardState.activeSessionId) return;
-
-  try {
-    await kaspaPortal.sendMessage(dashboardState.activeSessionId, plaintext);
-
-    clearMessageInput();
-
-    logEvent("Message sent", "success");
-    scheduleSessionSave();
-  } catch (err) {
-    logEvent(`Send failed: ${err.message}`, "error");
   }
 }
 
@@ -436,6 +555,122 @@ function selectSession(mailboxId) {
 function refreshSessionList() {
   const sessions = kaspaPortal.getSessions();
   renderSessionList(sessions, dashboardState.activeSessionId, selectSession);
+
+  // Also refresh peer list with lobby support
+  renderPeerListWithLobbies(handleConnectToPeer, handleJoinLobby);
+}
+
+/**
+ * Handle joining a lobby
+ */
+async function handleJoinLobby(lobbyDiscovery) {
+  if (!lobbyManager) {
+    logEvent("Lobby manager not initialized", "error");
+    return;
+  }
+
+  try {
+    logEvent(`Joining lobby: ${lobbyDiscovery.meta.lobby_name}...`, "info");
+
+    const displayName = dashboardState.gameName || "Anonymous";
+    const result = await lobbyManager.joinLobby(lobbyDiscovery, displayName);
+
+    if (result.pending) {
+      logEvent("Join request sent, waiting for host approval...", "info");
+      // The response will be handled by the message handler
+    }
+  } catch (err) {
+    logEvent(`Join lobby failed: ${err.message}`, "error");
+  }
+}
+
+/**
+ * Handle leaving a lobby (member)
+ */
+async function handleLeaveLobby() {
+  if (!lobbyManager || lobbyManager.currentState !== LOBBY_STATES.MEMBER) {
+    logEvent("Not in a lobby", "error");
+    return;
+  }
+
+  try {
+    await lobbyManager.leaveLobby("Left voluntarily");
+    clearActiveLobby();
+    updateLobbyStatus(null);
+    updateLobbyControlsVisibility(false, false);
+    logEvent("Left lobby", "success");
+  } catch (err) {
+    logEvent(`Leave lobby failed: ${err.message}`, "error");
+  }
+}
+
+/**
+ * Handle closing a lobby (host)
+ */
+async function handleCloseLobby() {
+  if (!lobbyManager || lobbyManager.currentState !== LOBBY_STATES.HOSTING) {
+    logEvent("Not hosting a lobby", "error");
+    return;
+  }
+
+  try {
+    await lobbyManager.closeLobby("Closed by host");
+    clearActiveLobby();
+    updateLobbyStatus(null);
+    updateLobbyControlsVisibility(false, false);
+
+    // Reset lobby mode checkbox
+    setLobbyModeChecked(false);
+    setLobbyMode(false);
+    if (elements.lobbyNameGroup) {
+      elements.lobbyNameGroup.style.display = "none";
+    }
+    if (elements.lobbyStatus) {
+      elements.lobbyStatus.style.display = "none";
+    }
+
+    logEvent("Lobby closed", "success");
+  } catch (err) {
+    logEvent(`Close lobby failed: ${err.message}`, "error");
+  }
+}
+
+/**
+ * Handle sending a message (supports both 1:1 and lobby)
+ */
+async function handleSendMessage() {
+  const input = elements.messageInput;
+  const plaintext = input?.value?.trim();
+
+  if (!plaintext) return;
+
+  // Check if we're in a lobby
+  if (lobbyManager && (lobbyManager.currentState === LOBBY_STATES.HOSTING ||
+      lobbyManager.currentState === LOBBY_STATES.MEMBER)) {
+    try {
+      await lobbyManager.sendGroupMessage(plaintext);
+      clearMessageInput();
+      renderLobbyChatMessages(lobbyManager.messageHistory, dashboardState.myPubSig);
+      logEvent("Lobby message sent", "success");
+    } catch (err) {
+      logEvent(`Lobby send failed: ${err.message}`, "error");
+    }
+    return;
+  }
+
+  // Regular 1:1 message
+  if (!dashboardState.activeSessionId) return;
+
+  try {
+    await kaspaPortal.sendMessage(dashboardState.activeSessionId, plaintext);
+
+    clearMessageInput();
+
+    logEvent("Message sent", "success");
+    scheduleSessionSave();
+  } catch (err) {
+    logEvent(`Send failed: ${err.message}`, "error");
+  }
 }
 
 function getSession(mailboxId) {

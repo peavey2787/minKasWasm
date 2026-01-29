@@ -14,6 +14,11 @@ export const dashboardState = {
   activeSessionId: null, // Currently selected mailboxId
   closingSessions: new Set(),
 
+  // Lobby State
+  lobbyManager: null, // LobbyManager instance
+  isLobbyMode: false, // Whether to broadcast as lobby
+  activeLobby: null, // Current lobby info if in a lobby
+
   // Deduplication
   processedTxIds: new Set(),
 
@@ -38,6 +43,9 @@ export function resetState() {
   dashboardState.broadcastedDiscovery = null;
   dashboardState.activeSessionId = null;
   dashboardState.closingSessions.clear();
+  dashboardState.lobbyManager = null;
+  dashboardState.isLobbyMode = false;
+  dashboardState.activeLobby = null;
   dashboardState.processedTxIds.clear();
   dashboardState.isConnected = false;
   dashboardState.isScanning = false;
@@ -48,6 +56,27 @@ export function resetState() {
  */
 export function setConnected(isConnected) {
   dashboardState.isConnected = isConnected;
+}
+
+/**
+ * Set lobby mode
+ */
+export function setLobbyMode(isLobby) {
+  dashboardState.isLobbyMode = isLobby;
+}
+
+/**
+ * Set active lobby
+ */
+export function setActiveLobby(lobbyInfo) {
+  dashboardState.activeLobby = lobbyInfo;
+}
+
+/**
+ * Clear active lobby
+ */
+export function clearActiveLobby() {
+  dashboardState.activeLobby = null;
 }
 
 /**

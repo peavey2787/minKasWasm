@@ -93,6 +93,31 @@ body {
   color: #94a3b8;
 }
 
+/* Lobby Styles */
+.message-sender {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+#lobbyMemberList .list-group-item {
+  padding: 0.5rem 0.75rem;
+}
+
+#lobbyMemberList .btn-kick {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.lobby-header {
+  background: rgba(255, 193, 7, 0.1);
+  border-left: 3px solid var(--bs-warning);
+}
+
+/* Warning button override for lobby join */
+.btn-warning {
+  --bs-btn-color: #0d0d0d;
+}
+
 @media (min-width: 992px) {
   .offcanvas-lg {
     position: static;

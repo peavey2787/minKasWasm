@@ -19,6 +19,17 @@ export const elements = {
   get btnFetchMissed() { return $("btnFetchMissed"); },
   get missedStatus() { return $("missedStatus"); },
 
+  // Lobby Controls
+  get lobbyModeCheckbox() { return $("lobbyModeCheckbox"); },
+  get lobbyNameInput() { return $("lobbyNameInput"); },
+  get lobbyNameGroup() { return $("lobbyNameGroup"); },
+  get lobbyControls() { return $("lobbyControls"); },
+  get lobbyStatus() { return $("lobbyStatus"); },
+  get lobbyMemberSection() { return $("lobbyMemberSection"); },
+  get lobbyMemberList() { return $("lobbyMemberList"); },
+  get btnLeaveLobby() { return $("btnLeaveLobby"); },
+  get btnCloseLobby() { return $("btnCloseLobby"); },
+
   // Peer Discovery
   get peerList() { return $("peerList"); },
   get peerCount() { return $("peerCount"); },
