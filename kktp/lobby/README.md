@@ -138,7 +138,7 @@ The lobby extends the KKTP discovery anchor with:
 {
   "meta": {
     "game": "string",
-    "version": "string", 
+    "version": "string",
     "expected_uptime_seconds": 3600,
     "lobby": true,
     "lobby_name": "My Lobby",

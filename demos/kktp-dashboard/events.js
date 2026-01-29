@@ -6,9 +6,11 @@ import {
   removeDiscoveredPeer,
   removeDiscoveredPeerByPubSig,
 } from "./state.js";
+import { logger } from "./logger.js";
 import {
   logEvent,
   renderPeerList,
+  renderDiscoveredLobbies,
   renderChatMessages,
   setChatEnabled,
   setMissedStatus,
@@ -70,7 +72,7 @@ export async function handleIncomingMatch(matchObjOrArray, deps = {}) {
     : [matchObjOrArray];
 
   for (const matchObj of matches) {
-    console.log("Incoming match:", matchObj);
+    logger.debug("KKTP: incoming match", matchObj);
     const txId = getMatchTxId(matchObj);
     if (txId) {
       if (dashboardState.processedTxIds.has(txId)) continue;
@@ -81,6 +83,11 @@ export async function handleIncomingMatch(matchObjOrArray, deps = {}) {
       matchObj?.decodedPayload ||
       decodeHexPayload(matchObj?.payload || matchObj?.tx?.payload || "");
     if (!payload || !payload.startsWith(KKTP_PREFIX)) continue;
+    logger.debug("KKTP: matched payload", {
+      txId,
+      prefix: payload.slice(0, 16),
+      size: payload.length,
+    });
 
     try {
       const event = await kaspaPortal.processIncomingPayload(payload);
@@ -171,10 +178,11 @@ export function handleDiscoveryAnchor(discovery, deps = {}, discoveredAt = null)
   }
 
   const now = Date.now();
-  console.log("KKTP: discovery anchor received", {
+  logger.debug("KKTP: discovery anchor received", {
     sid: discovery.sid,
     pub_sig: discovery.pub_sig,
     meta: discovery.meta || discovery.metadata || {},
+    isLobby: discovery?.meta?.lobby === true,
     timestamp: discovery.timestamp || discovery.time || null,
     discoveredAt,
     now,
@@ -184,14 +192,14 @@ export function handleDiscoveryAnchor(discovery, deps = {}, discoveredAt = null)
     discovery,
     discovery?.timestamp || discovery?.time || discoveredAt || now,
   );
-  console.log("KKTP: discovery expiry computed", {
+  logger.debug("KKTP: discovery expiry computed", {
     sid: discovery.sid,
     expectedEndMs,
     now,
     isExpired: expectedEndMs ? now > expectedEndMs : null,
   });
   if (expectedEndMs && now > expectedEndMs) {
-    console.log("KKTP: discovery anchor expired", {
+    logger.info("KKTP: discovery anchor expired", {
       sid: discovery.sid,
       expectedEndMs,
       now,
@@ -209,6 +217,13 @@ export function handleDiscoveryAnchor(discovery, deps = {}, discoveredAt = null)
       `${prefix}Discovered peer: ${discovery.pub_sig.substring(0, 8)}...`,
       "info",
     );
+    // Refresh both peer list and lobby list
     renderPeerList(deps.handleConnectToPeer);
+    renderDiscoveredLobbies(deps.handleJoinLobby);
+  } else {
+    logger.debug("KKTP: discovery already tracked", {
+      sid: discovery.sid,
+      pub_sig: discovery.pub_sig,
+    });
   }
 }

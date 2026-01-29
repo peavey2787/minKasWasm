@@ -62,6 +62,20 @@ export class AnchorFactory {
     }
 
     // 1. Build the base object with null VRF placeholders
+    // Normalize meta and preserve lobby fields if present
+    const normalizedMeta = {
+      game: meta.game || "Unknown",
+      version: meta.version || "1.0.0",
+      expected_uptime_seconds: meta.expected_uptime_seconds || meta.upTime || 3600,
+    };
+
+    // Preserve lobby fields (lobby, lobby_name, max_members) for group sessions
+    if (meta.lobby) {
+      normalizedMeta.lobby = true;
+      normalizedMeta.lobby_name = meta.lobby_name || "Unnamed Lobby";
+      normalizedMeta.max_members = meta.max_members || 16;
+    }
+
     const anchor = {
       type: "discovery",
       version: 1,
@@ -70,11 +84,7 @@ export class AnchorFactory {
       pub_dh: dh.publicKey,
       vrf_value: null,
       vrf_proof: null,
-      meta: {
-        game: meta.game,
-        version: meta.version || "1.0.0",
-        expected_uptime_seconds: meta.upTime || 3600,
-      },
+      meta: normalizedMeta,
       sig: null, // Set by kktpProtocol.signAnchor()
     };
 

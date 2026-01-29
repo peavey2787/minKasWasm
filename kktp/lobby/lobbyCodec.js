@@ -8,7 +8,7 @@
  * @module kktp/lobby/lobbyCodec
  */
 
-import { xchacha20poly1305 } from "@noble/ciphers/chacha";
+import { xchacha20poly1305 } from "https://esm.sh/v135/@noble/ciphers/chacha";
 
 /**
  * @typedef {Object} EncryptedGroupMessage

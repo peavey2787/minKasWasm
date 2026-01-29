@@ -34,6 +34,10 @@ export const elements = {
   get peerList() { return $("peerList"); },
   get peerCount() { return $("peerCount"); },
 
+  // Lobby Discovery
+  get lobbyList() { return $("lobbyList"); },
+  get lobbyCount() { return $("lobbyCount"); },
+
   // Sessions
   get sessionList() { return $("sessionList"); },
   get sessionCount() { return $("sessionCount"); },

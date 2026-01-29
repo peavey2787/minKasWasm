@@ -11,7 +11,7 @@
  * @module kktp/lobby/lobbyManager
  */
 
-import { kaspaPortal } from "../../wrapper/kaspaPortal.js";
+import { blake2b } from "https://esm.sh/@noble/hashes@1.3.0/blake2b";
 import { LobbyCodec } from "./lobbyCodec.js";
 import { LobbyMessageHandler } from "./lobbyMessageHandler.js";
 import {
@@ -170,7 +170,7 @@ export class LobbyManager {
    * @param {string} options.gameName - Game/app identifier
    * @param {number} [options.maxMembers] - Maximum members allowed
    * @param {number} [options.uptimeSeconds=3600] - Lobby duration
-   * @returns {Promise<Object>} - { lobbyId, discovery }
+   * @returns {Promise<Object>} - { lobbyId, discovery, groupMailboxId }
    */
   async hostLobby({
     lobbyName,
@@ -180,6 +180,14 @@ export class LobbyManager {
   }) {
     if (this.state !== LOBBY_STATES.IDLE) {
       throw new Error(`Cannot host lobby in state: ${this.state}`);
+    }
+
+    // Validate inputs early
+    if (!lobbyName || typeof lobbyName !== "string") {
+      throw new Error("lobbyName is required and must be a string");
+    }
+    if (!gameName || typeof gameName !== "string") {
+      throw new Error("gameName is required and must be a string");
     }
 
     this._setState(LOBBY_STATES.HOSTING);
@@ -198,15 +206,26 @@ export class LobbyManager {
       validateLobbyMeta(meta);
 
       // Broadcast discovery with lobby flag
-      const discovery = await this.sm.broadcastDiscovery(meta);
+      // broadcastDiscovery returns { discovery, payload }
+      const result = await this.sm.broadcastDiscovery(meta);
+      const discovery = result?.discovery;
+
+      if (!discovery || !discovery.sid) {
+        throw new Error("Failed to broadcast discovery: no discovery anchor returned");
+      }
+      if (!discovery.pub_sig) {
+        throw new Error("Failed to broadcast discovery: missing pub_sig");
+      }
+
+      const lobbyId = discovery.sid;
 
       // Generate initial group key
       const groupKey = await this._generateGroupKey();
-      const groupMailboxId = await this._deriveGroupMailboxId(discovery.sid);
+      const groupMailboxId = this._deriveGroupMailboxId(lobbyId);
 
       // Initialize lobby state
       this.lobby = {
-        lobbyId: discovery.sid,
+        lobbyId,
         lobbyName,
         hostPubSig: discovery.pub_sig,
         members: new Map(),
@@ -222,7 +241,7 @@ export class LobbyManager {
       // Add self as host member
       this.lobby.members.set(discovery.pub_sig, {
         pubSig: discovery.pub_sig,
-        displayName: lobbyName + " (Host)",
+        displayName: `${lobbyName} (Host)`,
         role: MEMBER_ROLES.HOST,
         joinedAt: Date.now(),
         dmMailboxId: null, // Host doesn't DM self
@@ -232,12 +251,13 @@ export class LobbyManager {
       this._startKeyRotation();
 
       console.info("KKTP Lobby: Hosted lobby", {
-        lobbyId: discovery.sid,
+        lobbyId: lobbyId.substring(0, 16),
         lobbyName,
-        groupMailboxId,
+        groupMailboxId: groupMailboxId.substring(0, 16),
+        hostPubSig: discovery.pub_sig.substring(0, 16),
       });
 
-      return { lobbyId: discovery.sid, discovery };
+      return { lobbyId, discovery, groupMailboxId };
     } catch (err) {
       this._setState(LOBBY_STATES.IDLE);
       throw err;
@@ -391,7 +411,7 @@ export class LobbyManager {
     const newVersion = this.lobby.keyVersion + 1;
 
     // Compute state root for integrity
-    const stateRoot = await this._computeStateRoot();
+    const stateRoot = this._computeStateRoot();
 
     // Distribute new key to all members via their DM channels
     const distribution = {
@@ -495,7 +515,7 @@ export class LobbyManager {
    * Request to join a lobby
    * @param {Object} lobbyDiscovery - The host's discovery anchor
    * @param {string} displayName - Your display name
-   * @returns {Promise<Object>} - { success, lobbyId, groupMailboxId }
+   * @returns {Promise<Object>} - { pending, lobbyId, dmMailboxId }
    */
   async joinLobby(lobbyDiscovery, displayName) {
     if (this.state !== LOBBY_STATES.IDLE) {
@@ -506,15 +526,29 @@ export class LobbyManager {
       throw new Error("Discovery is not a lobby anchor");
     }
 
+    if (!lobbyDiscovery.sid || !lobbyDiscovery.pub_sig) {
+      throw new Error("Invalid lobby discovery: missing sid or pub_sig");
+    }
+
+    if (!displayName || typeof displayName !== "string") {
+      displayName = "Anonymous";
+    }
+
     this._setState(LOBBY_STATES.JOINING);
 
     try {
       // Establish 1:1 DM with host
-      const session = await this.sm.connectToPeer(lobbyDiscovery);
-      const dmMailboxId = session.mailboxId;
+      const connectResult = await this.sm.connectToPeer(lobbyDiscovery);
+      if (!connectResult?.mailboxId) {
+        throw new Error("Failed to connect to lobby host: no mailboxId");
+      }
+      const dmMailboxId = connectResult.mailboxId;
 
       // Get our identity
-      const myKeys = await kaspaPortal.getMyIdentity();
+      const myKeys = await this.sm.portal.generateIdentityKeys(0);
+      if (!myKeys?.sig?.publicKey) {
+        throw new Error("Failed to get identity keys");
+      }
       const myPubSig = myKeys.sig.publicKey;
 
       // Send join request via DM
@@ -726,9 +760,12 @@ export class LobbyManager {
     }
 
     // Notify host via DM
-    if (this.lobby.dmMailboxId) {
+    if (this.lobby?.dmMailboxId) {
       try {
-        const myKeys = await kaspaPortal.getMyIdentity();
+        const myKeys = await this.sm.portal.generateIdentityKeys(0);
+        if (!myKeys?.sig?.publicKey) {
+          throw new Error("Failed to get identity keys");
+        }
         await this.sm.sendMessage(
           this.lobby.dmMailboxId,
           JSON.stringify({
@@ -757,14 +794,25 @@ export class LobbyManager {
   /**
    * Send a message to the lobby group
    * @param {string} plaintext - Message content
-   * @returns {Promise<Object>} - { txid, seq }
+   * @returns {Promise<Object>} - { txid }
    */
   async sendGroupMessage(plaintext) {
     if (this.state !== LOBBY_STATES.HOSTING && this.state !== LOBBY_STATES.MEMBER) {
       throw new Error("Not in an active lobby");
     }
 
-    const myKeys = await kaspaPortal.getMyIdentity();
+    if (!this.lobby?.groupKey || !this.lobby?.groupMailboxId) {
+      throw new Error("Lobby not initialized or missing group key");
+    }
+
+    if (!plaintext || typeof plaintext !== "string") {
+      throw new Error("plaintext must be a non-empty string");
+    }
+
+    const myKeys = await this.sm.portal.generateIdentityKeys(0);
+    if (!myKeys?.sig?.publicKey) {
+      throw new Error("Failed to get identity keys");
+    }
 
     // Encrypt with group key
     const encrypted = await this.codec.encryptGroupMessage(
@@ -778,7 +826,13 @@ export class LobbyManager {
     // Broadcast to group mailbox
     const payload = `KKTP:GROUP:${this.lobby.groupMailboxId}:${JSON.stringify(encrypted)}`;
 
-    const result = await kaspaPortal.send(payload);
+    // Get address for self-send
+    const address = await this.sm.portal.identity.address;
+    const result = await this.sm.portal.send({
+      toAddress: address,
+      amount: "1",
+      payload,
+    });
 
     // Add to local history
     this._addToHistory({
@@ -910,23 +964,16 @@ export class LobbyManager {
     return key;
   }
 
-  async _deriveGroupMailboxId(lobbyId) {
+  _deriveGroupMailboxId(lobbyId) {
     // Derive a deterministic group mailbox from lobby ID
     // Using BLAKE2b for domain separation
     const encoder = new TextEncoder();
     const data = encoder.encode(`KKTP:GROUP:MAILBOX:${lobbyId}`);
-
-    // Use kaspaPortal's crypto if available, otherwise fallback
-    try {
-      const hash = await kaspaPortal.crypto.blake2b(data, 32);
-      return this._uint8ToHex(hash);
-    } catch {
-      // Fallback: use the lobbyId directly (first 32 bytes hex)
-      return lobbyId.slice(0, 64);
-    }
+    const hash = blake2b(data, { dkLen: 32 });
+    return this._uint8ToHex(hash);
   }
 
-  async _computeStateRoot() {
+  _computeStateRoot() {
     // Merkle-ish commitment to roster + key version
     const members = Array.from(this.lobby.members.keys()).sort();
     const data = JSON.stringify({
@@ -934,15 +981,9 @@ export class LobbyManager {
       keyVersion: this.lobby.keyVersion,
       members,
     });
-
-    try {
-      const encoder = new TextEncoder();
-      const hash = await kaspaPortal.crypto.blake2b(encoder.encode(data), 32);
-      return this._uint8ToHex(hash);
-    } catch {
-      // Fallback
-      return null;
-    }
+    const encoder = new TextEncoder();
+    const hash = blake2b(encoder.encode(data), { dkLen: 32 });
+    return this._uint8ToHex(hash);
   }
 
   _exportGroupKey() {

@@ -15,6 +15,7 @@ import { recoverSessionsOnLoad, handleFetchMissed } from "./sync.js";
 import { handleIncomingMatch, handleIncomingEvent } from "./events.js";
 import { buildAnchorPayload } from "../../kktp/smHelpers.js";
 import { LobbyManager, LOBBY_STATES } from "../../kktp/lobby/index.js";
+import { logger, setDebugLogging } from "./logger.js";
 import {
   logEvent,
   updateConnectionStatus,
@@ -25,7 +26,7 @@ import {
   setCopyStatus,
   updateBroadcastStatus,
   renderPeerList,
-  renderPeerListWithLobbies,
+  renderDiscoveredLobbies,
   renderSessionList,
   renderChatMessages,
   setChatEnabled,
@@ -43,6 +44,14 @@ import {
 // Constants
 const NETWORK_ID = "testnet-10";
 const KKTP_PREFIX = "KKTP:";
+
+// Optional debug controls for production (localStorage + query params supported)
+window.KKTP_DEBUG = {
+  enable: (level = "debug") => setDebugLogging(true, level),
+  disable: () => setDebugLogging(false),
+  setLevel: (level) => setDebugLogging(true, level),
+  logger,
+};
 
 let saveTimer = null;
 function scheduleSessionSave() {
@@ -81,6 +90,7 @@ function getEventDeps() {
     refreshSessionList,
     getSession,
     handleConnectToPeer,
+    handleJoinLobby,
     scheduleSessionSave,
   };
 }
@@ -351,6 +361,10 @@ async function startScanning() {
 
   // Listen for matching transactions (already filtered)
   const eventDeps = getEventDeps();
+  logger.debug("KKTP: scanner deps", {
+    hasConnect: typeof eventDeps.handleConnectToPeer === "function",
+    hasJoinLobby: typeof eventDeps.handleJoinLobby === "function",
+  });
   kaspaPortal.onNewTransactionMatch((match) =>
     handleIncomingMatch(match, eventDeps),
   );
@@ -556,8 +570,11 @@ function refreshSessionList() {
   const sessions = kaspaPortal.getSessions();
   renderSessionList(sessions, dashboardState.activeSessionId, selectSession);
 
-  // Also refresh peer list with lobby support
-  renderPeerListWithLobbies(handleConnectToPeer, handleJoinLobby);
+  // Refresh peer list (regular peers only)
+  renderPeerList(handleConnectToPeer);
+
+  // Refresh lobby list (dedicated section)
+  renderDiscoveredLobbies(handleJoinLobby);
 }
 
 /**
