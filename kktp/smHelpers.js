@@ -20,53 +20,17 @@ export function normalizeEpochMs(value) {
 
 export function getExpectedEndMs(anchor, createdAtMs) {
   if (!anchor) return null;
-  const meta = anchor.meta || anchor.metadata || {};
-
-  const candidates = [
-    meta.expected_time_up,
-    meta.expectedTimeUp,
-    meta.expectedEnd,
-    meta.expected_end,
-    meta.expiresAt,
-    meta.expires_at,
-    meta.expiry,
-    meta.expiryMs,
-    anchor.expected_time_up,
-    anchor.expectedTimeUp,
-    anchor.expectedEnd,
-    anchor.expected_end,
-    anchor.expiresAt,
-    anchor.expires_at,
-    anchor.expiry,
-    anchor.expiryMs,
-  ].filter((v) => v != null);
-
-  for (const v of candidates) {
-    const ms = normalizeEpochMs(v);
-    if (ms) return ms;
-  }
-
-  const ttlCandidates = [
-    meta.ttlSeconds,
-    meta.ttl_seconds,
-    meta.durationSeconds,
-    meta.duration_seconds,
-    meta.ttlMs,
-    meta.durationMs,
-    meta.timeToLive,
-  ].filter((v) => v != null);
+  const meta = anchor.meta || {};
+  const uptimeSeconds = Number(meta.expected_uptime_seconds);
+  if (!Number.isFinite(uptimeSeconds) || uptimeSeconds <= 0) return null;
 
   const base =
-    normalizeEpochMs(anchor.timestamp || anchor.time || meta.timestamp) ||
+    normalizeEpochMs(anchor.timestamp || anchor.time) ||
     normalizeEpochMs(createdAtMs) ||
     null;
 
-  for (const v of ttlCandidates) {
-    const ttlMs = normalizeEpochMs(v);
-    if (ttlMs && base) return base + ttlMs;
-  }
-
-  return null;
+  if (!base) return null;
+  return base + uptimeSeconds * 1000;
 }
 
 export function buildAnchorPayload(anchor) {

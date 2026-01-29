@@ -60,13 +60,16 @@ export function setActiveSession(mailboxId) {
 /**
  * Add a discovered peer
  */
-export function addDiscoveredPeer(discovery, { isSelf = false } = {}) {
+export function addDiscoveredPeer(
+  discovery,
+  { isSelf = false, discoveredAt = null } = {},
+) {
   if (!discovery?.sid) return false;
 
   const existing = dashboardState.discoveredPeers.get(discovery.sid);
   const entry = {
     discovery,
-    discoveredAt: existing?.discoveredAt ?? Date.now(),
+    discoveredAt: existing?.discoveredAt ?? discoveredAt ?? Date.now(),
     isSelf,
   };
 

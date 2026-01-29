@@ -14,6 +14,7 @@ import {
 } from "./ui.js";
 import { decodeHexPayload } from "./sync.js";
 import { setStoredDiscoveryBlockHash } from "./storage.js";
+import { getExpectedEndMs } from "../../kktp/smHelpers.js";
 
 const KKTP_PREFIX = "KKTP:";
 
@@ -33,6 +34,16 @@ function getMatchTxId(matchObj) {
     matchObj?.txId ||
     matchObj?.tx?.verboseData?.transactionId ||
     ""
+  );
+}
+
+function getMatchTimestamp(matchObj) {
+  return (
+    matchObj?.block?.timestamp ||
+    matchObj?.blockTimestamp ||
+    matchObj?.tx?.timestamp ||
+    matchObj?.tx?.verboseData?.timestamp ||
+    null
   );
 }
 
@@ -73,6 +84,7 @@ export async function handleIncomingMatch(matchObjOrArray, deps = {}) {
     try {
       const event = await kaspaPortal.processIncomingPayload(payload);
       if (event) {
+        event._receivedAt = getMatchTimestamp(matchObj) || Date.now();
         handleIncomingEvent(event, deps);
         maybeStoreOwnDiscoveryBlock(event, matchObj);
         deps.scheduleSessionSave?.();
@@ -93,7 +105,7 @@ export function handleIncomingEvent(event, deps = {}) {
         );
         return;
       }
-      handleDiscoveryAnchor(event.anchor, deps);
+      handleDiscoveryAnchor(event.anchor, deps, event._receivedAt);
       break;
     case "session_established":
       logEvent(
@@ -144,16 +156,46 @@ export function handleIncomingEvent(event, deps = {}) {
   deps.scheduleSessionSave?.();
 }
 
-export function handleDiscoveryAnchor(discovery, deps = {}) {
+export function handleDiscoveryAnchor(discovery, deps = {}, discoveredAt = null) {
   if (!discovery || !discovery.pub_sig) {
     logEvent("Malformed discovery anchor dropped", "error");
+    return;
+  }
+
+  const now = Date.now();
+  console.log("KKTP: discovery anchor received", {
+    sid: discovery.sid,
+    pub_sig: discovery.pub_sig,
+    meta: discovery.meta || discovery.metadata || {},
+    timestamp: discovery.timestamp || discovery.time || null,
+    discoveredAt,
+    now,
+  });
+
+  const expectedEndMs = getExpectedEndMs(
+    discovery,
+    discovery?.timestamp || discovery?.time || discoveredAt || now,
+  );
+  console.log("KKTP: discovery expiry computed", {
+    sid: discovery.sid,
+    expectedEndMs,
+    now,
+    isExpired: expectedEndMs ? now > expectedEndMs : null,
+  });
+  if (expectedEndMs && now > expectedEndMs) {
+    console.log("KKTP: discovery anchor expired", {
+      sid: discovery.sid,
+      expectedEndMs,
+      now,
+    });
+    logEvent("Expired discovery anchor dropped", "info");
     return;
   }
 
   const isSelf =
     dashboardState.myPubSig && discovery.pub_sig === dashboardState.myPubSig;
 
-  if (addDiscoveredPeer(discovery, { isSelf })) {
+  if (addDiscoveredPeer(discovery, { isSelf, discoveredAt })) {
     const prefix = isSelf ? "(SELF) " : "";
     logEvent(
       `${prefix}Discovered peer: ${discovery.pub_sig.substring(0, 8)}...`,

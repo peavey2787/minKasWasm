@@ -1,6 +1,7 @@
 // ui.js - UI rendering functions
 import { elements } from "./dom.js";
 import { dashboardState, getDiscoveredPeers } from "./state.js";
+import { getExpectedEndMs } from "../../kktp/smHelpers.js";
 
 /**
  * Log an event to the event log panel
@@ -83,19 +84,16 @@ export function updateIdentityDisplay(pubSig) {
  */
 export function updateWalletAddress(address) {
   const el = elements.walletAddress;
-  const btn = elements.btnCopyAddress;
   if (!el) return;
 
   if (address) {
     el.textContent = `Address: ${truncateAddress(address)}`;
     el.title = address;
     el.classList.remove("wallet-address-wrap");
-    if (btn) btn.disabled = false;
   } else {
     el.textContent = "Address: —";
     el.title = "";
     el.classList.remove("wallet-address-wrap");
-    if (btn) btn.disabled = true;
   }
 }
 
@@ -172,7 +170,28 @@ export function renderPeerList(onConnect) {
   const countEl = elements.peerCount;
   if (!list) return;
 
-  const peers = getDiscoveredPeers();
+  const now = Date.now();
+  const peers = getDiscoveredPeers().filter((peer) => {
+    const discovery = peer?.discovery;
+    if (!discovery) return false;
+    const expectedEndMs = getExpectedEndMs(
+      discovery,
+      discovery?.timestamp || discovery?.time || peer?.discoveredAt,
+    );
+    if (expectedEndMs && now > expectedEndMs) {
+      console.debug("KKTP: purging expired discovery", {
+        sid: discovery.sid,
+        pub_sig: discovery.pub_sig,
+        expectedEndMs,
+        now,
+      });
+      if (discovery.sid) {
+        dashboardState.discoveredPeers.delete(discovery.sid);
+      }
+      return false;
+    }
+    return true;
+  });
 
   if (countEl) {
     countEl.textContent = peers.length;

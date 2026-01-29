@@ -61,7 +61,7 @@ export async function syncFromStartHash(
     {
       prefixes: [KKTP_PREFIX],
       onTransactionMatch: [
-        ({ tx }) => {
+        ({ block, tx }) => {
           const txId = tx?.txid || "";
           if (txId && seen.has(txId)) return false;
           if (txId) seen.add(txId);
@@ -69,7 +69,14 @@ export async function syncFromStartHash(
           const payloadHex = tx?.payload || "";
           const payload = decodeHexPayload(payloadHex);
           if (payload && payload.startsWith(KKTP_PREFIX)) {
-            pendingPayloads.push({ payload });
+            pendingPayloads.push({
+              payload,
+              receivedAt:
+                block?.timestamp ||
+                tx?.timestamp ||
+                tx?.verboseData?.timestamp ||
+                Date.now(),
+            });
           }
           return false;
         },
@@ -80,6 +87,7 @@ export async function syncFromStartHash(
   for (const item of pendingPayloads) {
     const event = await kaspaPortal.processIncomingPayload(item.payload);
     if (event && typeof handleIncomingEvent === "function") {
+      event._receivedAt = item.receivedAt;
       handleIncomingEvent(event);
     }
   }
@@ -299,6 +307,11 @@ export async function handleFetchMissed({
                 payload,
                 blockHash: block?.hash || tx?.blockHash || "",
                 txId,
+                receivedAt:
+                  block?.timestamp ||
+                  tx?.timestamp ||
+                  tx?.verboseData?.timestamp ||
+                  Date.now(),
               });
             }
             return false;
@@ -310,6 +323,7 @@ export async function handleFetchMissed({
     for (const item of pendingPayloads) {
       const event = await kaspaPortal.processIncomingPayload(item.payload);
       if (event && typeof handleIncomingEvent === "function") {
+        event._receivedAt = item.receivedAt;
         handleIncomingEvent(event);
         if (event.type === "discovery" && item.blockHash) {
           setStoredDiscoveryBlockHash(item.blockHash);
