@@ -719,6 +719,15 @@ export class KaspaPortal {
   }
 
   /**
+   * Get a specific KKTP session by mailboxId.
+   * @param {string} mailboxId - The mailbox ID to look up
+   * @returns {Object|undefined} Session context or undefined if not found
+   */
+  getSession(mailboxId) {
+    return this.sessionManager.getSession(mailboxId);
+  }
+
+  /**
    * Get active KKTP sessions.
    * @returns {Array<Object>} Session contexts with mailboxId
    */

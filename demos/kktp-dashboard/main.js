@@ -10,8 +10,8 @@ import {
   clearActiveLobby,
 } from "./state.js";
 import { elements } from "./dom.js";
-import { saveSessionSnapshot } from "./storage.js";
-import { recoverSessionsOnLoad, handleFetchMissed } from "./sync.js";
+import { saveSessionSnapshot, getStoredDiscoveryBlockHash } from "./storage.js";
+import { recoverSessionsOnLoad, handleFetchMissed, stopDagWalk, isDagWalkActive, getDagWalkProgress } from "./sync.js";
 import { handleIncomingMatch, handleIncomingEvent } from "./events.js";
 import { buildAnchorPayload } from "../../kktp/protocol/sessions/index.js";
 import { LobbyManager, LOBBY_STATES } from "../../kktp/lobby/index.js";
@@ -136,6 +136,7 @@ function initLobbyManager() {
     clearActiveLobby();
     updateLobbyStatus(null);
     updateLobbyControlsVisibility(false, false);
+    hideDiscoveryBlockHash();
     renderPeerList(handleConnectToPeer);
     renderDiscoveredLobbies(handleJoinLobby);
   });
@@ -330,13 +331,29 @@ function setupEventListeners() {
   });
 
   // Fetch missed messages
-  elements.btnFetchMissed?.addEventListener("click", () =>
+  elements.btnFetchMissed?.addEventListener("click", () => {
+    updateDagWalkButtons(true);
     handleFetchMissed({
       handleIncomingEvent: (event) =>
         handleIncomingEvent(event, getEventDeps()),
       scheduleSessionSave,
-    }),
-  );
+      onProgress: (progress) => {
+        updateDagWalkProgress(progress);
+      },
+    }).finally(() => {
+      updateDagWalkButtons(false);
+    });
+  });
+
+  // Stop DAG walk button
+  elements.btnStopDagWalk?.addEventListener("click", () => {
+    if (stopDagWalk()) {
+      logEvent("DAG walk stop requested", "info");
+    }
+  });
+
+  // Copy discovery block hash
+  elements.btnCopyDiscoveryHash?.addEventListener("click", handleCopyDiscoveryHash);
 
   // Lobby mode checkbox
   elements.lobbyModeCheckbox?.addEventListener("change", (e) => {
@@ -412,6 +429,134 @@ async function handleCopyAddress() {
     setCopyStatus("Copy manually", false);
     logEvent(`Copy failed: ${err.message}`, "error");
   }
+}
+
+/**
+ * Copy discovery block hash to clipboard for sharing with peers
+ */
+async function handleCopyDiscoveryHash() {
+  const hash = elements.discoveryBlockHashDisplay?.value || "";
+  if (!hash) return;
+
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(hash);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = hash;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
+
+    const btn = elements.btnCopyDiscoveryHash;
+    if (btn) {
+      btn.textContent = "Copied!";
+      setTimeout(() => (btn.textContent = "Copy"), 1200);
+    }
+    logEvent("Discovery block hash copied to clipboard", "success");
+  } catch (err) {
+    logEvent(`Copy failed: ${err.message}`, "error");
+  }
+}
+
+/**
+ * Update DAG walk button visibility based on walk state
+ * @param {boolean} isWalking - Whether a DAG walk is in progress
+ */
+function updateDagWalkButtons(isWalking) {
+  const btnFetch = elements.btnFetchMissed;
+  const btnStop = elements.btnStopDagWalk;
+  const progress = elements.dagWalkProgress;
+
+  if (btnFetch) {
+    btnFetch.disabled = isWalking;
+  }
+  if (btnStop) {
+    btnStop.style.display = isWalking ? "inline-block" : "none";
+  }
+  if (progress) {
+    progress.style.display = isWalking ? "block" : "none";
+    if (!isWalking) {
+      progress.textContent = "";
+    }
+  }
+}
+
+/**
+ * Update DAG walk progress display
+ * @param {{ blocksProcessed: number, elapsedMs: number, lastBlockHash: string }} progress
+ */
+function updateDagWalkProgress(progress) {
+  const el = elements.dagWalkProgress;
+  if (!el) return;
+
+  const elapsed = Math.round(progress.elapsedMs / 1000);
+  const hashShort = progress.lastBlockHash ? progress.lastBlockHash.slice(0, 8) + "..." : "—";
+  el.textContent = `Blocks: ${progress.blocksProcessed} | Time: ${elapsed}s | Last: ${hashShort}`;
+}
+
+/**
+ * Show discovery block hash section for hosts to share with peers
+ * @param {string} blockHash - The discovery block hash to display
+ */
+function showDiscoveryBlockHash(blockHash) {
+  const section = elements.discoveryBlockHashSection;
+  const display = elements.discoveryBlockHashDisplay;
+
+  if (section && display && blockHash) {
+    display.value = blockHash;
+    section.style.display = "block";
+    logEvent(`Discovery block hash: ${blockHash.slice(0, 12)}...`, "info");
+  }
+}
+
+/**
+ * Hide the discovery block hash section
+ */
+function hideDiscoveryBlockHash() {
+  const section = elements.discoveryBlockHashSection;
+  if (section) {
+    section.style.display = "none";
+  }
+}
+
+/**
+ * Wait for the discovery block hash to be stored (after mining)
+ * Polls localStorage until the hash appears or timeout
+ * @returns {Promise<string|null>} The block hash or null if timeout
+ */
+async function waitForDiscoveryBlockHash() {
+  const maxWaitMs = 60_000; // 60 seconds max wait
+  const pollIntervalMs = 2_000; // Poll every 2 seconds
+  const startTime = Date.now();
+  const initialHash = getStoredDiscoveryBlockHash();
+
+  return new Promise((resolve) => {
+    const check = () => {
+      const currentHash = getStoredDiscoveryBlockHash();
+      // Wait for a new hash (different from initial, or if there was none)
+      if (currentHash && currentHash !== initialHash) {
+        resolve(currentHash);
+        return;
+      }
+      // Also resolve if we have any hash and waited at least 10 seconds
+      if (currentHash && Date.now() - startTime > 10_000) {
+        resolve(currentHash);
+        return;
+      }
+      if (Date.now() - startTime >= maxWaitMs) {
+        resolve(currentHash || null);
+        return;
+      }
+      setTimeout(check, pollIntervalMs);
+    };
+    setTimeout(check, pollIntervalMs);
+  });
 }
 
 /**
@@ -494,6 +639,15 @@ async function handleBroadcastDiscovery() {
 
       updateBroadcastStatus("Lobby hosted!", "success");
       logEvent(`Lobby hosted: ${lobbyId.substring(0, 8)}...`, "success");
+
+      // Show discovery hash section - wait briefly for mining, then show stored hash
+      setMissedStatus("Waiting for discovery to be mined...");
+      waitForDiscoveryBlockHash().then((hash) => {
+        if (hash) {
+          showDiscoveryBlockHash(hash);
+          setMissedStatus(`Discovery mined @ ${hash.slice(0, 8)}... - share with peers!`);
+        }
+      });
     } else {
       // Regular peer discovery
       const meta = {
@@ -515,9 +669,11 @@ async function handleBroadcastDiscovery() {
         `Discovery broadcast: ${discovery.sid.substring(0, 8)}...`,
         "success",
       );
+
+      // For regular discoveries, just show waiting message
+      setMissedStatus("Waiting for discovery to be mined...");
     }
 
-    setMissedStatus("Waiting for discovery to be mined...");
     scheduleSessionSave();
 
     setTimeout(() => {
@@ -736,6 +892,9 @@ async function handleCloseLobby() {
     clearActiveLobby();
     updateLobbyStatus(null);
     updateLobbyControlsVisibility(false, false);
+
+    // Hide discovery block hash section since lobby is closed
+    hideDiscoveryBlockHash();
 
     // Reset lobby mode checkbox
     setLobbyModeChecked(false);
