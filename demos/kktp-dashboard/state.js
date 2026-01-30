@@ -14,6 +14,12 @@ export const dashboardState = {
   activeSessionId: null, // Currently selected mailboxId
   closingSessions: new Set(),
 
+  // Lobby State
+  lobbyManager: null, // LobbyManager instance
+  isLobbyMode: false, // Whether to broadcast as lobby
+  activeLobby: null, // Current lobby info if in a lobby
+  activeLobbySelected: false, // Whether the lobby chat is currently selected (vs 1:1)
+
   // Deduplication
   processedTxIds: new Set(),
 
@@ -38,6 +44,10 @@ export function resetState() {
   dashboardState.broadcastedDiscovery = null;
   dashboardState.activeSessionId = null;
   dashboardState.closingSessions.clear();
+  dashboardState.lobbyManager = null;
+  dashboardState.isLobbyMode = false;
+  dashboardState.activeLobby = null;
+  dashboardState.activeLobbySelected = false;
   dashboardState.processedTxIds.clear();
   dashboardState.isConnected = false;
   dashboardState.isScanning = false;
@@ -51,6 +61,27 @@ export function setConnected(isConnected) {
 }
 
 /**
+ * Set lobby mode
+ */
+export function setLobbyMode(isLobby) {
+  dashboardState.isLobbyMode = isLobby;
+}
+
+/**
+ * Set active lobby
+ */
+export function setActiveLobby(lobbyInfo) {
+  dashboardState.activeLobby = lobbyInfo;
+}
+
+/**
+ * Clear active lobby
+ */
+export function clearActiveLobby() {
+  dashboardState.activeLobby = null;
+}
+
+/**
  * Set active session
  */
 export function setActiveSession(mailboxId) {
@@ -60,13 +91,16 @@ export function setActiveSession(mailboxId) {
 /**
  * Add a discovered peer
  */
-export function addDiscoveredPeer(discovery, { isSelf = false } = {}) {
+export function addDiscoveredPeer(
+  discovery,
+  { isSelf = false, discoveredAt = null } = {},
+) {
   if (!discovery?.sid) return false;
 
   const existing = dashboardState.discoveredPeers.get(discovery.sid);
   const entry = {
     discovery,
-    discoveredAt: existing?.discoveredAt ?? Date.now(),
+    discoveredAt: existing?.discoveredAt ?? discoveredAt ?? Date.now(),
     isSelf,
   };
 
@@ -79,6 +113,18 @@ export function addDiscoveredPeer(discovery, { isSelf = false } = {}) {
  */
 export function removeDiscoveredPeer(sid) {
   dashboardState.discoveredPeers.delete(sid);
+}
+
+/**
+ * Remove discovered peers by public signing key
+ */
+export function removeDiscoveredPeerByPubSig(pubSig) {
+  if (!pubSig) return;
+  for (const [sid, entry] of dashboardState.discoveredPeers.entries()) {
+    if (entry?.discovery?.pub_sig === pubSig) {
+      dashboardState.discoveredPeers.delete(sid);
+    }
+  }
 }
 
 /**

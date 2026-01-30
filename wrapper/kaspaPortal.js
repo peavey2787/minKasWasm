@@ -11,7 +11,7 @@ import {
 import { CryptoFacade } from "./crypto/cryptoFacade.js";
 import { VRFFacade } from "./vrf/vrfFacade.js";
 import initKaspa from "./kas-wasm/kaspa.js";
-import { SessionManager } from "../kktp/sessionManager.js";
+import { SessionManager } from "../kktp/sessionFacade.js";
 
 let wasmInitialized = false;
 
@@ -716,6 +716,15 @@ export class KaspaPortal {
    */
   closeSession(mailboxId) {
     return this.sessionManager.closeSession(mailboxId);
+  }
+
+  /**
+   * Get a specific KKTP session by mailboxId.
+   * @param {string} mailboxId - The mailbox ID to look up
+   * @returns {Object|undefined} Session context or undefined if not found
+   */
+  getSession(mailboxId) {
+    return this.sessionManager.getSession(mailboxId);
   }
 
   /**

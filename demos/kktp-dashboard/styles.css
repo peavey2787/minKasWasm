@@ -93,6 +93,58 @@ body {
   color: #94a3b8;
 }
 
+/* Lobby Styles */
+.message-sender {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+#lobbyMemberList .list-group-item {
+  padding: 0.5rem 0.75rem;
+}
+
+#lobbyMemberList .btn-kick {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.lobby-header {
+  background: rgba(255, 193, 7, 0.1);
+  border-left: 3px solid var(--bs-warning);
+}
+
+/* Warning button override for lobby join */
+.btn-warning {
+  --bs-btn-color: #0d0d0d;
+}
+
+/* DAG Walk Progress */
+#dagWalkProgress {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--kktp-accent-dim);
+}
+
+/* Discovery Block Hash Section */
+#discoveryBlockHashSection {
+  border-top: 1px solid rgba(73, 234, 203, 0.3);
+  padding-top: 0.75rem;
+}
+
+#discoveryBlockHashSection .form-label {
+  font-size: 0.75rem;
+}
+
+#discoveryBlockHashDisplay {
+  font-size: 0.7rem;
+  background-color: rgba(0, 0, 0, 0.3);
+}
+
+/* Stop button styling */
+#btnStopDagWalk {
+  min-width: 60px;
+}
+
 @media (min-width: 992px) {
   .offcanvas-lg {
     position: static;

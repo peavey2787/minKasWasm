@@ -18,10 +18,30 @@ export const elements = {
   get missedStartHashInput() { return $("missedStartHashInput"); },
   get btnFetchMissed() { return $("btnFetchMissed"); },
   get missedStatus() { return $("missedStatus"); },
+  get btnStopDagWalk() { return $("btnStopDagWalk"); },
+  get discoveryBlockHashSection() { return $("discoveryBlockHashSection"); },
+  get discoveryBlockHashDisplay() { return $("discoveryBlockHashDisplay"); },
+  get btnCopyDiscoveryHash() { return $("btnCopyDiscoveryHash"); },
+  get dagWalkProgress() { return $("dagWalkProgress"); },
+
+  // Lobby Controls
+  get lobbyModeCheckbox() { return $("lobbyModeCheckbox"); },
+  get lobbyNameInput() { return $("lobbyNameInput"); },
+  get lobbyNameGroup() { return $("lobbyNameGroup"); },
+  get lobbyControls() { return $("lobbyControls"); },
+  get lobbyStatus() { return $("lobbyStatus"); },
+  get lobbyMemberSection() { return $("lobbyMemberSection"); },
+  get lobbyMemberList() { return $("lobbyMemberList"); },
+  get btnLeaveLobby() { return $("btnLeaveLobby"); },
+  get btnCloseLobby() { return $("btnCloseLobby"); },
 
   // Peer Discovery
   get peerList() { return $("peerList"); },
   get peerCount() { return $("peerCount"); },
+
+  // Lobby Discovery
+  get lobbyList() { return $("lobbyList"); },
+  get lobbyCount() { return $("lobbyCount"); },
 
   // Sessions
   get sessionList() { return $("sessionList"); },

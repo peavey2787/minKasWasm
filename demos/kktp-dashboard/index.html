@@ -85,6 +85,21 @@
                   <input type="number" id="uptimeSeconds" value="3600" min="60" step="60" class="form-control form-control-sm">
                 </div>
 
+                <!-- Lobby Controls -->
+                <div id="lobbyControls">
+                  <div class="form-check mb-2">
+                    <input type="checkbox" id="lobbyModeCheckbox" class="form-check-input">
+                    <label for="lobbyModeCheckbox" class="form-check-label small">Host as Lobby</label>
+                  </div>
+                  <div id="lobbyNameGroup" class="mb-2" style="display: none;">
+                    <label for="lobbyNameInput" class="form-label small text-secondary">Lobby Name</label>
+                    <input type="text" id="lobbyNameInput" class="form-control form-control-sm" placeholder="My Lobby">
+                  </div>
+                </div>
+
+                <!-- Lobby Status (shown when in a lobby) -->
+                <div id="lobbyStatus" class="mb-2" style="display: none;"></div>
+
                 <button id="btnBroadcast" class="btn btn-primary w-100" disabled>
                   Broadcast Discovery
                 </button>
@@ -96,14 +111,34 @@
                     type="text"
                     id="missedStartHashInput"
                     class="form-control form-control-sm"
-                    placeholder="Leave empty to use last discovery block"
+                    placeholder="Leave empty to use last seen/discovery block"
                   >
                 </div>
 
-                <button id="btnFetchMissed" class="btn btn-outline-light w-100">
-                  Fetch Missed Messages
-                </button>
+                <div class="d-flex gap-2">
+                  <button id="btnFetchMissed" class="btn btn-outline-light flex-grow-1">
+                    Fetch Missed Messages
+                  </button>
+                  <button id="btnStopDagWalk" class="btn btn-outline-danger" style="display: none;" title="Stop DAG walk">
+                    Stop
+                  </button>
+                </div>
+                <div id="dagWalkProgress" class="small text-center text-secondary" style="display: none;"></div>
                 <div id="missedStatus" class="small text-center">Ready to scan</div>
+
+                <!-- Discovery Block Hash Section (shown to hosts for sharing) -->
+                <div id="discoveryBlockHashSection" class="mt-2" style="display: none;">
+                  <label class="form-label small text-warning">Share this hash with peers for instant lobby discovery:</label>
+                  <div class="input-group input-group-sm">
+                    <input
+                      type="text"
+                      id="discoveryBlockHashDisplay"
+                      class="form-control form-control-sm font-monospace"
+                      readonly
+                    >
+                    <button id="btnCopyDiscoveryHash" class="btn btn-outline-warning" type="button">Copy</button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -117,6 +152,17 @@
               </div>
             </div>
 
+            <!-- Discovered Lobbies Section -->
+            <div class="card flex-grow-1">
+              <div class="card-header d-flex justify-content-between align-items-center lobby-header">
+                <span>🏠 Discovered Lobbies</span>
+                <span id="lobbyCount" class="badge rounded-pill text-bg-warning">0</span>
+              </div>
+              <div id="lobbyList" class="list-group list-group-flush flex-grow-1 overflow-auto">
+                <div class="list-group-item text-secondary">No lobbies discovered yet...</div>
+              </div>
+            </div>
+
             <div class="card flex-grow-1">
               <div class="card-header d-flex justify-content-between align-items-center">
                 <span>Active Sessions</span>
@@ -124,6 +170,20 @@
               </div>
               <div id="sessionList" class="list-group list-group-flush flex-grow-1 overflow-auto">
                 <div class="list-group-item text-secondary">No active sessions</div>
+              </div>
+            </div>
+
+            <!-- Lobby Members Section (shown when in a lobby) -->
+            <div id="lobbyMemberSection" class="card" style="display: none;">
+              <div class="card-header d-flex justify-content-between align-items-center">
+                <span>🏠 Lobby Members</span>
+              </div>
+              <div id="lobbyMemberList" class="list-group list-group-flush overflow-auto" style="max-height: 200px;">
+                <div class="list-group-item text-secondary">No members</div>
+              </div>
+              <div class="card-footer d-flex gap-2">
+                <button id="btnLeaveLobby" class="btn btn-outline-warning btn-sm flex-grow-1" style="display: none;">Leave Lobby</button>
+                <button id="btnCloseLobby" class="btn btn-outline-danger btn-sm flex-grow-1" style="display: none;">Close Lobby</button>
               </div>
             </div>
           </div>

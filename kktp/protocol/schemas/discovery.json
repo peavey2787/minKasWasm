@@ -54,6 +54,18 @@
         "expected_uptime_seconds": {
           "type": "number",
           "required": true
+        },
+        "lobby": {
+          "type": "boolean",
+          "description": "If true, this discovery represents a lobby/group session"
+        },
+        "lobby_name": {
+          "type": "string",
+          "description": "Human-readable lobby name (required if lobby=true)"
+        },
+        "max_members": {
+          "type": "number",
+          "description": "Maximum members allowed in lobby (required if lobby=true)"
         }
       },
       "additionalProperties": false

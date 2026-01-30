@@ -1,3 +1,6 @@
+// kktp/protocol/sessions/sessionPersistence.js
+// IndexedDB persistence layer for KKTP sessions
+
 export class SessionPersistence {
   constructor({
     dbName = "KKTP_DB",
@@ -19,7 +22,6 @@ export class SessionPersistence {
 
   // ─────────────────────────────────────────────────────────────
   // Peer Registry: Per-contact baseIndex allocation with PFS
-
   // ─────────────────────────────────────────────────────────────
 
   /**
@@ -119,6 +121,10 @@ export class SessionPersistence {
     });
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // Session Resume Records
+  // ─────────────────────────────────────────────────────────────
+
   async putResumeRecord(record) {
     if (typeof indexedDB === "undefined") return false;
     const db = await this._openDb();
@@ -193,6 +199,10 @@ export class SessionPersistence {
       req.onerror = () => reject(req.error);
     });
   }
+
+  // ─────────────────────────────────────────────────────────────
+  // IndexedDB Management
+  // ─────────────────────────────────────────────────────────────
 
   async _openDb() {
     if (this._dbPromise) return this._dbPromise;

@@ -7,10 +7,91 @@ import { logEvent, setMissedStatus, updateScannerStatus } from "./ui.js";
 import {
   getStoredDiscoveryBlockHash,
   setStoredDiscoveryBlockHash,
+  getStoredLastSeenBlockHash,
+  setStoredLastSeenBlockHash,
   loadSessionSnapshot,
 } from "./storage.js";
 
 const KKTP_PREFIX = "KKTP:";
+const DAG_WALK_UNLIMITED_SECONDS = 86400; // 24hrs
+
+// ─────────────────────────────────────────────────────────────
+// DAG Walk State Management
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Active DAG walk state - tracks current walk progress and allows stopping
+ */
+const activeDagWalk = {
+  isActive: false,
+  stopped: false,
+  blocksProcessed: 0,
+  startedAt: 0,
+  lastBlockHash: "",
+  startHash: "",
+};
+
+// Update last seen block hash every N blocks to avoid excessive writes
+const BLOCK_HASH_UPDATE_INTERVAL = 100;
+
+/**
+ * Stop the current DAG walk if one is in progress
+ * @returns {boolean} True if a walk was stopped, false if none was active
+ */
+export function stopDagWalk() {
+  if (!activeDagWalk.isActive) {
+    return false;
+  }
+  activeDagWalk.stopped = true;
+  logEvent("DAG walk stop requested...", "info");
+  return true;
+}
+
+/**
+ * Check if a DAG walk is currently in progress
+ * @returns {boolean}
+ */
+export function isDagWalkActive() {
+  return activeDagWalk.isActive;
+}
+
+/**
+ * Get current DAG walk progress info
+ * @returns {{ blocksProcessed: number, elapsedMs: number, lastBlockHash: string } | null}
+ */
+export function getDagWalkProgress() {
+  if (!activeDagWalk.isActive) return null;
+  return {
+    blocksProcessed: activeDagWalk.blocksProcessed,
+    elapsedMs: Date.now() - activeDagWalk.startedAt,
+    lastBlockHash: activeDagWalk.lastBlockHash,
+  };
+}
+
+/**
+ * Get the best starting block hash for DAG walks
+ * Priority: manual input > lastSeenBlockHash > discoveryBlockHash
+ * @param {string} [manualHash] - Optional manually provided hash
+ * @returns {{ hash: string, source: "manual" | "lastSeen" | "discovery" | "none" }}
+ */
+export function getBestStartHash(manualHash = "") {
+  const manual = manualHash?.trim() || "";
+  if (manual && manual.length === 64) {
+    return { hash: manual, source: "manual" };
+  }
+
+  const lastSeen = getStoredLastSeenBlockHash();
+  if (lastSeen && lastSeen.length === 64) {
+    return { hash: lastSeen, source: "lastSeen" };
+  }
+
+  const discovery = getStoredDiscoveryBlockHash();
+  if (discovery && discovery.length === 64) {
+    return { hash: discovery, source: "discovery" };
+  }
+
+  return { hash: "", source: "none" };
+}
 
 export function decodeHexPayload(payloadHex) {
   try {
@@ -44,53 +125,125 @@ async function restoreSavedSessions({
 
 export async function syncFromStartHash(
   startHash,
-  { handleIncomingEvent, logPrefix = "DAG" } = {},
+  {
+    handleIncomingEvent,
+    logPrefix = "DAG",
+    onProgress = null,
+    maxSeconds = DAG_WALK_UNLIMITED_SECONDS,
+  } = {},
 ) {
   if (!startHash) return 0;
 
-  updateScannerStatus("syncing");
+  // Initialize walk state
+  activeDagWalk.isActive = true;
+  activeDagWalk.stopped = false;
+  activeDagWalk.blocksProcessed = 0;
+  activeDagWalk.startedAt = Date.now();
+  activeDagWalk.lastBlockHash = startHash;
+  activeDagWalk.startHash = startHash;
 
-  logEvent(`[${logPrefix}] Sync start @ ${startHash.slice(0, 8)}...`, "info");
+  updateScannerStatus("syncing");
+  logEvent(`[${logPrefix}] Sync start @ ${startHash.slice(0, 8)}... (unlimited)`, "info");
 
   const pendingPayloads = [];
   const seen = dashboardState.processedTxIds;
+  let lastHashUpdateAt = 0;
 
-  await kaspaPortal.syncFrom(
-    startHash,
-    (line) => logEvent(`[${logPrefix}] ${line}`, "info"),
-    {
-      prefixes: [KKTP_PREFIX],
-      onTransactionMatch: [
-        ({ tx }) => {
-          const txId = tx?.txid || "";
-          if (txId && seen.has(txId)) return false;
-          if (txId) seen.add(txId);
+  try {
+    await kaspaPortal.syncFrom(
+      startHash,
+      (line) => logEvent(`[${logPrefix}] ${line}`, "info"),
+      {
+        prefixes: [KKTP_PREFIX],
+        maxSeconds: DAG_WALK_UNLIMITED_SECONDS,
+        onTransactionMatch: [
+          ({ block, tx }) => {
+            // Check if walk was stopped
+            if (activeDagWalk.stopped) {
+              return true; // Signal to stop
+            }
 
-          const payloadHex = tx?.payload || "";
-          const payload = decodeHexPayload(payloadHex);
-          if (payload && payload.startsWith(KKTP_PREFIX)) {
-            pendingPayloads.push({ payload });
-          }
-          return false;
-        },
-      ],
-    },
-  );
+            activeDagWalk.blocksProcessed++;
 
-  for (const item of pendingPayloads) {
-    const event = await kaspaPortal.processIncomingPayload(item.payload);
-    if (event && typeof handleIncomingEvent === "function") {
-      handleIncomingEvent(event);
+            // Track latest block hash for progress
+            const blockHash = block?.hash || tx?.blockHash || "";
+            if (blockHash) {
+              activeDagWalk.lastBlockHash = blockHash;
+
+              // Update stored last seen hash periodically
+              if (activeDagWalk.blocksProcessed - lastHashUpdateAt >= BLOCK_HASH_UPDATE_INTERVAL) {
+                setStoredLastSeenBlockHash(blockHash);
+                lastHashUpdateAt = activeDagWalk.blocksProcessed;
+              }
+            }
+
+            // Report progress
+            if (typeof onProgress === "function") {
+              onProgress({
+                blocksProcessed: activeDagWalk.blocksProcessed,
+                elapsedMs: Date.now() - activeDagWalk.startedAt,
+                lastBlockHash: blockHash,
+              });
+            }
+
+            const txId = tx?.txid || "";
+            if (txId && seen.has(txId)) return false;
+            if (txId) seen.add(txId);
+
+            const payloadHex = tx?.payload || "";
+            const payload = decodeHexPayload(payloadHex);
+            if (payload && payload.startsWith(KKTP_PREFIX)) {
+              pendingPayloads.push({
+                payload,
+                blockHash,
+                txId,
+                receivedAt:
+                  block?.timestamp ||
+                  tx?.timestamp ||
+                  tx?.verboseData?.timestamp ||
+                  Date.now(),
+              });
+
+              // Store last seen for every KKTP match immediately
+              if (blockHash) {
+                setStoredLastSeenBlockHash(blockHash);
+              }
+            }
+            return false;
+          },
+        ],
+      },
+    );
+
+    // Process all collected payloads
+    for (const item of pendingPayloads) {
+      const event = await kaspaPortal.processIncomingPayload(item.payload);
+      if (event && typeof handleIncomingEvent === "function") {
+        event._receivedAt = item.receivedAt;
+        event._blockHash = item.blockHash;
+        handleIncomingEvent(event);
+      }
     }
+
+    // Final update of last seen block hash
+    if (activeDagWalk.lastBlockHash) {
+      setStoredLastSeenBlockHash(activeDagWalk.lastBlockHash);
+    }
+
+    const status = activeDagWalk.stopped ? "stopped" : "done";
+    const elapsed = Math.round((Date.now() - activeDagWalk.startedAt) / 1000);
+    logEvent(
+      `[${logPrefix}] Sync ${status}. Blocks=${activeDagWalk.blocksProcessed}, Payloads=${pendingPayloads.length}, Time=${elapsed}s`,
+      "info",
+    );
+    updateScannerStatus("ready");
+
+    return pendingPayloads.length;
+  } finally {
+    // Always clean up walk state
+    activeDagWalk.isActive = false;
+    activeDagWalk.stopped = false;
   }
-
-  logEvent(
-    `[${logPrefix}] Sync done. Payloads=${pendingPayloads.length}`,
-    "info",
-  );
-  updateScannerStatus("ready");
-
-  return pendingPayloads.length;
 }
 
 export async function recoverSessionsOnLoad({
@@ -101,7 +254,7 @@ export async function recoverSessionsOnLoad({
   refreshSessionList,
   scheduleSessionSave,
 } = {}) {
-  const startHash = getStoredDiscoveryBlockHash();
+  const { hash: startHash, source: hashSource } = getBestStartHash();
 
   // Step 0: Restore snapshots first (needed to re-register pending discoveries)
   logEvent("Restore step: snapshot", "info");
@@ -115,7 +268,7 @@ export async function recoverSessionsOnLoad({
   let dagRecoveredSessions = 0;
   if (startHash) {
     try {
-      logEvent("Restore step: DAG sync", "info");
+      logEvent(`Restore step: DAG sync (from ${hashSource})`, "info");
       const processed = await syncFromStartHash(startHash, {
         handleIncomingEvent,
         logPrefix: "SYNC",
@@ -260,22 +413,38 @@ async function handlePostSyncRotationHandover({
 export async function handleFetchMissed({
   handleIncomingEvent,
   scheduleSessionSave,
+  onProgress = null,
 } = {}) {
   if (!kaspaPortal.isReady) {
     logEvent("Not connected. Connect first.", "error");
     return;
   }
 
+  // Check if a walk is already active
+  if (isDagWalkActive()) {
+    logEvent("DAG walk already in progress. Stop it first or wait.", "error");
+    setMissedStatus("Walk already active - use Stop button");
+    return;
+  }
+
   const manual = elements.missedStartHashInput?.value?.trim() || "";
-  const startHash = manual || getStoredDiscoveryBlockHash();
+  const { hash: startHash, source: hashSource } = getBestStartHash(manual);
 
   if (!startHash) {
     setMissedStatus("No start hash. Provide one or send a discovery first.");
     return;
   }
 
-  setMissedStatus("Scanning for missed messages...");
+  setMissedStatus(`Scanning from ${hashSource} hash (unlimited)...`);
   if (elements.btnFetchMissed) elements.btnFetchMissed.disabled = true;
+
+  // Initialize walk state
+  activeDagWalk.isActive = true;
+  activeDagWalk.stopped = false;
+  activeDagWalk.blocksProcessed = 0;
+  activeDagWalk.startedAt = Date.now();
+  activeDagWalk.lastBlockHash = startHash;
+  activeDagWalk.startHash = startHash;
 
   const pendingPayloads = [];
   const seen = dashboardState.processedTxIds;
@@ -286,8 +455,30 @@ export async function handleFetchMissed({
       (line) => logEvent(`[DAG] ${line}`, "info"),
       {
         prefixes: [KKTP_PREFIX],
+        maxSeconds: DAG_WALK_UNLIMITED_SECONDS,
         onTransactionMatch: [
           ({ block, tx }) => {
+            // Check if walk was stopped
+            if (activeDagWalk.stopped) {
+              return true; // Signal to stop
+            }
+
+            activeDagWalk.blocksProcessed++;
+            const blockHash = block?.hash || tx?.blockHash || "";
+
+            if (blockHash) {
+              activeDagWalk.lastBlockHash = blockHash;
+            }
+
+            // Report progress
+            if (typeof onProgress === "function") {
+              onProgress({
+                blocksProcessed: activeDagWalk.blocksProcessed,
+                elapsedMs: Date.now() - activeDagWalk.startedAt,
+                lastBlockHash: blockHash,
+              });
+            }
+
             const txId = tx?.txid || "";
             if (txId && seen.has(txId)) return false;
             if (txId) seen.add(txId);
@@ -297,9 +488,19 @@ export async function handleFetchMissed({
             if (payload && payload.startsWith(KKTP_PREFIX)) {
               pendingPayloads.push({
                 payload,
-                blockHash: block?.hash || tx?.blockHash || "",
+                blockHash,
                 txId,
+                receivedAt:
+                  block?.timestamp ||
+                  tx?.timestamp ||
+                  tx?.verboseData?.timestamp ||
+                  Date.now(),
               });
+
+              // Update last seen for every KKTP match
+              if (blockHash) {
+                setStoredLastSeenBlockHash(blockHash);
+              }
             }
             return false;
           },
@@ -310,6 +511,8 @@ export async function handleFetchMissed({
     for (const item of pendingPayloads) {
       const event = await kaspaPortal.processIncomingPayload(item.payload);
       if (event && typeof handleIncomingEvent === "function") {
+        event._receivedAt = item.receivedAt;
+        event._blockHash = item.blockHash;
         handleIncomingEvent(event);
         if (event.type === "discovery" && item.blockHash) {
           setStoredDiscoveryBlockHash(item.blockHash);
@@ -318,13 +521,21 @@ export async function handleFetchMissed({
       }
     }
 
+    // Final update of last seen hash
+    if (activeDagWalk.lastBlockHash) {
+      setStoredLastSeenBlockHash(activeDagWalk.lastBlockHash);
+    }
+
+    const status = activeDagWalk.stopped ? "stopped by user" : "caught up";
     setMissedStatus(
-      `Scan complete. Found ${pendingPayloads.length} KKTP payload(s).`,
+      `Scan ${status}. Found ${pendingPayloads.length} KKTP payload(s).`,
     );
   } catch (err) {
     logEvent(`Missed scan failed: ${err.message}`, "error");
     setMissedStatus(`Scan failed: ${err.message}`);
   } finally {
     if (elements.btnFetchMissed) elements.btnFetchMissed.disabled = false;
+    activeDagWalk.isActive = false;
+    activeDagWalk.stopped = false;
   }
 }

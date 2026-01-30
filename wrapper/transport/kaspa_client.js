@@ -45,7 +45,7 @@ export async function connect({
   const newClient = new RpcClient(options);
 
   const connectOptions = {
-    blockAsyncConnect: true,
+    blockAsyncConnect: false,
     retryInterval: 2000, // retry every 2s if needed
     strategy: ConnectStrategy.Persistent,
     timeoutDuration: 10000, // fail after 10s

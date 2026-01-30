@@ -1,6 +1,7 @@
 // storage.js - Persistence layer (IndexedDB + LocalStorage)
 const SESSION_STORAGE_KEY = "kktp:sessions";
 const LAST_DISCOVERY_BLOCK_KEY = "kktp:lastDiscoveryBlockHash";
+const LAST_SEEN_BLOCK_KEY = "kktp:lastSeenBlockHash";
 
 let dashboardDbPromise = null;
 let dashboardDbRecreatedOnce = false;
@@ -77,6 +78,29 @@ export function getStoredDiscoveryBlockHash() {
 export function setStoredDiscoveryBlockHash(hash) {
   if (!hash) return;
   localStorage.setItem(LAST_DISCOVERY_BLOCK_KEY, hash);
+}
+
+/**
+ * Get the last seen block hash (updated during DAG walks for progress tracking)
+ */
+export function getStoredLastSeenBlockHash() {
+  return (localStorage.getItem(LAST_SEEN_BLOCK_KEY) || "").trim();
+}
+
+/**
+ * Set the last seen block hash (updated during DAG walks)
+ * @param {string} hash - 64-character block hash
+ */
+export function setStoredLastSeenBlockHash(hash) {
+  if (!hash || typeof hash !== "string" || hash.length !== 64) return;
+  localStorage.setItem(LAST_SEEN_BLOCK_KEY, hash);
+}
+
+/**
+ * Clear the last seen block hash (for fresh start)
+ */
+export function clearStoredLastSeenBlockHash() {
+  localStorage.removeItem(LAST_SEEN_BLOCK_KEY);
 }
 
 function getSessionStorageKeyForAddress(address, networkId) {

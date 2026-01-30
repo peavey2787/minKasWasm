@@ -5,12 +5,17 @@ import {
   setConnected,
   setActiveSession,
   removeDiscoveredPeer,
+  setLobbyMode,
+  setActiveLobby,
+  clearActiveLobby,
 } from "./state.js";
 import { elements } from "./dom.js";
-import { saveSessionSnapshot } from "./storage.js";
-import { recoverSessionsOnLoad, handleFetchMissed } from "./sync.js";
+import { saveSessionSnapshot, getStoredDiscoveryBlockHash } from "./storage.js";
+import { recoverSessionsOnLoad, handleFetchMissed, stopDagWalk, isDagWalkActive, getDagWalkProgress } from "./sync.js";
 import { handleIncomingMatch, handleIncomingEvent } from "./events.js";
-import { buildAnchorPayload } from "../../kktp/smHelpers.js";
+import { buildAnchorPayload } from "../../kktp/protocol/sessions/index.js";
+import { LobbyFacade, LOBBY_STATES } from "../../kktp/lobby/index.js";
+import { logger, setDebugLogging } from "./logger.js";
 import {
   logEvent,
   updateConnectionStatus,
@@ -21,17 +26,32 @@ import {
   setCopyStatus,
   updateBroadcastStatus,
   renderPeerList,
+  renderDiscoveredLobbies,
   renderSessionList,
   renderChatMessages,
   setChatEnabled,
   clearMessageInput,
   setMissedStatus,
   showFullWalletAddress,
+  renderLobbyMembers,
+  renderLobbyChatMessages,
+  updateLobbyStatus,
+  updateLobbyControlsVisibility,
+  setLobbyModeChecked,
+  getLobbyNameInput,
 } from "./ui.js";
 
 // Constants
 const NETWORK_ID = "testnet-10";
 const KKTP_PREFIX = "KKTP:";
+
+// Optional debug controls for production (localStorage + query params supported)
+window.KKTP_DEBUG = {
+  enable: (level = "debug") => setDebugLogging(true, level),
+  disable: () => setDebugLogging(false),
+  setLevel: (level) => setDebugLogging(true, level),
+  logger,
+};
 
 let saveTimer = null;
 function scheduleSessionSave() {
@@ -70,8 +90,141 @@ function getEventDeps() {
     refreshSessionList,
     getSession,
     handleConnectToPeer,
+    handleJoinLobby,
     scheduleSessionSave,
   };
+}
+
+// Lobby facade instance (use LobbyFacade for clean API)
+let lobbyFacade = null;
+
+/**
+ * Initialize the lobby facade
+ */
+function initLobbyManager() {
+  lobbyFacade = new LobbyFacade(kaspaPortal.sessionManager, {
+    maxMembers: 16,
+    keyRotationMs: 10 * 60 * 1000, // 10 minutes
+    autoAcceptJoins: true, // Set to false for manual approval workflow
+  });
+
+  // Set up lobby event handlers
+  lobbyFacade.onMemberJoin((member) => {
+    logEvent(`Lobby: ${member.displayName} joined`, "success");
+    renderLobbyMembers(lobbyFacade.members, lobbyFacade.isHost);
+    updateLobbyStatus(lobbyFacade.lobbyInfo);
+  });
+
+  lobbyFacade.onMemberLeave((pubSig, reason) => {
+    logEvent(`Lobby: Member left (${reason})`, "info");
+    renderLobbyMembers(lobbyFacade.members, lobbyFacade.isHost);
+    updateLobbyStatus(lobbyFacade.lobbyInfo);
+  });
+
+  lobbyFacade.onGroupMessage((msg) => {
+    logEvent(`Lobby msg from ${msg.senderName || msg.senderPubSig.slice(0, 8)}`, "info");
+    renderLobbyChatMessages(lobbyFacade.messageHistory, dashboardState.myPubSig);
+  });
+
+  lobbyFacade.onKeyRotation((version) => {
+    logEvent(`Lobby: Key rotated to v${version}`, "info");
+    updateLobbyStatus(lobbyFacade.lobbyInfo);
+  });
+
+  lobbyFacade.onLobbyClose((reason) => {
+    logEvent(`Lobby closed: ${reason}`, "info");
+    clearActiveLobby();
+    dashboardState.activeLobbySelected = false;
+    setLobbyModeChecked(false);
+    updateLobbyStatus(null);
+    updateLobbyControlsVisibility(false, false);
+    hideDiscoveryBlockHash();
+    renderPeerList(handleConnectToPeer);
+    renderDiscoveredLobbies(handleJoinLobby);
+    refreshSessionList();
+  });
+
+  lobbyFacade.onStateChange((newState, oldState) => {
+    logger.debug(`Lobby state: ${oldState} → ${newState}`);
+
+    // When we start joining a lobby, mark that we're in lobby mode
+    // This prevents 1:1 DM sessions (used for lobby protocol) from taking over the UI
+    if (newState === LOBBY_STATES.JOINING) {
+      logger.debug("KKTP: Entering JOINING state - pre-selecting lobby");
+      setLobbyMode(true);
+      dashboardState.activeLobbySelected = true;
+      // Don't update other UI yet - wait for actual join confirmation
+    }
+
+    // When we become a member or host, switch UI to lobby mode
+    if (newState === LOBBY_STATES.MEMBER || newState === LOBBY_STATES.HOSTING) {
+      // Set lobby mode active
+      setLobbyMode(true);
+      setActiveLobby(lobbyFacade.lobbyInfo);
+
+      // Mark that lobby is selected for chat (not a 1:1 session)
+      dashboardState.activeLobbySelected = true;
+
+      // Clear any 1:1 session that might have been auto-selected
+      dashboardState.activeSessionId = null;
+
+      // Update UI to show lobby controls
+      updateLobbyStatus(lobbyFacade.lobbyInfo);
+      updateLobbyControlsVisibility(true, newState === LOBBY_STATES.HOSTING);
+      renderLobbyMembers(lobbyFacade.members, newState === LOBBY_STATES.HOSTING);
+
+      // Show lobby status and member section
+      if (elements.lobbyStatus) {
+        elements.lobbyStatus.style.display = "block";
+      }
+      if (elements.lobbyMemberSection) {
+        elements.lobbyMemberSection.style.display = "block";
+      }
+
+      // Update chat to show lobby messages
+      setChatEnabled(true);
+      renderLobbyChatMessages(lobbyFacade.messageHistory, dashboardState.myPubSig);
+
+      // Update checkbox state
+      setLobbyModeChecked(true);
+
+      // Refresh session list to show lobby as selected
+      refreshSessionList();
+
+      logEvent(`Lobby ${newState === LOBBY_STATES.HOSTING ? "hosted" : "joined"} successfully`, "success");
+    }
+
+    // When lobby is closed or we leave, switch back to 1:1 mode
+    if (newState === LOBBY_STATES.IDLE || newState === LOBBY_STATES.CLOSED) {
+      if (oldState === LOBBY_STATES.MEMBER || oldState === LOBBY_STATES.HOSTING) {
+        setLobbyMode(false);
+        clearActiveLobby();
+        dashboardState.activeLobbySelected = false;
+
+        // Reset checkbox
+        setLobbyModeChecked(false);
+        if (elements.lobbyNameGroup) {
+          elements.lobbyNameGroup.style.display = "none";
+        }
+
+        refreshSessionList();
+      }
+    }
+  });
+
+  // Handle join requests when autoAcceptJoins is false
+  lobbyFacade.onJoinRequest((request, acceptFn, rejectFn) => {
+    const displayName = request.displayName || request.pubSig?.slice(0, 8) + "...";
+    logEvent(`Lobby: Join request from ${displayName}`, "info");
+
+    // For production: implement a confirmation dialog here
+    // Example: showJoinRequestModal(request, acceptFn, rejectFn);
+    // For now with autoAcceptJoins=true, this won't be called
+    acceptFn();
+  });
+
+  // Store in dashboard state for events.js access
+  dashboardState.lobbyManager = lobbyFacade;
 }
 
 /**
@@ -103,6 +256,10 @@ async function init() {
     setConnected(true);
     updateConnectionStatus(true, NETWORK_ID);
     logEvent(`Connected to ${NETWORK_ID}`, "success");
+
+    // Initialize lobby manager
+    initLobbyManager();
+    logEvent("Lobby manager initialized", "success");
 
     // Setup event listeners
     setupEventListeners();
@@ -190,13 +347,69 @@ function setupEventListeners() {
   });
 
   // Fetch missed messages
-  elements.btnFetchMissed?.addEventListener("click", () =>
+  elements.btnFetchMissed?.addEventListener("click", () => {
+    updateDagWalkButtons(true);
     handleFetchMissed({
       handleIncomingEvent: (event) =>
         handleIncomingEvent(event, getEventDeps()),
       scheduleSessionSave,
-    }),
-  );
+      onProgress: (progress) => {
+        updateDagWalkProgress(progress);
+      },
+    }).finally(() => {
+      updateDagWalkButtons(false);
+    });
+  });
+
+  // Stop DAG walk button
+  elements.btnStopDagWalk?.addEventListener("click", () => {
+    if (stopDagWalk()) {
+      logEvent("DAG walk stop requested", "info");
+    }
+  });
+
+  // Copy discovery block hash
+  elements.btnCopyDiscoveryHash?.addEventListener("click", handleCopyDiscoveryHash);
+
+  // Lobby mode checkbox
+  elements.lobbyModeCheckbox?.addEventListener("change", (e) => {
+    const isLobbyMode = e.target.checked;
+    setLobbyMode(isLobbyMode);
+
+    // Show/hide lobby name input
+    const lobbyNameGroup = elements.lobbyNameGroup;
+    if (lobbyNameGroup) {
+      lobbyNameGroup.style.display = isLobbyMode ? "block" : "none";
+    }
+
+    // Update button text
+    if (elements.btnBroadcast) {
+      elements.btnBroadcast.textContent = isLobbyMode
+        ? "Host Lobby"
+        : "Broadcast Discovery";
+    }
+  });
+
+  // Leave lobby button
+  elements.btnLeaveLobby?.addEventListener("click", handleLeaveLobby);
+
+  // Close lobby button
+  elements.btnCloseLobby?.addEventListener("click", handleCloseLobby);
+
+  // Kick member buttons (delegated)
+  elements.lobbyMemberList?.addEventListener("click", async (e) => {
+    if (e.target.classList.contains("btn-kick")) {
+      const pubSig = e.target.dataset.pubsig;
+      if (pubSig && lobbyFacade?.isHost) {
+        try {
+          await lobbyFacade.kickMember(pubSig, "Kicked by host");
+          logEvent("Member kicked", "success");
+        } catch (err) {
+          logEvent(`Kick failed: ${err.message}`, "error");
+        }
+      }
+    }
+  });
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
@@ -235,6 +448,134 @@ async function handleCopyAddress() {
 }
 
 /**
+ * Copy discovery block hash to clipboard for sharing with peers
+ */
+async function handleCopyDiscoveryHash() {
+  const hash = elements.discoveryBlockHashDisplay?.value || "";
+  if (!hash) return;
+
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(hash);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = hash;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
+
+    const btn = elements.btnCopyDiscoveryHash;
+    if (btn) {
+      btn.textContent = "Copied!";
+      setTimeout(() => (btn.textContent = "Copy"), 1200);
+    }
+    logEvent("Discovery block hash copied to clipboard", "success");
+  } catch (err) {
+    logEvent(`Copy failed: ${err.message}`, "error");
+  }
+}
+
+/**
+ * Update DAG walk button visibility based on walk state
+ * @param {boolean} isWalking - Whether a DAG walk is in progress
+ */
+function updateDagWalkButtons(isWalking) {
+  const btnFetch = elements.btnFetchMissed;
+  const btnStop = elements.btnStopDagWalk;
+  const progress = elements.dagWalkProgress;
+
+  if (btnFetch) {
+    btnFetch.disabled = isWalking;
+  }
+  if (btnStop) {
+    btnStop.style.display = isWalking ? "inline-block" : "none";
+  }
+  if (progress) {
+    progress.style.display = isWalking ? "block" : "none";
+    if (!isWalking) {
+      progress.textContent = "";
+    }
+  }
+}
+
+/**
+ * Update DAG walk progress display
+ * @param {{ blocksProcessed: number, elapsedMs: number, lastBlockHash: string }} progress
+ */
+function updateDagWalkProgress(progress) {
+  const el = elements.dagWalkProgress;
+  if (!el) return;
+
+  const elapsed = Math.round(progress.elapsedMs / 1000);
+  const hashShort = progress.lastBlockHash ? progress.lastBlockHash.slice(0, 8) + "..." : "—";
+  el.textContent = `Blocks: ${progress.blocksProcessed} | Time: ${elapsed}s | Last: ${hashShort}`;
+}
+
+/**
+ * Show discovery block hash section for hosts to share with peers
+ * @param {string} blockHash - The discovery block hash to display
+ */
+function showDiscoveryBlockHash(blockHash) {
+  const section = elements.discoveryBlockHashSection;
+  const display = elements.discoveryBlockHashDisplay;
+
+  if (section && display && blockHash) {
+    display.value = blockHash;
+    section.style.display = "block";
+    logEvent(`Discovery block hash: ${blockHash.slice(0, 12)}...`, "info");
+  }
+}
+
+/**
+ * Hide the discovery block hash section
+ */
+function hideDiscoveryBlockHash() {
+  const section = elements.discoveryBlockHashSection;
+  if (section) {
+    section.style.display = "none";
+  }
+}
+
+/**
+ * Wait for the discovery block hash to be stored (after mining)
+ * Polls localStorage until the hash appears or timeout
+ * @returns {Promise<string|null>} The block hash or null if timeout
+ */
+async function waitForDiscoveryBlockHash() {
+  const maxWaitMs = 60_000; // 60 seconds max wait
+  const pollIntervalMs = 2_000; // Poll every 2 seconds
+  const startTime = Date.now();
+  const initialHash = getStoredDiscoveryBlockHash();
+
+  return new Promise((resolve) => {
+    const check = () => {
+      const currentHash = getStoredDiscoveryBlockHash();
+      // Wait for a new hash (different from initial, or if there was none)
+      if (currentHash && currentHash !== initialHash) {
+        resolve(currentHash);
+        return;
+      }
+      // Also resolve if we have any hash and waited at least 10 seconds
+      if (currentHash && Date.now() - startTime > 10_000) {
+        resolve(currentHash);
+        return;
+      }
+      if (Date.now() - startTime >= maxWaitMs) {
+        resolve(currentHash || null);
+        return;
+      }
+      setTimeout(check, pollIntervalMs);
+    };
+    setTimeout(check, pollIntervalMs);
+  });
+}
+
+/**
  * Start scanning for KKTP messages
  */
 async function startScanning() {
@@ -246,6 +587,10 @@ async function startScanning() {
 
   // Listen for matching transactions (already filtered)
   const eventDeps = getEventDeps();
+  logger.debug("KKTP: scanner deps", {
+    hasConnect: typeof eventDeps.handleConnectToPeer === "function",
+    hasJoinLobby: typeof eventDeps.handleJoinLobby === "function",
+  });
   kaspaPortal.onNewTransactionMatch((match) =>
     handleIncomingMatch(match, eventDeps),
   );
@@ -278,27 +623,73 @@ async function handleBroadcastDiscovery() {
     updateBroadcastStatus("Creating anchor...", "pending");
     elements.btnBroadcast.disabled = true;
 
-    const meta = {
-      game: dashboardState.gameName,
-      version: "1.0.0",
-      upTime: dashboardState.uptimeSeconds,
-    };
+    const isLobbyMode = dashboardState.isLobbyMode;
 
-    updateBroadcastStatus("Broadcasting...", "pending");
-    const { discovery } = await kaspaPortal.broadcastDiscovery(meta);
+    if (isLobbyMode) {
+      // Host a lobby
+      const lobbyName = getLobbyNameInput() || `${dashboardState.gameName} Lobby`;
 
-    // Store our identity
-    dashboardState.myPubSig = discovery.pub_sig;
-    dashboardState.broadcastedDiscovery = discovery;
-    updateIdentityDisplay(discovery.pub_sig);
+      updateBroadcastStatus("Hosting lobby...", "pending");
+      const { lobbyId, discovery } = await lobbyFacade.hostLobby({
+        lobbyName,
+        gameName: dashboardState.gameName,
+        maxMembers: 16,
+        uptimeSeconds: dashboardState.uptimeSeconds,
+      });
 
-    updateBroadcastStatus("Broadcast sent!", "success");
-    logEvent(
-      `Discovery broadcast: ${discovery.sid.substring(0, 8)}...`,
-      "success",
-    );
+      // Store our identity
+      dashboardState.myPubSig = discovery.pub_sig;
+      dashboardState.broadcastedDiscovery = discovery;
+      updateIdentityDisplay(discovery.pub_sig);
 
-    setMissedStatus("Waiting for discovery to be mined...");
+      // Update lobby UI
+      setActiveLobby(lobbyFacade.lobbyInfo);
+      updateLobbyStatus(lobbyFacade.lobbyInfo);
+      updateLobbyControlsVisibility(true, true);
+      renderLobbyMembers(lobbyFacade.members, true);
+
+      // Show lobby status element
+      if (elements.lobbyStatus) {
+        elements.lobbyStatus.style.display = "block";
+      }
+
+      updateBroadcastStatus("Lobby hosted!", "success");
+      logEvent(`Lobby hosted: ${lobbyId.substring(0, 8)}...`, "success");
+
+      // Show discovery hash section - wait briefly for mining, then show stored hash
+      setMissedStatus("Waiting for discovery to be mined...");
+      waitForDiscoveryBlockHash().then((hash) => {
+        if (hash) {
+          showDiscoveryBlockHash(hash);
+          setMissedStatus(`Discovery mined @ ${hash.slice(0, 8)}... - share with peers!`);
+        }
+      });
+    } else {
+      // Regular peer discovery
+      const meta = {
+        game: dashboardState.gameName,
+        version: "1.0.0",
+        upTime: dashboardState.uptimeSeconds,
+      };
+
+      updateBroadcastStatus("Broadcasting...", "pending");
+      const { discovery } = await kaspaPortal.broadcastDiscovery(meta);
+
+      // Store our identity
+      dashboardState.myPubSig = discovery.pub_sig;
+      dashboardState.broadcastedDiscovery = discovery;
+      updateIdentityDisplay(discovery.pub_sig);
+
+      updateBroadcastStatus("Broadcast sent!", "success");
+      logEvent(
+        `Discovery broadcast: ${discovery.sid.substring(0, 8)}...`,
+        "success",
+      );
+
+      // For regular discoveries, just show waiting message
+      setMissedStatus("Waiting for discovery to be mined...");
+    }
+
     scheduleSessionSave();
 
     setTimeout(() => {
@@ -324,6 +715,15 @@ async function handleConnectToPeer(discovery) {
 
     const { response, mailboxId } = await kaspaPortal.connectToPeer(discovery);
 
+    // CRITICAL: Subscribe to DM mailbox so we can receive messages on this session
+    // As the responder, we need this to receive replies from the initiator (e.g. lobby host)
+    const dmPrefix = `KKTP:${mailboxId}:`;
+    kaspaPortal.addPrefix(dmPrefix);
+    logger.info("KKTP: Subscribed to DM mailbox (responder)", {
+      mailboxId: mailboxId?.slice(0, 16),
+      prefix: dmPrefix.slice(0, 32),
+    });
+
     // Store our identity if not already set
     if (!dashboardState.myPubSig) {
       dashboardState.myPubSig = response.pub_sig_resp;
@@ -344,27 +744,6 @@ async function handleConnectToPeer(discovery) {
     scheduleSessionSave();
   } catch (err) {
     logEvent(`Connection failed: ${err.message}`, "error");
-  }
-}
-
-/**
- * Handle send message
- */
-async function handleSendMessage() {
-  const input = elements.messageInput;
-  const plaintext = input?.value?.trim();
-
-  if (!plaintext || !dashboardState.activeSessionId) return;
-
-  try {
-    await kaspaPortal.sendMessage(dashboardState.activeSessionId, plaintext);
-
-    clearMessageInput();
-
-    logEvent("Message sent", "success");
-    scheduleSessionSave();
-  } catch (err) {
-    logEvent(`Send failed: ${err.message}`, "error");
   }
 }
 
@@ -416,15 +795,52 @@ async function handleCloseSession() {
 }
 
 /**
- * Select a session
+ * Select a 1:1 session (switches away from lobby chat if active)
  */
 function selectSession(mailboxId) {
+  logger.debug("KKTP: selectSession", {
+    mailboxId: mailboxId?.slice(0, 16),
+    wasLobbySelected: dashboardState.activeLobbySelected,
+    previousSession: dashboardState.activeSessionId?.slice(0, 16),
+  });
+
+  // Mark that we're now in 1:1 mode, not lobby
+  dashboardState.activeLobbySelected = false;
+
   setActiveSession(mailboxId);
 
   const session = getSession(mailboxId);
   if (session) {
     setChatEnabled(true);
     renderChatMessages(session);
+  } else {
+    setChatEnabled(false);
+    renderChatMessages(null);
+    logger.warn("KKTP: selectSession - session not found", { mailboxId });
+  }
+
+  refreshSessionList();
+}
+
+/**
+ * Select the lobby session (switches to lobby chat)
+ */
+function selectLobbySession() {
+  logger.debug("KKTP: selectLobbySession", {
+    wasActiveSession: dashboardState.activeSessionId?.slice(0, 16),
+    isInLobby: lobbyFacade?.isInLobby?.(),
+  });
+
+  // Mark that we're now in lobby mode for chat
+  dashboardState.activeLobbySelected = true;
+
+  // Clear 1:1 active session highlight
+  dashboardState.activeSessionId = null;
+
+  // Enable chat and render lobby messages
+  setChatEnabled(true);
+  if (lobbyFacade) {
+    renderLobbyChatMessages(lobbyFacade.messageHistory, dashboardState.myPubSig);
   }
 
   refreshSessionList();
@@ -435,7 +851,156 @@ function selectSession(mailboxId) {
  */
 function refreshSessionList() {
   const sessions = kaspaPortal.getSessions();
-  renderSessionList(sessions, dashboardState.activeSessionId, selectSession);
+
+  // Pass lobby callbacks so session list can render both 1:1 and lobby sessions
+  renderSessionList(sessions, dashboardState.activeSessionId, selectSession, {
+    onSelectLobby: selectLobbySession,
+    lobbyManager: lobbyFacade,
+  });
+
+  // Refresh peer list (regular peers only)
+  renderPeerList(handleConnectToPeer);
+
+  // Refresh lobby list (dedicated section)
+  renderDiscoveredLobbies(handleJoinLobby);
+}
+
+/**
+ * Handle joining a lobby
+ */
+async function handleJoinLobby(lobbyDiscovery) {
+  if (!lobbyFacade) {
+    logEvent("Lobby not initialized", "error");
+    return;
+  }
+
+  try {
+    logEvent(`Joining lobby: ${lobbyDiscovery.meta.lobby_name}...`, "info");
+
+    const displayName = dashboardState.gameName || "Anonymous";
+    const result = await lobbyFacade.joinLobby(lobbyDiscovery, displayName);
+
+    if (result.pending) {
+      logEvent("Join request sent, waiting for host approval...", "info");
+      // The response will be handled by the message handler
+    }
+  } catch (err) {
+    logEvent(`Join lobby failed: ${err.message}`, "error");
+  }
+}
+
+/**
+ * Handle leaving a lobby (member)
+ */
+async function handleLeaveLobby() {
+  if (!lobbyFacade || lobbyFacade.currentState !== LOBBY_STATES.MEMBER) {
+    logEvent("Not in a lobby", "error");
+    return;
+  }
+
+  try {
+    await lobbyFacade.leaveLobby("Left voluntarily");
+    clearActiveLobby();
+    updateLobbyStatus(null);
+    updateLobbyControlsVisibility(false, false);
+    logEvent("Left lobby", "success");
+  } catch (err) {
+    logEvent(`Leave lobby failed: ${err.message}`, "error");
+  }
+}
+
+/**
+ * Handle closing a lobby (host)
+ */
+async function handleCloseLobby() {
+  if (!lobbyFacade || lobbyFacade.currentState !== LOBBY_STATES.HOSTING) {
+    logEvent("Not hosting a lobby", "error");
+    return;
+  }
+
+  try {
+    await lobbyFacade.closeLobby("Closed by host");
+    clearActiveLobby();
+    updateLobbyStatus(null);
+    updateLobbyControlsVisibility(false, false);
+
+    // Hide discovery block hash section since lobby is closed
+    hideDiscoveryBlockHash();
+
+    // Reset lobby mode checkbox
+    setLobbyModeChecked(false);
+    setLobbyMode(false);
+    if (elements.lobbyNameGroup) {
+      elements.lobbyNameGroup.style.display = "none";
+    }
+    if (elements.lobbyStatus) {
+      elements.lobbyStatus.style.display = "none";
+    }
+
+    logEvent("Lobby closed", "success");
+  } catch (err) {
+    logEvent(`Close lobby failed: ${err.message}`, "error");
+  }
+}
+
+/**
+ * Handle sending a message (supports both 1:1 and lobby)
+ */
+async function handleSendMessage() {
+  const input = elements.messageInput;
+  const plaintext = input?.value?.trim();
+
+  if (!plaintext) return;
+
+  // Check if lobby chat is selected AND we're actually in a lobby
+  const inLobby = lobbyFacade && lobbyFacade.isInLobby();
+
+  logger.debug("KKTP: handleSendMessage", {
+    activeLobbySelected: dashboardState.activeLobbySelected,
+    inLobby,
+    activeSessionId: dashboardState.activeSessionId?.slice(0, 16),
+    messageLength: plaintext.length,
+  });
+
+  if (dashboardState.activeLobbySelected && inLobby) {
+    // Send to lobby group
+    try {
+      logger.debug("KKTP: Sending lobby group message");
+      await lobbyFacade.sendGroupMessage(plaintext);
+      clearMessageInput();
+      renderLobbyChatMessages(lobbyFacade.messageHistory, dashboardState.myPubSig);
+      logEvent("Lobby message sent", "success");
+    } catch (err) {
+      logEvent(`Lobby send failed: ${err.message}`, "error");
+    }
+    return;
+  }
+
+  // Regular 1:1 message
+  if (!dashboardState.activeSessionId) {
+    logEvent("No session selected for 1:1 message", "error");
+    return;
+  }
+
+  try {
+    logger.debug("KKTP: Sending 1:1 message", {
+      mailboxId: dashboardState.activeSessionId?.slice(0, 16),
+    });
+    await kaspaPortal.sendMessage(dashboardState.activeSessionId, plaintext);
+
+    clearMessageInput();
+
+    // Refresh the session to show the new message
+    const session = getSession(dashboardState.activeSessionId);
+    if (session) {
+      renderChatMessages(session);
+    }
+
+    logEvent("Message sent", "success");
+    scheduleSessionSave();
+  } catch (err) {
+    logEvent(`Send failed: ${err.message}`, "error");
+  }
 }
 
 function getSession(mailboxId) {
