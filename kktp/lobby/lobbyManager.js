@@ -147,6 +147,12 @@ export class LobbyManager {
     // ─────────────────────────────────────────────────────────────
     this._pendingJoinDmMailboxId = null; // Set during joinLobby while waiting for response
     this._hostDmMailboxId = null; // Set when member joins - the mailbox for receiving host DMs
+
+    // ─────────────────────────────────────────────────────────────
+    // Prefix Subscription Tracking - Self-contained subscription management
+    // Tracks all prefixes this lobby has subscribed to for proper cleanup
+    // ─────────────────────────────────────────────────────────────
+    this._subscribedPrefixes = new Set(); // All KKTP prefixes we're subscribed to
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -1883,6 +1889,105 @@ export class LobbyManager {
     return this.handler.parseGroupPayload(rawPayload);
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // Simplified Payload Processing - Self-contained integration API
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Categorize a raw KKTP payload to determine how to process it.
+   * Returns categorization info for routing decisions.
+   *
+   * This is a pure categorization method - it doesn't process the message,
+   * just tells you what type it is and provides parsed components.
+   *
+   * @param {string} rawPayload - Raw KKTP payload string
+   * @returns {{
+   *   type: 'anchor' | 'group' | 'dm' | 'unknown',
+   *   mailboxId?: string,
+   *   groupMailboxId?: string,
+   *   encrypted?: Object,
+   *   isRelevant?: boolean
+   * }}
+   */
+  categorizePayload(rawPayload) {
+    if (!rawPayload || typeof rawPayload !== "string") {
+      return { type: "unknown" };
+    }
+
+    // Anchor messages (discovery, response, etc.)
+    if (rawPayload.startsWith("KKTP:ANCHOR:")) {
+      return { type: "anchor" };
+    }
+
+    // Group messages
+    if (rawPayload.startsWith("KKTP:GROUP:")) {
+      const parsed = this.parseGroupPayload(rawPayload);
+      if (parsed.isGroup) {
+        return {
+          type: "group",
+          groupMailboxId: parsed.groupMailboxId,
+          encrypted: parsed.encrypted,
+          isRelevant: this.isGroupPayloadForThisLobby(parsed.groupMailboxId),
+        };
+      }
+      return { type: "unknown" };
+    }
+
+    // DM messages: KKTP:{mailboxId}:{encrypted}
+    if (rawPayload.startsWith("KKTP:")) {
+      const colonIdx = rawPayload.indexOf(":", 5); // After "KKTP:"
+      if (colonIdx > 5) {
+        const mailboxId = rawPayload.slice(5, colonIdx);
+        return {
+          type: "dm",
+          mailboxId,
+          isRelevant: this.isRelevantMailbox(mailboxId),
+        };
+      }
+    }
+
+    return { type: "unknown" };
+  }
+
+  /**
+   * Process a group message payload for this lobby.
+   * Handles the full flow: parse, validate, decrypt, and emit event.
+   *
+   * @param {string} rawPayload - Raw KKTP:GROUP payload
+   * @returns {Promise<{ handled: boolean, message?: Object, error?: string }>}
+   */
+  async processGroupPayload(rawPayload) {
+    const parsed = this.parseGroupPayload(rawPayload);
+
+    if (!parsed.isGroup) {
+      return { handled: false, error: "Not a group message" };
+    }
+
+    if (!this.isGroupPayloadForThisLobby(parsed.groupMailboxId)) {
+      return { handled: false, error: "Not for this lobby" };
+    }
+
+    try {
+      const handled = await this.routeGroupMessage(
+        parsed.groupMailboxId,
+        parsed.encrypted
+      );
+
+      if (handled) {
+        // Return the latest message from history
+        const latestMessage = this._messageHistory[this._messageHistory.length - 1];
+        return { handled: true, message: latestMessage };
+      }
+
+      return { handled: false, error: "Failed to process group message" };
+    } catch (err) {
+      console.warn("KKTP Lobby: Error processing group payload", {
+        error: err.message,
+      });
+      return { handled: false, error: err.message };
+    }
+  }
+
   /**
    * Process a group message for this lobby.
    * @param {string} groupMailboxId - The group mailbox ID
@@ -2086,10 +2191,8 @@ export class LobbyManager {
   _cleanup() {
     this._stopKeyRotation();
 
-    // Unsubscribe from group mailbox when leaving/closing
-    if (this.lobby?.groupMailboxId) {
-      this._unsubscribeFromGroupMailbox(this.lobby.groupMailboxId);
-    }
+    // Unsubscribe from all tracked prefixes (group mailbox, DM mailboxes, etc.)
+    this._unsubscribeAllPrefixes();
 
     // Clear DM buffer and stop cleanup timer
     this._dmBuffer.clear();
@@ -2122,6 +2225,135 @@ export class LobbyManager {
   }
 
   // ─────────────────────────────────────────────────────────────
+  // Prefix Subscription Management - Self-contained subscription handling
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Subscribe to a KKTP prefix.
+   * Tracks the subscription internally for proper cleanup.
+   * @private
+   * @param {string} prefix - Full KKTP prefix (e.g., 'KKTP:{mailboxId}:')
+   */
+  _subscribePrefix(prefix) {
+    if (!prefix) return;
+
+    // Already subscribed
+    if (this._subscribedPrefixes.has(prefix)) {
+      console.debug("KKTP Lobby: Already subscribed to prefix", {
+        prefix: prefix.slice(0, 32),
+      });
+      return;
+    }
+
+    const portal = this.sm?.portal;
+    if (!portal?.addPrefix) {
+      console.warn("KKTP Lobby: Cannot subscribe - portal.addPrefix not available");
+      return;
+    }
+
+    try {
+      portal.addPrefix(prefix);
+      this._subscribedPrefixes.add(prefix);
+      console.info("KKTP Lobby: Subscribed to prefix", {
+        prefix: prefix.slice(0, 32),
+        totalSubscriptions: this._subscribedPrefixes.size,
+      });
+    } catch (err) {
+      console.error("KKTP Lobby: Failed to subscribe to prefix", {
+        prefix: prefix.slice(0, 32),
+        error: err.message,
+      });
+    }
+  }
+
+  /**
+   * Unsubscribe from a KKTP prefix.
+   * Removes from internal tracking.
+   * @private
+   * @param {string} prefix - Full KKTP prefix to unsubscribe from
+   */
+  _unsubscribePrefix(prefix) {
+    if (!prefix) return;
+
+    // Not subscribed
+    if (!this._subscribedPrefixes.has(prefix)) {
+      return;
+    }
+
+    const portal = this.sm?.portal;
+    if (!portal?.removePrefix) {
+      console.debug("KKTP Lobby: Cannot unsubscribe - portal.removePrefix not available");
+      // Still remove from our tracking
+      this._subscribedPrefixes.delete(prefix);
+      return;
+    }
+
+    try {
+      portal.removePrefix(prefix);
+      this._subscribedPrefixes.delete(prefix);
+      console.info("KKTP Lobby: Unsubscribed from prefix", {
+        prefix: prefix.slice(0, 32),
+        remainingSubscriptions: this._subscribedPrefixes.size,
+      });
+    } catch (err) {
+      console.warn("KKTP Lobby: Failed to unsubscribe from prefix", {
+        prefix: prefix.slice(0, 32),
+        error: err.message,
+      });
+      // Still remove from our tracking
+      this._subscribedPrefixes.delete(prefix);
+    }
+  }
+
+  /**
+   * Unsubscribe from all tracked prefixes.
+   * Called during cleanup to ensure no leaked subscriptions.
+   * @private
+   */
+  _unsubscribeAllPrefixes() {
+    if (this._subscribedPrefixes.size === 0) return;
+
+    console.info("KKTP Lobby: Unsubscribing from all prefixes", {
+      count: this._subscribedPrefixes.size,
+    });
+
+    // Copy the set to avoid modification during iteration
+    const prefixes = [...this._subscribedPrefixes];
+    for (const prefix of prefixes) {
+      this._unsubscribePrefix(prefix);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // DM Mailbox Subscription - For receiving 1:1 DMs
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Subscribe to a DM mailbox for receiving 1:1 messages.
+   * Use this when establishing a DM session with the host or a member.
+   * @param {string} mailboxId - The DM mailbox ID
+   */
+  subscribeToDMMailbox(mailboxId) {
+    if (!mailboxId) {
+      console.warn("KKTP Lobby: Cannot subscribe - no mailboxId");
+      return;
+    }
+
+    const prefix = `KKTP:${mailboxId}:`;
+    this._subscribePrefix(prefix);
+  }
+
+  /**
+   * Unsubscribe from a DM mailbox.
+   * @param {string} mailboxId - The DM mailbox ID
+   */
+  unsubscribeFromDMMailbox(mailboxId) {
+    if (!mailboxId) return;
+    const prefix = `KKTP:${mailboxId}:`;
+    this._unsubscribePrefix(prefix);
+  }
+
+  // ─────────────────────────────────────────────────────────────
   // Group Mailbox Subscription
   // ─────────────────────────────────────────────────────────────
 
@@ -2139,26 +2371,7 @@ export class LobbyManager {
     }
 
     const prefix = `KKTP:GROUP:${groupMailboxId}:`;
-
-    // Access portal via session manager
-    const portal = this.sm?.portal;
-    if (!portal?.addPrefix) {
-      console.warn("KKTP Lobby: Cannot subscribe - portal.addPrefix not available");
-      return;
-    }
-
-    try {
-      portal.addPrefix(prefix);
-      console.info("KKTP Lobby: Subscribed to group mailbox", {
-        groupMailboxId: groupMailboxId.slice(0, 16),
-        prefix: prefix.slice(0, 32),
-      });
-    } catch (err) {
-      console.error("KKTP Lobby: Failed to subscribe to group mailbox", {
-        groupMailboxId: groupMailboxId.slice(0, 16),
-        error: err.message,
-      });
-    }
+    this._subscribePrefix(prefix);
   }
 
   /**
@@ -2169,25 +2382,17 @@ export class LobbyManager {
    */
   _unsubscribeFromGroupMailbox(groupMailboxId) {
     if (!groupMailboxId) return;
-
     const prefix = `KKTP:GROUP:${groupMailboxId}:`;
+    this._unsubscribePrefix(prefix);
+  }
 
-    const portal = this.sm?.portal;
-    if (!portal?.removePrefix) {
-      console.debug("KKTP Lobby: Cannot unsubscribe - portal.removePrefix not available");
-      return;
-    }
-
-    try {
-      portal.removePrefix(prefix);
-      console.info("KKTP Lobby: Unsubscribed from group mailbox", {
-        groupMailboxId: groupMailboxId.slice(0, 16),
-      });
-    } catch (err) {
-      console.warn("KKTP Lobby: Failed to unsubscribe from group mailbox", {
-        error: err.message,
-      });
-    }
+  /**
+   * Get all currently subscribed prefixes.
+   * Useful for debugging and verification.
+   * @returns {string[]} Array of subscribed KKTP prefixes
+   */
+  getSubscribedPrefixes() {
+    return [...this._subscribedPrefixes];
   }
 
   _uint8ToHex(bytes) {

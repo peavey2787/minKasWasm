@@ -320,19 +320,25 @@ export function handleIncomingEvent(event, deps = {}) {
       }
 
       // CRITICAL: Subscribe to DM mailbox so we can receive messages on this session
-      // The prefix format is KKTP:{mailboxId}:
+      // Delegate to lobby facade for self-contained subscription management
+      const lobby = getLobby();
       if (event.mailboxId) {
-        const dmPrefix = `KKTP:${event.mailboxId}:`;
-        try {
-          kaspaPortal.addPrefix(dmPrefix);
-          logger.info("KKTP Events: Subscribed to DM mailbox", {
-            mailboxId: event.mailboxId?.slice(0, 16),
-            prefix: dmPrefix.slice(0, 32),
-          });
-        } catch (err) {
-          logger.warn("KKTP Events: Failed to subscribe to DM mailbox", {
-            error: err.message,
-          });
+        if (lobby) {
+          // Let lobby track the subscription for proper cleanup
+          lobby.subscribeToDMMailbox(event.mailboxId);
+        } else {
+          // Fallback: subscribe directly via portal if no lobby
+          const dmPrefix = `KKTP:${event.mailboxId}:`;
+          try {
+            kaspaPortal.addPrefix(dmPrefix);
+            logger.info("KKTP Events: Subscribed to DM mailbox (no lobby)", {
+              mailboxId: event.mailboxId?.slice(0, 16),
+            });
+          } catch (err) {
+            logger.warn("KKTP Events: Failed to subscribe to DM mailbox", {
+              error: err.message,
+            });
+          }
         }
       }
 
@@ -341,7 +347,6 @@ export function handleIncomingEvent(event, deps = {}) {
 
       // CRITICAL: Don't auto-select 1:1 sessions if we're in lobby mode
       // This prevents the UI from switching away from lobby chat
-      const lobby = getLobby();
       const isInLobby = lobby?.isInLobby?.() || dashboardState.activeLobbySelected;
 
       if (!isInLobby && !dashboardState.activeSessionId) {

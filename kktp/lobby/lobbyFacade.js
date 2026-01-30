@@ -67,6 +67,37 @@ export class LobbyFacade {
   }
 
   /**
+   * Categorize a raw KKTP payload to determine how to process it.
+   * Returns categorization info for routing decisions.
+   *
+   * This is a pure categorization method - it doesn't process the message,
+   * just tells you what type it is and provides parsed components.
+   *
+   * @param {string} rawPayload - Raw KKTP payload string
+   * @returns {{
+   *   type: 'anchor' | 'group' | 'dm' | 'unknown',
+   *   mailboxId?: string,
+   *   groupMailboxId?: string,
+   *   encrypted?: Object,
+   *   isRelevant?: boolean
+   * }}
+   */
+  categorizePayload(rawPayload) {
+    return this._manager.categorizePayload(rawPayload);
+  }
+
+  /**
+   * Process a group message payload for this lobby.
+   * Handles the full flow: parse, validate, decrypt, and emit event.
+   *
+   * @param {string} rawPayload - Raw KKTP:GROUP payload
+   * @returns {Promise<{ handled: boolean, message?: Object, error?: string }>}
+   */
+  async processGroupPayload(rawPayload) {
+    return await this._manager.processGroupPayload(rawPayload);
+  }
+
+  /**
    * Process an encrypted group message for this lobby.
    * @param {string} groupMailboxId - The group mailbox ID
    * @param {Object} encrypted - The encrypted group message object
@@ -93,6 +124,37 @@ export class LobbyFacade {
    */
   isRelevantMailbox(mailboxId) {
     return this._manager.isRelevantMailbox(mailboxId);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Prefix Subscription Management - Self-contained integration
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Subscribe to a DM mailbox for receiving 1:1 messages.
+   * Use this when establishing a DM session with the host or a member.
+   * The subscription is tracked internally for proper cleanup.
+   * @param {string} mailboxId - The DM mailbox ID
+   */
+  subscribeToDMMailbox(mailboxId) {
+    this._manager.subscribeToDMMailbox(mailboxId);
+  }
+
+  /**
+   * Unsubscribe from a DM mailbox.
+   * @param {string} mailboxId - The DM mailbox ID
+   */
+  unsubscribeFromDMMailbox(mailboxId) {
+    this._manager.unsubscribeFromDMMailbox(mailboxId);
+  }
+
+  /**
+   * Get all currently subscribed prefixes.
+   * Useful for debugging and verification.
+   * @returns {string[]} Array of subscribed KKTP prefixes
+   */
+  getSubscribedPrefixes() {
+    return this._manager.getSubscribedPrefixes();
   }
 
   // ─────────────────────────────────────────────────────────────

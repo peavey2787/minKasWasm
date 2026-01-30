@@ -12,6 +12,7 @@ The Lobby module enables group communication with:
 - **State root commitments** for integrity verification
 - **Self-contained message routing** - DM/group message routing handled internally
 - **DM message buffering** - Handles race conditions when DMs arrive before session
+- **Self-contained prefix subscriptions** - Manages its own scanner prefixes
 
 ## Architecture
 
@@ -35,6 +36,17 @@ The Lobby module enables group communication with:
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## Self-Contained Design
+
+The lobby module is fully self-contained and can be used in any application
+without dashboard-specific glue code. It manages:
+
+1. **Prefix Subscriptions** - Automatically subscribes/unsubscribes from
+   KKTP prefixes (group mailbox, DM mailboxes) via the portal
+2. **DM Buffering** - Handles race conditions where DMs arrive before sessions
+3. **Message Routing** - Routes lobby-related DMs and group messages internally
+4. **Key Management** - Handles key rotation, key vault, and epoch versioning
+
 ## Files
 
 | File | Description |
@@ -45,6 +57,79 @@ The Lobby module enables group communication with:
 | `lobbyCodec.js` | XChaCha20-Poly1305 encryption for group messages |
 | `lobbySchemas.js` | Validation functions for all lobby messages |
 | `index.js` | Module exports |
+
+## Quick Start Integration
+
+### Minimal Setup
+
+```javascript
+import { LobbyFacade, LOBBY_STATES } from './kktp/lobby/index.js';
+
+// Create lobby facade with session manager
+const lobby = new LobbyFacade(kaspaPortal.sessionManager, {
+  autoAcceptJoins: true,
+});
+
+// Set up event handlers
+lobby.onMemberJoin((member) => console.log(`${member.displayName} joined!`));
+lobby.onGroupMessage((msg) => console.log(`${msg.senderName}: ${msg.plaintext}`));
+lobby.onLobbyClose((reason) => console.log(`Lobby closed: ${reason}`));
+
+// Host a lobby
+await lobby.hostLobby({
+  lobbyName: "My Game Lobby",
+  gameName: "Chess",
+});
+
+// Send messages to all members
+await lobby.sendGroupMessage("Hello everyone!");
+```
+
+### Simplified Message Routing
+
+The lobby provides `categorizePayload()` for easy message routing:
+
+```javascript
+// In your blockchain payload handler:
+function handleBlockchainPayload(rawPayload) {
+  const category = lobby.categorizePayload(rawPayload);
+
+  switch (category.type) {
+    case 'anchor':
+      // Process via kaspaPortal.processIncomingPayload()
+      // Then call lobby.subscribeToDMMailbox() for new sessions
+      break;
+
+    case 'group':
+      if (category.isRelevant) {
+        // This group message is for our lobby
+        lobby.processGroupPayload(rawPayload);
+      }
+      break;
+
+    case 'dm':
+      if (category.isRelevant) {
+        // This DM is for our lobby (host or member mailbox)
+        // Session must exist - process via portal, then routeDMMessage
+      } else {
+        // Not for our lobby - ignore or handle elsewhere
+      }
+      break;
+  }
+}
+```
+
+### Managing DM Subscriptions
+
+When a session is established, subscribe to receive DMs:
+
+```javascript
+// When session is established (e.g., after processIncomingPayload)
+kaspaPortal.on('session_established', (event) => {
+  // Let lobby manage the subscription
+  lobby.subscribeToDMMailbox(event.mailboxId);
+});
+```
 
 ## Usage
 
@@ -218,6 +303,8 @@ const lobby = new LobbyFacade(sessionManager, {
 
 ### LobbyFacade Methods
 
+#### Lifecycle
+
 | Method | Description |
 |--------|-------------|
 | `hostLobby(options)` | Host a new lobby |
@@ -225,14 +312,57 @@ const lobby = new LobbyFacade(sessionManager, {
 | `leaveLobby(reason)` | Leave lobby (member) |
 | `closeLobby(reason)` | Close lobby (host) |
 | `sendGroupMessage(text)` | Send message to lobby group |
-| `routeDMMessage(id, text)` | Route incoming DM, returns true if handled |
+
+#### Message Routing
+
+| Method | Description |
+|--------|-------------|
+| `categorizePayload(payload)` | Categorize raw payload (returns type, isRelevant) |
+| `processGroupPayload(payload)` | Process raw group payload (full flow) |
+| `routeDMMessage(id, text)` | Route decrypted DM, returns true if handled |
 | `parseGroupPayload(payload)` | Parse raw payload for group message |
 | `routeGroupMessage(id, enc)` | Process encrypted group message |
+| `isGroupPayloadForThisLobby(id)` | Check if payload is for this lobby |
+| `isRelevantMailbox(id)` | Check if DM mailbox is relevant to lobby |
+
+#### Prefix Subscription (Self-contained)
+
+| Method | Description |
+|--------|-------------|
+| `subscribeToDMMailbox(id)` | Subscribe to DM mailbox for receiving messages |
+| `unsubscribeFromDMMailbox(id)` | Unsubscribe from DM mailbox |
+| `getSubscribedPrefixes()` | Get all currently subscribed prefixes |
+
+#### DM Buffering
+
+| Method | Description |
+|--------|-------------|
+| `bufferDMMessage(id, pl, ts)` | Buffer DM for later processing |
+| `hasBufferedMessages(id)` | Check if mailbox has buffered messages |
+| `popBufferedMessages(id)` | Get and clear buffered messages |
+| `clearBufferedMessages(id)` | Clear buffered messages without returning |
+
+#### State Accessors
+
+| Property/Method | Description |
+|-----------------|-------------|
+| `currentState` | Current lobby state (IDLE, HOSTING, etc.) |
+| `lobbyInfo` | Current lobby information |
+| `members` | Array of lobby members |
+| `messageHistory` | Array of group messages |
+| `isHost` | True if hosting the lobby |
 | `isInLobby()` | Check if in a lobby |
 | `getGroupMailboxId()` | Get current group mailbox ID |
-| `isGroupPayloadForThisLobby(id)` | Check if payload is for this lobby |
-| `bufferDMMessage(id, pl, ts)` | Buffer DM for later processing |
-| `popBufferedMessages(id)` | Get and clear buffered messages |
+| `pendingJoinRequests` | Pending join requests (host only) |
+
+#### Member Management (Host Only)
+
+| Method | Description |
+|--------|-------------|
+| `acceptPendingJoin(pubSig)` | Accept a pending join request |
+| `rejectPendingJoin(pubSig, reason)` | Reject a pending join request |
+| `kickMember(pubSig, reason)` | Kick a member from the lobby |
+| `rotateKey(reason)` | Manually rotate the group key |
 
 ## Integration with Dashboard
 
