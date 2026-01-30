@@ -134,15 +134,27 @@ function initLobbyManager() {
   lobbyFacade.onLobbyClose((reason) => {
     logEvent(`Lobby closed: ${reason}`, "info");
     clearActiveLobby();
+    dashboardState.activeLobbySelected = false;
+    setLobbyModeChecked(false);
     updateLobbyStatus(null);
     updateLobbyControlsVisibility(false, false);
     hideDiscoveryBlockHash();
     renderPeerList(handleConnectToPeer);
     renderDiscoveredLobbies(handleJoinLobby);
+    refreshSessionList();
   });
 
   lobbyFacade.onStateChange((newState, oldState) => {
     logger.debug(`Lobby state: ${oldState} → ${newState}`);
+
+    // When we start joining a lobby, mark that we're in lobby mode
+    // This prevents 1:1 DM sessions (used for lobby protocol) from taking over the UI
+    if (newState === LOBBY_STATES.JOINING) {
+      logger.debug("KKTP: Entering JOINING state - pre-selecting lobby");
+      setLobbyMode(true);
+      dashboardState.activeLobbySelected = true;
+      // Don't update other UI yet - wait for actual join confirmation
+    }
 
     // When we become a member or host, switch UI to lobby mode
     if (newState === LOBBY_STATES.MEMBER || newState === LOBBY_STATES.HOSTING) {
@@ -152,6 +164,9 @@ function initLobbyManager() {
 
       // Mark that lobby is selected for chat (not a 1:1 session)
       dashboardState.activeLobbySelected = true;
+
+      // Clear any 1:1 session that might have been auto-selected
+      dashboardState.activeSessionId = null;
 
       // Update UI to show lobby controls
       updateLobbyStatus(lobbyFacade.lobbyInfo);
@@ -783,6 +798,12 @@ async function handleCloseSession() {
  * Select a 1:1 session (switches away from lobby chat if active)
  */
 function selectSession(mailboxId) {
+  logger.debug("KKTP: selectSession", {
+    mailboxId: mailboxId?.slice(0, 16),
+    wasLobbySelected: dashboardState.activeLobbySelected,
+    previousSession: dashboardState.activeSessionId?.slice(0, 16),
+  });
+
   // Mark that we're now in 1:1 mode, not lobby
   dashboardState.activeLobbySelected = false;
 
@@ -792,6 +813,10 @@ function selectSession(mailboxId) {
   if (session) {
     setChatEnabled(true);
     renderChatMessages(session);
+  } else {
+    setChatEnabled(false);
+    renderChatMessages(null);
+    logger.warn("KKTP: selectSession - session not found", { mailboxId });
   }
 
   refreshSessionList();
@@ -801,6 +826,11 @@ function selectSession(mailboxId) {
  * Select the lobby session (switches to lobby chat)
  */
 function selectLobbySession() {
+  logger.debug("KKTP: selectLobbySession", {
+    wasActiveSession: dashboardState.activeSessionId?.slice(0, 16),
+    isInLobby: lobbyFacade?.isInLobby?.(),
+  });
+
   // Mark that we're now in lobby mode for chat
   dashboardState.activeLobbySelected = true;
 
@@ -925,9 +955,17 @@ async function handleSendMessage() {
   // Check if lobby chat is selected AND we're actually in a lobby
   const inLobby = lobbyFacade && lobbyFacade.isInLobby();
 
+  logger.debug("KKTP: handleSendMessage", {
+    activeLobbySelected: dashboardState.activeLobbySelected,
+    inLobby,
+    activeSessionId: dashboardState.activeSessionId?.slice(0, 16),
+    messageLength: plaintext.length,
+  });
+
   if (dashboardState.activeLobbySelected && inLobby) {
     // Send to lobby group
     try {
+      logger.debug("KKTP: Sending lobby group message");
       await lobbyFacade.sendGroupMessage(plaintext);
       clearMessageInput();
       renderLobbyChatMessages(lobbyFacade.messageHistory, dashboardState.myPubSig);
@@ -945,6 +983,9 @@ async function handleSendMessage() {
   }
 
   try {
+    logger.debug("KKTP: Sending 1:1 message", {
+      mailboxId: dashboardState.activeSessionId?.slice(0, 16),
+    });
     await kaspaPortal.sendMessage(dashboardState.activeSessionId, plaintext);
 
     clearMessageInput();

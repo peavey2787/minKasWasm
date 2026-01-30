@@ -118,6 +118,35 @@ export class LobbyManager {
     this._dmBufferMaxPerMailbox = 5;
     this._dmBufferCleanupTimer = null;
     this._dmBufferCleanupIntervalMs = 10_000;
+
+    // ─────────────────────────────────────────────────────────────
+    // Key Vault - Epoch Versioning for key rotation race conditions
+    // Keeps current + previous key to handle messages sent during rotation
+    // ─────────────────────────────────────────────────────────────
+    this._keyVault = {
+      current: null, // { key: Uint8Array, version: number }
+      previous: null, // { key: Uint8Array, version: number } - for receiving only
+    };
+
+    // ─────────────────────────────────────────────────────────────
+    // Join Request Queue - Serializes concurrent joins to prevent UTXO contention
+    // When multiple peers join simultaneously, the host must process them one at a time
+    // ─────────────────────────────────────────────────────────────
+    this._joinRequestQueue = []; // [{ dmMailboxId, request, resolve, queuedAt }]
+    this._isProcessingJoinQueue = false;
+
+    // Future message buffer for messages with key versions we haven't received yet
+    // This handles the rare case where a message arrives before the key rotation DM
+    this._futureMessageBuffer = []; // [{ encrypted, receivedAt }]
+    this._futureBufferMaxSize = 20;
+    this._futureBufferTtlMs = 60_000; // 1 minute TTL
+
+    // ─────────────────────────────────────────────────────────────
+    // DM Mailbox Tracking - Filters out DMs from unrelated peers
+    // Prevents buffering/processing messages meant for other peers
+    // ─────────────────────────────────────────────────────────────
+    this._pendingJoinDmMailboxId = null; // Set during joinLobby while waiting for response
+    this._hostDmMailboxId = null; // Set when member joins - the mailbox for receiving host DMs
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -199,6 +228,7 @@ export class LobbyManager {
 
   /**
    * Accept a pending join request (host only)
+   * Routes through the join queue to ensure proper UTXO serialization.
    * @param {string} pubSig - The requester's public signing key
    * @returns {Promise<boolean>} Whether the join was accepted
    */
@@ -210,7 +240,23 @@ export class LobbyManager {
     }
 
     this._pendingJoins.delete(pubSig);
-    return await this._acceptJoinRequest(pending.dmMailboxId, pending.request);
+
+    // Route through the queue to ensure UTXO serialization
+    return new Promise((resolve) => {
+      this._joinRequestQueue.push({
+        dmMailboxId: pending.dmMailboxId,
+        request: pending.request,
+        resolve,
+        queuedAt: Date.now(),
+      });
+
+      console.info("KKTP Lobby: Manual approval queued for processing", {
+        pubSig: pubSig?.slice(0, 16),
+        queueLength: this._joinRequestQueue.length,
+      });
+
+      this._processJoinQueue();
+    });
   }
 
   /**
@@ -316,6 +362,15 @@ export class LobbyManager {
         discovery,
       };
 
+      // ─────────────────────────────────────────────────────────────
+      // Initialize Key Vault with initial key (no previous yet)
+      // ─────────────────────────────────────────────────────────────
+      this._keyVault = {
+        current: { key: groupKey, version: 1 },
+        previous: null,
+      };
+      this._futureMessageBuffer = [];
+
       // Add self as host member
       this.lobby.members.set(discovery.pub_sig, {
         pubSig: discovery.pub_sig,
@@ -347,9 +402,10 @@ export class LobbyManager {
 
   /**
    * Process a join request from a peer (host only)
+   * Queues requests to prevent UTXO contention when multiple peers join simultaneously.
    * @param {string} dmMailboxId - The 1:1 DM mailbox with the requesting peer
    * @param {Object} request - The join request message
-   * @returns {Promise<boolean>} - Whether the join was accepted/pending
+   * @returns {Promise<boolean>} - Whether the join was queued/accepted
    */
   async handleJoinRequest(dmMailboxId, request) {
     // Self-echo filter: If we're in JOINING state, we might receive our own
@@ -394,61 +450,152 @@ export class LobbyManager {
       return false;
     }
 
-    // Check capacity
-    if (this.lobby.members.size >= this.lobby.maxMembers) {
-      console.warn("KKTP Lobby: Lobby is full");
-      await this._sendJoinResponse(dmMailboxId, false, "Lobby is full");
-      return false;
-    }
-
-    // Check if already a member
+    // Check if already a member (immediate rejection, no queue needed)
     if (this.lobby.members.has(pubSig)) {
       console.warn("KKTP Lobby: Peer is already a member");
-      await this._sendJoinResponse(dmMailboxId, true, "Already a member");
+      return true; // Already a member, no action needed
+    }
+
+    // Check if already in queue or pending approval
+    const alreadyQueued = this._joinRequestQueue.some(
+      (item) => item.request.pubSig === pubSig
+    );
+    if (alreadyQueued || this._pendingJoins.has(pubSig)) {
+      console.warn("KKTP Lobby: Join request already queued/pending", {
+        pubSig: pubSig?.slice(0, 16),
+      });
       return true;
     }
 
-    // Check if already pending
-    if (this._pendingJoins.has(pubSig)) {
-      console.warn("KKTP Lobby: Join request already pending for", pubSig?.slice(0, 16));
-      return true;
-    }
+    // Queue the join request for serialized processing
+    return new Promise((resolve) => {
+      this._joinRequestQueue.push({
+        dmMailboxId,
+        request,
+        resolve,
+        queuedAt: Date.now(),
+      });
 
-    // If auto-accept is enabled, accept immediately
-    if (this.autoAcceptJoins) {
-      return await this._acceptJoinRequest(dmMailboxId, request);
-    }
+      console.info("KKTP Lobby: Join request queued", {
+        pubSig: pubSig?.slice(0, 16),
+        displayName,
+        queueLength: this._joinRequestQueue.length,
+      });
 
-    // Otherwise, store pending and emit callback for host approval
-    this._pendingJoins.set(pubSig, {
-      request,
-      dmMailboxId,
-      receivedAt: Date.now(),
+      // Start processing if not already running
+      this._processJoinQueue();
     });
+  }
 
-    // Emit callback with accept/reject functions
-    if (this._onJoinRequest) {
-      const acceptFn = () => this.acceptPendingJoin(pubSig);
-      const rejectFn = (reason) => this.rejectPendingJoin(pubSig, reason);
-      this._onJoinRequest(request, acceptFn, rejectFn);
+  /**
+   * Process the join request queue serially
+   * Ensures only one join is processed at a time to prevent UTXO contention
+   * @private
+   */
+  async _processJoinQueue() {
+    // Prevent concurrent queue processing
+    if (this._isProcessingJoinQueue) {
+      return;
     }
 
-    console.info("KKTP Lobby: Join request pending approval", {
-      pubSig: pubSig?.slice(0, 16),
-      displayName,
-    });
+    this._isProcessingJoinQueue = true;
 
-    return true; // Pending
+    try {
+      while (this._joinRequestQueue.length > 0) {
+        const { dmMailboxId, request, resolve } = this._joinRequestQueue.shift();
+        const { pubSig, displayName } = request;
+
+        console.info("KKTP Lobby: Processing queued join request", {
+          pubSig: pubSig?.slice(0, 16),
+          displayName,
+          remainingInQueue: this._joinRequestQueue.length,
+        });
+
+        // Check if lobby state is still valid
+        if (this.state !== LOBBY_STATES.HOSTING || !this.lobby) {
+          console.warn("KKTP Lobby: Lobby closed while processing queue");
+          resolve(false);
+          continue;
+        }
+
+        // Re-check capacity (may have changed while queued)
+        if (this.lobby.members.size >= this.lobby.maxMembers) {
+          console.warn("KKTP Lobby: Lobby full while processing queue");
+          try {
+            await this._sendJoinResponse(dmMailboxId, false, "Lobby is full");
+          } catch (err) {
+            console.warn("KKTP Lobby: Failed to send rejection", { error: err.message });
+          }
+          resolve(false);
+          continue;
+        }
+
+        // Re-check if already a member (may have joined via another path)
+        if (this.lobby.members.has(pubSig)) {
+          console.warn("KKTP Lobby: Already member while processing queue");
+          resolve(true);
+          continue;
+        }
+
+        // Process based on autoAcceptJoins setting
+        if (this.autoAcceptJoins) {
+          try {
+            const result = await this._acceptJoinRequest(dmMailboxId, request);
+            resolve(result);
+          } catch (err) {
+            console.error("KKTP Lobby: Error accepting join request", {
+              pubSig: pubSig?.slice(0, 16),
+              error: err.message,
+            });
+            resolve(false);
+          }
+        } else {
+          // Store for manual approval
+          this._pendingJoins.set(pubSig, {
+            dmMailboxId,
+            request,
+            receivedAt: Date.now(),
+          });
+
+          // Emit event for UI to handle
+          if (this._onJoinRequest) {
+            const acceptFn = () => this.acceptPendingJoin(pubSig);
+            const rejectFn = (reason) => this.rejectPendingJoin(pubSig, reason);
+            this._onJoinRequest(request, acceptFn, rejectFn);
+          }
+
+          console.info("KKTP Lobby: Join request pending approval", {
+            pubSig: pubSig?.slice(0, 16),
+            displayName,
+          });
+
+          resolve(true); // Queued for manual approval
+        }
+
+        // Wait for UTXO refresh before processing next request
+        // This is critical to prevent UTXO contention
+        if (this._joinRequestQueue.length > 0) {
+          console.info("KKTP Lobby: Waiting for UTXO refresh before next join", {
+            remainingInQueue: this._joinRequestQueue.length,
+          });
+          await this._waitForUtxoRefresh(1500, 5000);
+        }
+      }
+    } finally {
+      this._isProcessingJoinQueue = false;
+    }
   }
 
   /**
    * Internal: Accept a join request and add member to lobby
+   * Called from the serialized queue processor to prevent UTXO contention.
    * @private
    */
   async _acceptJoinRequest(dmMailboxId, request) {
     const { pubSig, displayName } = request;
 
-    // Accept the join request
+    // Create member entry BEFORE sending response
+    // This ensures the member list in the response includes the new member
     const member = {
       pubSig,
       displayName: displayName || `Peer ${pubSig.slice(0, 8)}`,
@@ -457,22 +604,47 @@ export class LobbyManager {
       dmMailboxId,
     };
 
+    // Add to roster first (so response includes correct member count)
     this.lobby.members.set(pubSig, member);
 
-    // Send acceptance with current group key
-    await this._sendJoinResponse(dmMailboxId, true, "Welcome", {
-      groupKey: this._exportGroupKey(),
-      keyVersion: this.lobby.keyVersion,
-      groupMailboxId: this.lobby.groupMailboxId,
-      members: this._exportMemberList(),
-    });
+    // Prepare member list for response (includes the new member)
+    const memberList = this._exportMemberList();
 
-    // Wait for UTXO refresh before broadcasting to prevent race condition
-    // The join response transaction needs time to be mined before we can spend again
-    await this._waitForUtxoRefresh(1000, 4000);
+    // Send join response with group key
+    try {
+      await this._sendJoinResponse(dmMailboxId, true, "Welcome", {
+        groupKey: this._exportGroupKey(),
+        keyVersion: this.lobby.keyVersion,
+        groupMailboxId: this.lobby.groupMailboxId,
+        lobbyId: this.lobby.lobbyId,
+        lobbyName: this.lobby.lobbyName,
+        hostPubSig: this.lobby.hostPubSig,
+        maxMembers: this.lobby.maxMembers,
+        members: memberList,
+      });
+    } catch (err) {
+      // If we fail to send response, remove member from roster (rollback)
+      console.error("KKTP Lobby: Failed to send join response, removing member", {
+        pubSig: pubSig.slice(0, 16),
+        error: err.message,
+      });
+      this.lobby.members.delete(pubSig);
+      throw err;
+    }
 
-    // Broadcast member join to all existing members
-    await this._broadcastMemberEvent("join", member);
+    // Wait for UTXO refresh before broadcasting member event
+    await this._waitForUtxoRefresh(1500, 5000);
+
+    // Broadcast member join to existing members (excluding the new member)
+    try {
+      await this._broadcastMemberEvent("join", member);
+    } catch (err) {
+      console.warn("KKTP Lobby: Failed to broadcast member event (non-fatal)", {
+        pubSig: pubSig.slice(0, 16),
+        error: err.message,
+      });
+      // Don't remove member - they're already in, just missed the broadcast
+    }
 
     // Emit event
     this._onMemberJoin?.(member);
@@ -546,6 +718,8 @@ export class LobbyManager {
 
   /**
    * Rotate the group key (host only)
+   * Distributes new key to ALL members before updating local state.
+   * Uses Key Vault to keep previous key for receiving late messages.
    * @param {string} [reason="Scheduled rotation"]
    */
   async rotateKey(reason = "Scheduled rotation") {
@@ -574,22 +748,79 @@ export class LobbyManager {
 
     const distributionJson = JSON.stringify(distribution);
 
-    // Send to each member with retry logic for UTXO resilience
+    // Collect all members that need the key (excluding host)
+    const membersToNotify = [];
     for (const [pubSig, member] of this.lobby.members) {
       if (member.role === MEMBER_ROLES.HOST) continue;
-      if (!member.dmMailboxId) continue;
+      if (!member.dmMailboxId) {
+        console.warn("KKTP Lobby: Member missing dmMailboxId, skipping", {
+          pubSig: pubSig.slice(0, 16),
+        });
+        continue;
+      }
+      membersToNotify.push({ pubSig, member });
+    }
+
+    console.info("KKTP Lobby: Starting key rotation distribution", {
+      keyVersion: newVersion,
+      memberCount: membersToNotify.length,
+      reason,
+    });
+
+    // Track delivery results
+    let successCount = 0;
+    let failCount = 0;
+    const failedMembers = [];
+
+    // Send to ALL members BEFORE updating local state
+    // This ensures everyone gets the same key version
+    // CRITICAL: Serialize sends with UTXO refresh between each to prevent contention
+    for (let i = 0; i < membersToNotify.length; i++) {
+      const { pubSig, member } = membersToNotify[i];
+
+      // Wait for UTXO refresh before each send (except the first)
+      if (i > 0) {
+        await this._waitForUtxoRefresh(1000, 3000);
+      }
 
       try {
         await this._sendWithRetry(member.dmMailboxId, distributionJson, 3);
-      } catch (err) {
-        console.warn("KKTP Lobby: Failed to send key rotation to member", {
+        successCount++;
+        console.info("KKTP Lobby: Key rotation sent to member", {
           pubSig: pubSig.slice(0, 16),
+          keyVersion: newVersion,
+          dmMailboxId: member.dmMailboxId?.slice(0, 16),
+        });
+      } catch (err) {
+        failCount++;
+        failedMembers.push(pubSig);
+        console.error("KKTP Lobby: Failed to send key rotation to member", {
+          pubSig: pubSig.slice(0, 16),
+          dmMailboxId: member.dmMailboxId?.slice(0, 16),
           error: err.message,
         });
       }
     }
 
-    // Update local state
+    // Only update local state if at least one member received the key
+    // If ALL failed, abort rotation to avoid leaving everyone out of sync
+    if (successCount === 0 && membersToNotify.length > 0) {
+      console.error("KKTP Lobby: Key rotation aborted - no members received new key", {
+        attemptedCount: membersToNotify.length,
+      });
+      throw new Error("Key rotation failed: no members received new key");
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Key Vault Update: current → previous, new → current
+    // ─────────────────────────────────────────────────────────────
+    this._keyVault.previous = this._keyVault.current;
+    this._keyVault.current = {
+      key: newKey,
+      version: newVersion,
+    };
+
+    // Update legacy state for backward compatibility
     this.lobby.groupKey = newKey;
     this.lobby.keyVersion = newVersion;
 
@@ -598,9 +829,20 @@ export class LobbyManager {
 
     console.info("KKTP Lobby: Key rotated", {
       version: newVersion,
+      previousVersion: this._keyVault.previous?.version ?? "none",
       reason,
       memberCount: this.lobby.members.size,
+      successCount,
+      failCount,
+      failedMembers: failedMembers.map((p) => p.slice(0, 16)),
     });
+
+    // Warn about members who missed the rotation
+    if (failedMembers.length > 0) {
+      console.warn("KKTP Lobby: Some members missed key rotation - they may be out of sync", {
+        failedMembers: failedMembers.map((p) => p.slice(0, 16)),
+      });
+    }
   }
 
   /**
@@ -754,6 +996,9 @@ export class LobbyManager {
         sentAt: Date.now(),
       };
 
+      // Track the DM mailbox for filtering incoming messages
+      this._pendingJoinDmMailboxId = dmMailboxId;
+
       console.info("KKTP Lobby: Join request sent successfully", {
         lobbyId: lobbyDiscovery.sid?.slice(0, 16),
         lobbyName: lobbyDiscovery.meta.lobby_name,
@@ -851,6 +1096,19 @@ export class LobbyManager {
       dmMailboxId, // Our DM with host
     };
 
+    // Store host DM mailbox for filtering incoming key rotations/member events
+    this._hostDmMailboxId = dmMailboxId;
+    this._pendingJoinDmMailboxId = null; // Clear pending since we're now joined
+
+    // ─────────────────────────────────────────────────────────────
+    // Initialize Key Vault with received key (no previous yet)
+    // ─────────────────────────────────────────────────────────────
+    this._keyVault = {
+      current: { key: this.lobby.groupKey, version: keyVersion },
+      previous: null,
+    };
+    this._futureMessageBuffer = [];
+
     // Import member list
     if (Array.isArray(members)) {
       for (const m of members) {
@@ -880,6 +1138,7 @@ export class LobbyManager {
 
   /**
    * Handle key rotation from host (member only)
+   * Uses Key Vault to keep previous key for receiving late messages.
    * @param {Object} rotation - Key rotation message
    */
   handleKeyRotation(rotation) {
@@ -909,17 +1168,33 @@ export class LobbyManager {
       return;
     }
 
-    // Update key
-    this.lobby.groupKey = this._hexToUint8(rotation.groupKey);
-    this.lobby.keyVersion = rotation.keyVersion;
+    const newKey = this._hexToUint8(rotation.groupKey);
+    const newVersion = rotation.keyVersion;
+
+    // ─────────────────────────────────────────────────────────────
+    // Key Vault Update: current → previous, new → current
+    // ─────────────────────────────────────────────────────────────
+    this._keyVault.previous = this._keyVault.current;
+    this._keyVault.current = {
+      key: newKey,
+      version: newVersion,
+    };
+
+    // Update legacy state for backward compatibility
+    this.lobby.groupKey = newKey;
+    this.lobby.keyVersion = newVersion;
 
     // Emit event
-    this._onKeyRotation?.(rotation.keyVersion);
+    this._onKeyRotation?.(newVersion);
 
     console.info("KKTP Lobby: Key updated", {
-      version: rotation.keyVersion,
+      version: newVersion,
+      previousVersion: this._keyVault.previous?.version ?? "none",
       reason: rotation.reason,
     });
+
+    // Process any buffered future messages that were waiting for this key
+    this._processBufferedFutureMessages();
   }
 
   /**
@@ -1086,7 +1361,14 @@ export class LobbyManager {
   }
 
   /**
-   * Process an incoming group message
+   * Process an incoming group message using Epoch Versioning
+   *
+   * Key matching strategy:
+   * 1. Try current key (exact version match)
+   * 2. Try previous key (for messages sent during rotation propagation)
+   * 3. Buffer future versions (message arrived before key rotation DM)
+   * 4. Drop expired versions (more than 1 behind previous)
+   *
    * @param {Object} encrypted - Encrypted group message
    */
   async processGroupMessage(encrypted) {
@@ -1104,8 +1386,6 @@ export class LobbyManager {
     // High-precision deduplication: Check BOTH senderPubSig AND nonce for ALL messages
     // This prevents: (1) self-echo (our own message reflected back)
     //                (2) nonce collision (two different users with same nonce)
-    // Without checking both, Peer C's first message could be dropped if it has
-    // the same nonce as Peer B's first message that we already processed.
     if (encrypted.senderPubSig && encrypted.nonce) {
       const isDuplicate = this._messageHistory.some(
         (m) =>
@@ -1121,42 +1401,59 @@ export class LobbyManager {
       }
     }
 
-    // Verify key version matches
-    if (encrypted.keyVersion !== this.lobby.keyVersion) {
-      console.warn("KKTP Lobby: Group message with wrong key version", {
-        expected: this.lobby.keyVersion,
-        received: encrypted.keyVersion,
+    const msgVersion = encrypted.keyVersion;
+    const currentVersion = this._keyVault.current?.version ?? this.lobby.keyVersion;
+    const previousVersion = this._keyVault.previous?.version ?? null;
+
+    // ─────────────────────────────────────────────────────────────
+    // Case 1: Current key (exact match)
+    // ─────────────────────────────────────────────────────────────
+    if (msgVersion === currentVersion && this._keyVault.current?.key) {
+      console.debug("KKTP Lobby: Decrypting with current key", {
+        keyVersion: msgVersion,
+        senderPubSig: encrypted.senderPubSig?.slice(0, 16),
       });
+      await this._decryptAndProcessMessage(encrypted, this._keyVault.current.key);
       return;
     }
 
-    try {
-      // Decrypt
-      const decrypted = await this.codec.decryptGroupMessage(
-        encrypted,
-        this.lobby.groupKey,
-        this.lobby.groupMailboxId,
-      );
-
-      // Add to history with nonce for potential future deduplication
-      this._addToHistory({
-        type: "inbound",
-        senderPubSig: encrypted.senderPubSig,
-        plaintext: decrypted,
-        timestamp: encrypted.timestamp || Date.now(),
-        nonce: encrypted.nonce, // Store nonce for dedupe
+    // ─────────────────────────────────────────────────────────────
+    // Case 2: Previous key (message sent during rotation propagation)
+    // ─────────────────────────────────────────────────────────────
+    if (previousVersion !== null && msgVersion === previousVersion && this._keyVault.previous?.key) {
+      console.info("KKTP Lobby: Decrypting with previous key (rotation in progress)", {
+        msgVersion,
+        currentVersion,
+        previousVersion,
+        senderPubSig: encrypted.senderPubSig?.slice(0, 16),
       });
-
-      // Emit event
-      this._onGroupMessage?.({
-        senderPubSig: encrypted.senderPubSig,
-        plaintext: decrypted,
-        timestamp: encrypted.timestamp,
-        senderName: this.lobby.members.get(encrypted.senderPubSig)?.displayName,
-      });
-    } catch (err) {
-      console.warn("KKTP Lobby: Failed to decrypt group message", err.message);
+      await this._decryptAndProcessMessage(encrypted, this._keyVault.previous.key);
+      return;
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // Case 3: Future version (message arrived before key rotation DM)
+    // Buffer it and process when we receive the key
+    // ─────────────────────────────────────────────────────────────
+    if (msgVersion > currentVersion) {
+      console.info("KKTP Lobby: Buffering future message (awaiting key rotation)", {
+        msgVersion,
+        currentVersion,
+        senderPubSig: encrypted.senderPubSig?.slice(0, 16),
+      });
+      this._bufferFutureMessage(encrypted);
+      return;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Case 4: Expired version (too old to decrypt)
+    // ─────────────────────────────────────────────────────────────
+    console.warn("KKTP Lobby: Dropping expired message (key version too old)", {
+      msgVersion,
+      currentVersion,
+      previousVersion,
+      senderPubSig: encrypted.senderPubSig?.slice(0, 16),
+    });
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -1307,7 +1604,14 @@ export class LobbyManager {
     }
   }
 
+  /**
+   * Broadcast a member event to all other members
+   * Serializes sends with UTXO refresh between each to prevent contention
+   * @private
+   */
   async _broadcastMemberEvent(eventType, member) {
+    if (!this.lobby || this.state !== LOBBY_STATES.HOSTING) return;
+
     const event = {
       type: "lobby_member_event",
       version: LOBBY_VERSION,
@@ -1315,26 +1619,54 @@ export class LobbyManager {
       eventType,
       pubSig: member.pubSig,
       displayName: member.displayName,
+      role: member.role,
+      joinedAt: member.joinedAt,
       reason: member.reason,
       timestamp: Date.now(),
     };
 
     const eventJson = JSON.stringify(event);
 
-    // Send to all members via DM with retry logic for UTXO resilience
+    // Collect recipients (exclude host and the member in question)
+    const recipients = [];
     for (const [pubSig, m] of this.lobby.members) {
       if (m.role === MEMBER_ROLES.HOST) continue;
-      if (pubSig === member.pubSig) continue; // Don't send to the subject
+      if (pubSig === member.pubSig) continue; // Don't notify the member about themselves
       if (!m.dmMailboxId) continue;
+      recipients.push({ pubSig, dmMailboxId: m.dmMailboxId });
+    }
+
+    if (recipients.length === 0) {
+      console.debug("KKTP Lobby: No recipients for member event broadcast");
+      return;
+    }
+
+    console.info("KKTP Lobby: Broadcasting member event", {
+      eventType,
+      memberPubSig: member.pubSig?.slice(0, 16),
+      recipientCount: recipients.length,
+    });
+
+    // Send to each recipient serially with UTXO refresh between
+    for (let i = 0; i < recipients.length; i++) {
+      const { pubSig, dmMailboxId } = recipients[i];
 
       try {
-        await this._sendWithRetry(m.dmMailboxId, eventJson, 3);
-      } catch (err) {
-        console.warn("KKTP Lobby: Failed to broadcast member event", {
+        await this._sendWithRetry(dmMailboxId, eventJson, 3);
+        console.debug("KKTP Lobby: Member event sent", {
           eventType,
-          targetPubSig: pubSig.slice(0, 16),
+          to: pubSig.slice(0, 16),
+        });
+      } catch (err) {
+        console.warn("KKTP Lobby: Failed to send member event", {
+          to: pubSig.slice(0, 16),
           error: err.message,
         });
+      }
+
+      // Wait for UTXO refresh before next send (except for last recipient)
+      if (i < recipients.length - 1) {
+        await this._waitForUtxoRefresh(1000, 3000);
       }
     }
   }
@@ -1363,6 +1695,154 @@ export class LobbyManager {
     if (this._messageHistory.length > this._maxHistorySize) {
       this._messageHistory.shift();
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Epoch Versioning Helpers
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Decrypt a group message with a specific key and emit the result.
+   * Used by processGroupMessage() for both current and previous keys.
+   * @private
+   * @param {Object} encrypted - The encrypted message
+   * @param {Uint8Array} key - The key to use for decryption
+   */
+  async _decryptAndProcessMessage(encrypted, key) {
+    try {
+      const decrypted = await this.codec.decryptGroupMessage(
+        encrypted,
+        key,
+        this.lobby.groupMailboxId,
+      );
+
+      // Add to history with nonce for potential future deduplication
+      this._addToHistory({
+        type: "inbound",
+        senderPubSig: encrypted.senderPubSig,
+        plaintext: decrypted,
+        timestamp: encrypted.timestamp || Date.now(),
+        nonce: encrypted.nonce,
+        keyVersion: encrypted.keyVersion,
+      });
+
+      // Emit event
+      this._onGroupMessage?.({
+        senderPubSig: encrypted.senderPubSig,
+        plaintext: decrypted,
+        timestamp: encrypted.timestamp,
+        senderName: this.lobby.members.get(encrypted.senderPubSig)?.displayName,
+      });
+    } catch (err) {
+      console.warn("KKTP Lobby: Failed to decrypt group message", {
+        error: err.message,
+        keyVersion: encrypted.keyVersion,
+        senderPubSig: encrypted.senderPubSig?.slice(0, 16),
+      });
+    }
+  }
+
+  /**
+   * Buffer a message with a future key version for later processing.
+   * Called when we receive a message before the key rotation DM.
+   * @private
+   * @param {Object} encrypted - The encrypted message to buffer
+   */
+  _bufferFutureMessage(encrypted) {
+    const now = Date.now();
+
+    // Clean up expired messages first
+    this._futureMessageBuffer = this._futureMessageBuffer.filter(
+      (entry) => now - entry.receivedAt < this._futureBufferTtlMs
+    );
+
+    // Enforce size limit
+    if (this._futureMessageBuffer.length >= this._futureBufferMaxSize) {
+      console.warn("KKTP Lobby: Future message buffer full, dropping oldest");
+      this._futureMessageBuffer.shift();
+    }
+
+    this._futureMessageBuffer.push({
+      encrypted,
+      receivedAt: now,
+    });
+
+    console.debug("KKTP Lobby: Buffered future message", {
+      bufferSize: this._futureMessageBuffer.length,
+      keyVersion: encrypted.keyVersion,
+      senderPubSig: encrypted.senderPubSig?.slice(0, 16),
+    });
+  }
+
+  /**
+   * Process any buffered future messages that can now be decrypted.
+   * Called after receiving a key rotation that might unlock buffered messages.
+   * @private
+   */
+  _processBufferedFutureMessages() {
+    if (this._futureMessageBuffer.length === 0) return;
+
+    const currentVersion = this._keyVault.current?.version;
+    const previousVersion = this._keyVault.previous?.version;
+    const now = Date.now();
+
+    console.info("KKTP Lobby: Processing buffered future messages", {
+      bufferSize: this._futureMessageBuffer.length,
+      currentVersion,
+      previousVersion,
+    });
+
+    // Partition: process now vs keep vs drop
+    const toProcess = [];
+    const toKeep = [];
+
+    for (const entry of this._futureMessageBuffer) {
+      const { encrypted, receivedAt } = entry;
+
+      // Drop expired entries
+      if (now - receivedAt >= this._futureBufferTtlMs) {
+        console.debug("KKTP Lobby: Dropping expired buffered message", {
+          keyVersion: encrypted.keyVersion,
+          ageMs: now - receivedAt,
+        });
+        continue;
+      }
+
+      // Can we decrypt now?
+      if (encrypted.keyVersion === currentVersion) {
+        toProcess.push({ encrypted, key: this._keyVault.current.key });
+      } else if (previousVersion !== null && encrypted.keyVersion === previousVersion) {
+        toProcess.push({ encrypted, key: this._keyVault.previous.key });
+      } else if (encrypted.keyVersion > currentVersion) {
+        // Still future, keep buffered
+        toKeep.push(entry);
+      } else {
+        // Now expired (too old)
+        console.debug("KKTP Lobby: Dropping now-expired buffered message", {
+          msgVersion: encrypted.keyVersion,
+          currentVersion,
+          previousVersion,
+        });
+      }
+    }
+
+    // Update buffer
+    this._futureMessageBuffer = toKeep;
+
+    // Process unlocked messages
+    for (const { encrypted, key } of toProcess) {
+      console.info("KKTP Lobby: Processing previously-buffered message", {
+        keyVersion: encrypted.keyVersion,
+        senderPubSig: encrypted.senderPubSig?.slice(0, 16),
+      });
+      // Fire and forget - errors are logged in _decryptAndProcessMessage
+      this._decryptAndProcessMessage(encrypted, key);
+    }
+
+    console.info("KKTP Lobby: Finished processing buffered messages", {
+      processed: toProcess.length,
+      remaining: toKeep.length,
+    });
   }
 
   /**
@@ -1445,11 +1925,18 @@ export class LobbyManager {
 
   /**
    * Buffer a DM message for later processing when session is established.
+   * Only buffers messages for mailboxes we know are relevant to this lobby.
    * @param {string} mailboxId - The DM mailbox ID
    * @param {string} payload - Raw payload to buffer
    * @param {number} [timestamp] - Message timestamp
    */
   bufferDMMessage(mailboxId, payload, timestamp) {
+    // Only buffer if this mailbox is relevant to our lobby
+    if (!this.isRelevantMailbox(mailboxId)) {
+      // Not for us - silently ignore to avoid cluttering logs
+      return;
+    }
+
     const now = Date.now();
 
     if (!this._dmBuffer.has(mailboxId)) {
@@ -1474,6 +1961,50 @@ export class LobbyManager {
     });
 
     this._startDMBufferCleanup();
+  }
+
+  /**
+   * Check if a mailbox ID is relevant to this lobby.
+   * Used to filter incoming DM messages - only process messages for:
+   * - Our pending join DM (while waiting for join response)
+   * - The host's DM (for receiving key rotations/member events as member)
+   * - Known member DMs (for host to receive join requests/messages)
+   * @param {string} mailboxId
+   * @returns {boolean}
+   */
+  isRelevantMailbox(mailboxId) {
+    if (!mailboxId) return false;
+
+    // Check if it's our pending join DM (waiting for response from host)
+    if (this._pendingJoinDmMailboxId && this._pendingJoinDmMailboxId === mailboxId) {
+      return true;
+    }
+
+    // Check if it's the host's DM (for members receiving key rotations)
+    if (this._hostDmMailboxId && this._hostDmMailboxId === mailboxId) {
+      return true;
+    }
+
+    // Check if it's a known member's DM (for host)
+    if (this._isKnownMemberMailbox(mailboxId)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if a mailbox ID belongs to a known lobby member.
+   * @private
+   * @param {string} mailboxId
+   * @returns {boolean}
+   */
+  _isKnownMemberMailbox(mailboxId) {
+    if (!mailboxId || !this.lobby?.members) return false;
+    for (const member of this.lobby.members.values()) {
+      if (member.dmMailboxId === mailboxId) return true;
+    }
+    return false;
   }
 
   /**
@@ -1567,10 +2098,26 @@ export class LobbyManager {
       this._dmBufferCleanupTimer = null;
     }
 
+    // Clear Key Vault and future message buffer
+    this._keyVault = { current: null, previous: null };
+    this._futureMessageBuffer = [];
+
+    // Clear and reject any pending join requests in the queue
+    while (this._joinRequestQueue.length > 0) {
+      const { resolve } = this._joinRequestQueue.shift();
+      resolve(false);
+    }
+    this._isProcessingJoinQueue = false;
+
     this.lobby = null;
     this._pendingJoin = null;
     this._pendingJoins.clear();
     this._messageHistory = [];
+
+    // Clear DM mailbox tracking
+    this._hostDmMailboxId = null;
+    this._pendingJoinDmMailboxId = null;
+
     this._setState(LOBBY_STATES.IDLE);
   }
 

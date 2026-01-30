@@ -85,6 +85,16 @@ export class LobbyFacade {
     return this._manager.isGroupPayloadForThisLobby(groupMailboxId);
   }
 
+  /**
+   * Check if a mailbox ID is relevant to this lobby.
+   * Used to filter incoming DM messages before processing/buffering.
+   * @param {string} mailboxId - The DM mailbox ID
+   * @returns {boolean}
+   */
+  isRelevantMailbox(mailboxId) {
+    return this._manager.isRelevantMailbox(mailboxId);
+  }
+
   // ─────────────────────────────────────────────────────────────
   // DM Buffer Management - For race condition handling
   // ─────────────────────────────────────────────────────────────

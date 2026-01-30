@@ -218,7 +218,18 @@ export async function handleIncomingMatch(matchObjOrArray, deps = {}) {
     const session = kaspaPortal.getSession(mailboxId);
 
     if (!session) {
-      // Session doesn't exist yet - buffer via lobby module
+      // Session doesn't exist yet - check if this mailbox is relevant to our lobby
+      // This prevents buffering DMs meant for other peers
+      const isRelevant = lobby?.isRelevantMailbox?.(mailboxId) ?? false;
+
+      if (!isRelevant) {
+        // This DM is not for any mailbox we care about - skip silently
+        logger.debug("KKTP Events: Ignoring DM for unrelated mailbox", {
+          mailboxId: mailboxId?.slice(0, 16),
+        });
+        continue;
+      }
+
       logger.info("KKTP Events: DM arrived before session, buffering", {
         mailboxId: mailboxId?.slice(0, 16),
       });
@@ -299,7 +310,7 @@ export function handleIncomingEvent(event, deps = {}) {
       }
       handleDiscoveryAnchor(event.anchor, deps, event._receivedAt);
       break;
-    case "session_established":
+    case "session_established": {
       logEvent(
         `Session established: ${event.mailboxId.substring(0, 8)}...`,
         "success",
@@ -327,10 +338,25 @@ export function handleIncomingEvent(event, deps = {}) {
 
       renderPeerList(deps.handleConnectToPeer);
       deps.refreshSessionList?.();
-      if (!dashboardState.activeSessionId) {
+
+      // CRITICAL: Don't auto-select 1:1 sessions if we're in lobby mode
+      // This prevents the UI from switching away from lobby chat
+      const lobby = getLobby();
+      const isInLobby = lobby?.isInLobby?.() || dashboardState.activeLobbySelected;
+
+      if (!isInLobby && !dashboardState.activeSessionId) {
+        // Only auto-select if we're NOT in lobby mode AND no session is active
         deps.selectSession?.(event.mailboxId);
+      } else if (isInLobby) {
+        // We're in a lobby - don't switch UI to 1:1 DM
+        logger.debug("KKTP Events: Session established during lobby mode, not switching UI", {
+          mailboxId: event.mailboxId?.slice(0, 16),
+          activeLobbySelected: dashboardState.activeLobbySelected,
+          lobbyState: lobby?.currentState,
+        });
       }
       break;
+    }
     case "messages":
       if (event.messages?.length > 0) {
         logEvent(`Received ${event.messages.length} message(s)`, "info");
