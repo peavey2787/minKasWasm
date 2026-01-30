@@ -13,7 +13,7 @@ import { elements } from "./dom.js";
 import { saveSessionSnapshot } from "./storage.js";
 import { recoverSessionsOnLoad, handleFetchMissed } from "./sync.js";
 import { handleIncomingMatch, handleIncomingEvent } from "./events.js";
-import { buildAnchorPayload } from "../../kktp/smHelpers.js";
+import { buildAnchorPayload } from "../../kktp/protocol/sessions/index.js";
 import { LobbyManager, LOBBY_STATES } from "../../kktp/lobby/index.js";
 import { logger, setDebugLogging } from "./logger.js";
 import {
@@ -105,6 +105,7 @@ function initLobbyManager() {
   lobbyManager = new LobbyManager(kaspaPortal.sessionManager, {
     maxMembers: 16,
     keyRotationMs: 10 * 60 * 1000, // 10 minutes
+    autoAcceptJoins: true, // Set to false for manual approval workflow
   });
 
   // Set up lobby event handlers
@@ -135,11 +136,75 @@ function initLobbyManager() {
     clearActiveLobby();
     updateLobbyStatus(null);
     updateLobbyControlsVisibility(false, false);
-    renderPeerListWithLobbies(handleConnectToPeer, handleJoinLobby);
+    renderPeerList(handleConnectToPeer);
+    renderDiscoveredLobbies(handleJoinLobby);
   });
 
   lobbyManager.onStateChange((newState, oldState) => {
-    logEvent(`Lobby state: ${oldState} → ${newState}`, "info");
+    logger.debug(`Lobby state: ${oldState} → ${newState}`);
+
+    // When we become a member or host, switch UI to lobby mode
+    if (newState === LOBBY_STATES.MEMBER || newState === LOBBY_STATES.HOSTING) {
+      // Set lobby mode active
+      setLobbyMode(true);
+      setActiveLobby(lobbyManager.lobbyInfo);
+
+      // Mark that lobby is selected for chat (not a 1:1 session)
+      dashboardState.activeLobbySelected = true;
+
+      // Update UI to show lobby controls
+      updateLobbyStatus(lobbyManager.lobbyInfo);
+      updateLobbyControlsVisibility(true, newState === LOBBY_STATES.HOSTING);
+      renderLobbyMembers(lobbyManager.members, newState === LOBBY_STATES.HOSTING);
+
+      // Show lobby status and member section
+      if (elements.lobbyStatus) {
+        elements.lobbyStatus.style.display = "block";
+      }
+      if (elements.lobbyMemberSection) {
+        elements.lobbyMemberSection.style.display = "block";
+      }
+
+      // Update chat to show lobby messages
+      setChatEnabled(true);
+      renderLobbyChatMessages(lobbyManager.messageHistory, dashboardState.myPubSig);
+
+      // Update checkbox state
+      setLobbyModeChecked(true);
+
+      // Refresh session list to show lobby as selected
+      refreshSessionList();
+
+      logEvent(`Lobby ${newState === LOBBY_STATES.HOSTING ? "hosted" : "joined"} successfully`, "success");
+    }
+
+    // When lobby is closed or we leave, switch back to 1:1 mode
+    if (newState === LOBBY_STATES.IDLE || newState === LOBBY_STATES.CLOSED) {
+      if (oldState === LOBBY_STATES.MEMBER || oldState === LOBBY_STATES.HOSTING) {
+        setLobbyMode(false);
+        clearActiveLobby();
+        dashboardState.activeLobbySelected = false;
+
+        // Reset checkbox
+        setLobbyModeChecked(false);
+        if (elements.lobbyNameGroup) {
+          elements.lobbyNameGroup.style.display = "none";
+        }
+
+        refreshSessionList();
+      }
+    }
+  });
+
+  // Handle join requests when autoAcceptJoins is false
+  lobbyManager.onJoinRequest((request, acceptFn, rejectFn) => {
+    const displayName = request.displayName || request.pubSig?.slice(0, 8) + "...";
+    logEvent(`Lobby: Join request from ${displayName}`, "info");
+
+    // For production: implement a confirmation dialog here
+    // Example: showJoinRequestModal(request, acceptFn, rejectFn);
+    // For now with autoAcceptJoins=true, this won't be called
+    acceptFn();
   });
 
   dashboardState.lobbyManager = lobbyManager;
@@ -478,6 +543,15 @@ async function handleConnectToPeer(discovery) {
 
     const { response, mailboxId } = await kaspaPortal.connectToPeer(discovery);
 
+    // CRITICAL: Subscribe to DM mailbox so we can receive messages on this session
+    // As the responder, we need this to receive replies from the initiator (e.g. lobby host)
+    const dmPrefix = `KKTP:${mailboxId}:`;
+    kaspaPortal.addPrefix(dmPrefix);
+    logger.info("KKTP: Subscribed to DM mailbox (responder)", {
+      mailboxId: mailboxId?.slice(0, 16),
+      prefix: dmPrefix.slice(0, 32),
+    });
+
     // Store our identity if not already set
     if (!dashboardState.myPubSig) {
       dashboardState.myPubSig = response.pub_sig_resp;
@@ -549,9 +623,12 @@ async function handleCloseSession() {
 }
 
 /**
- * Select a session
+ * Select a 1:1 session (switches away from lobby chat if active)
  */
 function selectSession(mailboxId) {
+  // Mark that we're now in 1:1 mode, not lobby
+  dashboardState.activeLobbySelected = false;
+
   setActiveSession(mailboxId);
 
   const session = getSession(mailboxId);
@@ -564,11 +641,35 @@ function selectSession(mailboxId) {
 }
 
 /**
+ * Select the lobby session (switches to lobby chat)
+ */
+function selectLobbySession() {
+  // Mark that we're now in lobby mode for chat
+  dashboardState.activeLobbySelected = true;
+
+  // Clear 1:1 active session highlight
+  dashboardState.activeSessionId = null;
+
+  // Enable chat and render lobby messages
+  setChatEnabled(true);
+  if (lobbyManager) {
+    renderLobbyChatMessages(lobbyManager.messageHistory, dashboardState.myPubSig);
+  }
+
+  refreshSessionList();
+}
+
+/**
  * Refresh the session list UI
  */
 function refreshSessionList() {
   const sessions = kaspaPortal.getSessions();
-  renderSessionList(sessions, dashboardState.activeSessionId, selectSession);
+
+  // Pass lobby callbacks so session list can render both 1:1 and lobby sessions
+  renderSessionList(sessions, dashboardState.activeSessionId, selectSession, {
+    onSelectLobby: selectLobbySession,
+    lobbyManager: lobbyManager,
+  });
 
   // Refresh peer list (regular peers only)
   renderPeerList(handleConnectToPeer);
@@ -661,9 +762,14 @@ async function handleSendMessage() {
 
   if (!plaintext) return;
 
-  // Check if we're in a lobby
-  if (lobbyManager && (lobbyManager.currentState === LOBBY_STATES.HOSTING ||
-      lobbyManager.currentState === LOBBY_STATES.MEMBER)) {
+  // Check if lobby chat is selected AND we're actually in a lobby
+  const inLobby = lobbyManager && (
+    lobbyManager.currentState === LOBBY_STATES.HOSTING ||
+    lobbyManager.currentState === LOBBY_STATES.MEMBER
+  );
+
+  if (dashboardState.activeLobbySelected && inLobby) {
+    // Send to lobby group
     try {
       await lobbyManager.sendGroupMessage(plaintext);
       clearMessageInput();
@@ -676,12 +782,21 @@ async function handleSendMessage() {
   }
 
   // Regular 1:1 message
-  if (!dashboardState.activeSessionId) return;
+  if (!dashboardState.activeSessionId) {
+    logEvent("No session selected for 1:1 message", "error");
+    return;
+  }
 
   try {
     await kaspaPortal.sendMessage(dashboardState.activeSessionId, plaintext);
 
     clearMessageInput();
+
+    // Refresh the session to show the new message
+    const session = getSession(dashboardState.activeSessionId);
+    if (session) {
+      renderChatMessages(session);
+    }
 
     logEvent("Message sent", "success");
     scheduleSessionSave();

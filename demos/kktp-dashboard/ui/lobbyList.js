@@ -1,7 +1,7 @@
 // lobbyList.js - Discovered lobbies list rendering
 import { elements } from "../dom.js";
 import { dashboardState, getDiscoveredPeers } from "../state.js";
-import { getExpectedEndMs } from "../../../kktp/smHelpers.js";
+import { getExpectedEndMs } from "../../../kktp/protocol/sessions/index.js";
 import { isLobbyDiscovery, extractLobbyInfo } from "../../../kktp/lobby/lobbySchemas.js";
 import { logger } from "../logger.js";
 import { escapeHtml, formatTimeAgo } from "./helpers.js";

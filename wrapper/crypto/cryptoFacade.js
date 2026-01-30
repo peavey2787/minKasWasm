@@ -7,10 +7,12 @@ import {
 } from "../utilities/utilities.js";
 
 export class CryptoFacade {
+
   // Symmetric Encryption (Standard)
   encrypt(text, password) {
     return encryptMessage(text, password);
   }
+
   decrypt(encrypted, password) {
     return decryptMessage(encrypted, password);
   }

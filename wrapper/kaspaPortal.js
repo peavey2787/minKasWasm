@@ -11,7 +11,7 @@ import {
 import { CryptoFacade } from "./crypto/cryptoFacade.js";
 import { VRFFacade } from "./vrf/vrfFacade.js";
 import initKaspa from "./kas-wasm/kaspa.js";
-import { SessionManager } from "../kktp/sessionManager.js";
+import { SessionManager } from "../kktp/sessionFacade.js";
 
 let wasmInitialized = false;
 

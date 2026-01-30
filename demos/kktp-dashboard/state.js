@@ -18,6 +18,7 @@ export const dashboardState = {
   lobbyManager: null, // LobbyManager instance
   isLobbyMode: false, // Whether to broadcast as lobby
   activeLobby: null, // Current lobby info if in a lobby
+  activeLobbySelected: false, // Whether the lobby chat is currently selected (vs 1:1)
 
   // Deduplication
   processedTxIds: new Set(),
@@ -46,6 +47,7 @@ export function resetState() {
   dashboardState.lobbyManager = null;
   dashboardState.isLobbyMode = false;
   dashboardState.activeLobby = null;
+  dashboardState.activeLobbySelected = false;
   dashboardState.processedTxIds.clear();
   dashboardState.isConnected = false;
   dashboardState.isScanning = false;

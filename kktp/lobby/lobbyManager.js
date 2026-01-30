@@ -76,6 +76,7 @@ export class LobbyManager {
    * @param {Object} options - Configuration options
    * @param {number} [options.maxMembers=16] - Default max members
    * @param {number} [options.keyRotationMs=600000] - Key rotation interval
+   * @param {boolean} [options.autoAcceptJoins=true] - Automatically accept join requests
    */
   constructor(sessionManager, options = {}) {
     this.sm = sessionManager;
@@ -85,6 +86,7 @@ export class LobbyManager {
     // Configuration
     this.maxMembersDefault = options.maxMembers ?? MAX_MEMBERS_DEFAULT;
     this.keyRotationMs = options.keyRotationMs ?? KEY_ROTATION_INTERVAL_MS;
+    this.autoAcceptJoins = options.autoAcceptJoins ?? true;
 
     // State
     this.state = LOBBY_STATES.IDLE;
@@ -98,6 +100,7 @@ export class LobbyManager {
     this._onKeyRotation = null;
     this._onLobbyClose = null;
     this._onStateChange = null;
+    this._onJoinRequest = null; // Callback for join requests (host approval)
 
     // Pending join requests (host only)
     this._pendingJoins = new Map(); // pubSig -> { request, dmMailboxId, receivedAt }
@@ -157,6 +160,71 @@ export class LobbyManager {
    */
   onStateChange(callback) {
     this._onStateChange = callback;
+  }
+
+  /**
+   * Register callback for join request events (host only)
+   * Called when a peer requests to join and autoAcceptJoins is false.
+   * @param {function(Object, function, function): void} callback - (request, acceptFn, rejectFn)
+   */
+  onJoinRequest(callback) {
+    this._onJoinRequest = callback;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Pending Join Management (for manual approval)
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Get pending join requests (host only)
+   * @returns {Array<Object>} Array of { pubSig, displayName, receivedAt }
+   */
+  get pendingJoinRequests() {
+    return Array.from(this._pendingJoins.entries()).map(([pubSig, data]) => ({
+      pubSig,
+      displayName: data.request.displayName,
+      receivedAt: data.receivedAt,
+    }));
+  }
+
+  /**
+   * Accept a pending join request (host only)
+   * @param {string} pubSig - The requester's public signing key
+   * @returns {Promise<boolean>} Whether the join was accepted
+   */
+  async acceptPendingJoin(pubSig) {
+    const pending = this._pendingJoins.get(pubSig);
+    if (!pending) {
+      console.warn("KKTP Lobby: No pending join for", pubSig?.slice(0, 16));
+      return false;
+    }
+
+    this._pendingJoins.delete(pubSig);
+    return await this._acceptJoinRequest(pending.dmMailboxId, pending.request);
+  }
+
+  /**
+   * Reject a pending join request (host only)
+   * @param {string} pubSig - The requester's public signing key
+   * @param {string} [reason="Rejected by host"] - Rejection reason
+   * @returns {Promise<boolean>} Whether the rejection was sent
+   */
+  async rejectPendingJoin(pubSig, reason = "Rejected by host") {
+    const pending = this._pendingJoins.get(pubSig);
+    if (!pending) {
+      console.warn("KKTP Lobby: No pending join for", pubSig?.slice(0, 16));
+      return false;
+    }
+
+    this._pendingJoins.delete(pubSig);
+    await this._sendJoinResponse(pending.dmMailboxId, false, reason);
+
+    console.info("KKTP Lobby: Rejected join request", {
+      pubSig: pubSig?.slice(0, 16),
+      reason,
+    });
+
+    return true;
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -247,6 +315,9 @@ export class LobbyManager {
         dmMailboxId: null, // Host doesn't DM self
       });
 
+      // CRITICAL: Subscribe to group mailbox for incoming group messages
+      this._subscribeToGroupMailbox(groupMailboxId);
+
       // Start key rotation timer
       this._startKeyRotation();
 
@@ -268,9 +339,21 @@ export class LobbyManager {
    * Process a join request from a peer (host only)
    * @param {string} dmMailboxId - The 1:1 DM mailbox with the requesting peer
    * @param {Object} request - The join request message
-   * @returns {Promise<boolean>} - Whether the join was accepted
+   * @returns {Promise<boolean>} - Whether the join was accepted/pending
    */
   async handleJoinRequest(dmMailboxId, request) {
+    // Self-echo filter: If we're in JOINING state, we might receive our own
+    // join request echoed back from the blockchain. Check and skip.
+    if (this.state === LOBBY_STATES.JOINING && this._pendingJoin) {
+      const myPubSig = this._pendingJoin.myPubSig;
+      if (request.pubSig === myPubSig) {
+        console.debug("KKTP Lobby: Ignoring own join request echo", {
+          myPubSig: myPubSig?.slice(0, 16),
+        });
+        return false;
+      }
+    }
+
     if (this.state !== LOBBY_STATES.HOSTING) {
       console.warn("KKTP Lobby: Received join request but not hosting");
       return false;
@@ -285,11 +368,17 @@ export class LobbyManager {
 
     const { pubSig, displayName, lobbyId } = request;
 
+    console.info("KKTP Lobby: Received join request", {
+      pubSig: pubSig?.slice(0, 16),
+      displayName,
+      lobbyId: lobbyId?.slice(0, 16),
+    });
+
     // Verify lobby ID matches
     if (lobbyId !== this.lobby.lobbyId) {
       console.warn("KKTP Lobby: Join request for wrong lobby", {
-        expected: this.lobby.lobbyId,
-        received: lobbyId,
+        expected: this.lobby.lobbyId?.slice(0, 16),
+        received: lobbyId?.slice(0, 16),
       });
       await this._sendJoinResponse(dmMailboxId, false, "Lobby not found");
       return false;
@@ -308,6 +397,46 @@ export class LobbyManager {
       await this._sendJoinResponse(dmMailboxId, true, "Already a member");
       return true;
     }
+
+    // Check if already pending
+    if (this._pendingJoins.has(pubSig)) {
+      console.warn("KKTP Lobby: Join request already pending for", pubSig?.slice(0, 16));
+      return true;
+    }
+
+    // If auto-accept is enabled, accept immediately
+    if (this.autoAcceptJoins) {
+      return await this._acceptJoinRequest(dmMailboxId, request);
+    }
+
+    // Otherwise, store pending and emit callback for host approval
+    this._pendingJoins.set(pubSig, {
+      request,
+      dmMailboxId,
+      receivedAt: Date.now(),
+    });
+
+    // Emit callback with accept/reject functions
+    if (this._onJoinRequest) {
+      const acceptFn = () => this.acceptPendingJoin(pubSig);
+      const rejectFn = (reason) => this.rejectPendingJoin(pubSig, reason);
+      this._onJoinRequest(request, acceptFn, rejectFn);
+    }
+
+    console.info("KKTP Lobby: Join request pending approval", {
+      pubSig: pubSig?.slice(0, 16),
+      displayName,
+    });
+
+    return true; // Pending
+  }
+
+  /**
+   * Internal: Accept a join request and add member to lobby
+   * @private
+   */
+  async _acceptJoinRequest(dmMailboxId, request) {
+    const { pubSig, displayName } = request;
 
     // Accept the join request
     const member = {
@@ -518,6 +647,14 @@ export class LobbyManager {
    * @returns {Promise<Object>} - { pending, lobbyId, dmMailboxId }
    */
   async joinLobby(lobbyDiscovery, displayName) {
+    console.info("KKTP Lobby: Initiating join request", {
+      lobbyId: lobbyDiscovery?.sid?.slice(0, 16),
+      lobbyName: lobbyDiscovery?.meta?.lobby_name,
+      hostPubSig: lobbyDiscovery?.pub_sig?.slice(0, 16),
+      displayName,
+      currentState: this.state,
+    });
+
     if (this.state !== LOBBY_STATES.IDLE) {
       throw new Error(`Cannot join lobby in state: ${this.state}`);
     }
@@ -537,21 +674,34 @@ export class LobbyManager {
     this._setState(LOBBY_STATES.JOINING);
 
     try {
-      // Establish 1:1 DM with host
+      // Establish 1:1 DM with host (broadcasts response anchor transaction)
+      // This generates our session-specific identity keys via prepareKeyBranch()
+      console.info("KKTP Lobby: Connecting to host", {
+        hostPubSig: lobbyDiscovery.pub_sig?.slice(0, 16),
+      });
       const connectResult = await this.sm.connectToPeer(lobbyDiscovery);
       if (!connectResult?.mailboxId) {
         throw new Error("Failed to connect to lobby host: no mailboxId");
       }
       const dmMailboxId = connectResult.mailboxId;
 
-      // Get our identity
-      const myKeys = await this.sm.portal.generateIdentityKeys(0);
-      if (!myKeys?.sig?.publicKey) {
-        throw new Error("Failed to get identity keys");
+      // CRITICAL: Use the pubSig from the response anchor we just broadcast
+      // This ensures the join request identity matches the session identity
+      const myPubSig = connectResult.response?.pub_sig_resp;
+      if (!myPubSig) {
+        throw new Error("Failed to get identity from response anchor");
       }
-      const myPubSig = myKeys.sig.publicKey;
 
-      // Send join request via DM
+      console.info("KKTP Lobby: Connected to host", {
+        dmMailboxId: dmMailboxId?.slice(0, 16),
+        myPubSig: myPubSig?.slice(0, 16),
+      });
+
+      // Wait for wallet UTXOs to refresh after the connect transaction
+      // This prevents "Insufficient funds" errors from UTXO race conditions
+      await this._waitForUtxoRefresh();
+
+      // Build join request
       const joinRequest = {
         type: "lobby_join_request",
         version: LOBBY_VERSION,
@@ -561,25 +711,43 @@ export class LobbyManager {
         timestamp: Date.now(),
       };
 
-      await this.sm.sendMessage(dmMailboxId, JSON.stringify(joinRequest));
+      console.info("KKTP Lobby: Sending join request message", {
+        dmMailboxId: dmMailboxId?.slice(0, 16),
+        lobbyId: lobbyDiscovery.sid?.slice(0, 16),
+        myPubSig: myPubSig?.slice(0, 16),
+        displayName,
+      });
+
+      // Send with retry logic to handle transient UTXO availability
+      await this._sendWithRetry(dmMailboxId, JSON.stringify(joinRequest), 3);
 
       // Store pending state
       this._pendingJoin = {
         lobbyDiscovery,
         dmMailboxId,
+        myPubSig,
         displayName,
+        lobbyId: lobbyDiscovery.sid,
+        hostPubSig: lobbyDiscovery.pub_sig,
         sentAt: Date.now(),
       };
 
-      console.info("KKTP Lobby: Join request sent", {
-        lobbyId: lobbyDiscovery.sid,
+      console.info("KKTP Lobby: Join request sent successfully", {
+        lobbyId: lobbyDiscovery.sid?.slice(0, 16),
         lobbyName: lobbyDiscovery.meta.lobby_name,
+        dmMailboxId: dmMailboxId?.slice(0, 16),
+        state: this.state,
       });
 
       // Response will come async via handleJoinResponse
       return { pending: true, lobbyId: lobbyDiscovery.sid, dmMailboxId };
     } catch (err) {
+      console.error("KKTP Lobby: Join request failed", {
+        error: err.message,
+        lobbyId: lobbyDiscovery?.sid?.slice(0, 16),
+      });
       this._setState(LOBBY_STATES.IDLE);
+      this._pendingJoin = null;
       throw err;
     }
   }
@@ -590,20 +758,40 @@ export class LobbyManager {
    * @param {Object} response - The join response
    */
   async handleJoinResponse(dmMailboxId, response) {
+    console.info("KKTP Lobby: Received join response", {
+      dmMailboxId: dmMailboxId?.slice(0, 16),
+      currentState: this.state,
+      accepted: response?.accepted,
+      reason: response?.reason,
+      hasGroupKey: !!response?.groupKey,
+      keyVersion: response?.keyVersion,
+      memberCount: response?.members?.length,
+    });
+
     if (this.state !== LOBBY_STATES.JOINING) {
-      console.warn("KKTP Lobby: Received join response but not joining");
+      // This is expected - host receives echo of their own response on the DM channel
+      // Just log at debug level and return silently
+      console.debug("KKTP Lobby: Ignoring join response (not in JOINING state)", {
+        currentState: this.state,
+      });
       return;
     }
 
     try {
       validateJoinResponse(response);
     } catch (err) {
-      console.warn("KKTP Lobby: Invalid join response", err.message);
+      console.warn("KKTP Lobby: Invalid join response", {
+        error: err.message,
+        response: JSON.stringify(response).slice(0, 200),
+      });
       return;
     }
 
     if (!response.accepted) {
-      console.warn("KKTP Lobby: Join request rejected", response.reason);
+      console.warn("KKTP Lobby: Join request rejected", {
+        reason: response.reason,
+        lobbyId: this._pendingJoin?.lobbyDiscovery?.sid?.slice(0, 16),
+      });
       this._setState(LOBBY_STATES.IDLE);
       this._pendingJoin = null;
       return;
@@ -611,6 +799,21 @@ export class LobbyManager {
 
     // Initialize lobby state as member
     const { groupKey, keyVersion, groupMailboxId, members } = response;
+
+    if (!this._pendingJoin) {
+      console.error("KKTP Lobby: No pending join data when processing response");
+      this._setState(LOBBY_STATES.IDLE);
+      return;
+    }
+
+    console.info("KKTP Lobby: Initializing lobby state as member", {
+      lobbyId: this._pendingJoin.lobbyDiscovery.sid?.slice(0, 16),
+      lobbyName: this._pendingJoin.lobbyDiscovery.meta?.lobby_name,
+      hostPubSig: this._pendingJoin.lobbyDiscovery.pub_sig?.slice(0, 16),
+      keyVersion,
+      groupMailboxId: groupMailboxId?.slice(0, 16),
+      memberCount: members?.length,
+    });
 
     this.lobby = {
       lobbyId: this._pendingJoin.lobbyDiscovery.sid,
@@ -631,15 +834,25 @@ export class LobbyManager {
       for (const m of members) {
         this.lobby.members.set(m.pubSig, m);
       }
+      console.info("KKTP Lobby: Imported member list", {
+        memberCount: this.lobby.members.size,
+        members: members.map(m => m.displayName || m.pubSig?.slice(0, 8)),
+      });
     }
 
+    // CRITICAL: Subscribe to group mailbox for incoming group messages
+    this._subscribeToGroupMailbox(groupMailboxId);
+
+    const oldState = this.state;
     this._setState(LOBBY_STATES.MEMBER);
     this._pendingJoin = null;
 
     console.info("KKTP Lobby: Joined successfully", {
-      lobbyId: this.lobby.lobbyId,
+      lobbyId: this.lobby.lobbyId?.slice(0, 16),
       lobbyName: this.lobby.lobbyName,
       memberCount: this.lobby.members.size,
+      oldState,
+      newState: this.state,
     });
   }
 
@@ -834,13 +1047,14 @@ export class LobbyManager {
       payload,
     });
 
-    // Add to local history
+    // Add to local history with nonce for deduplication
     this._addToHistory({
       type: "outbound",
       senderPubSig: myKeys.sig.publicKey,
       plaintext,
       timestamp: Date.now(),
       txid: result?.txid,
+      nonce: encrypted.nonce, // Store nonce for dedupe check
     });
 
     return result;
@@ -862,6 +1076,26 @@ export class LobbyManager {
       return;
     }
 
+    // High-precision deduplication: Check BOTH senderPubSig AND nonce for ALL messages
+    // This prevents: (1) self-echo (our own message reflected back)
+    //                (2) nonce collision (two different users with same nonce)
+    // Without checking both, Peer C's first message could be dropped if it has
+    // the same nonce as Peer B's first message that we already processed.
+    if (encrypted.senderPubSig && encrypted.nonce) {
+      const isDuplicate = this._messageHistory.some(
+        (m) =>
+          m.senderPubSig === encrypted.senderPubSig &&
+          m.nonce === encrypted.nonce
+      );
+      if (isDuplicate) {
+        console.debug("KKTP Lobby: Skipping duplicate message (nonce+pubSig match)", {
+          senderPubSig: encrypted.senderPubSig.slice(0, 16),
+          nonce: encrypted.nonce.slice(0, 16),
+        });
+        return;
+      }
+    }
+
     // Verify key version matches
     if (encrypted.keyVersion !== this.lobby.keyVersion) {
       console.warn("KKTP Lobby: Group message with wrong key version", {
@@ -879,12 +1113,13 @@ export class LobbyManager {
         this.lobby.groupMailboxId,
       );
 
-      // Add to history
+      // Add to history with nonce for potential future deduplication
       this._addToHistory({
         type: "inbound",
         senderPubSig: encrypted.senderPubSig,
         plaintext: decrypted,
         timestamp: encrypted.timestamp || Date.now(),
+        nonce: encrypted.nonce, // Store nonce for dedupe
       });
 
       // Emit event
@@ -954,7 +1189,18 @@ export class LobbyManager {
 
   _setState(newState) {
     const oldState = this.state;
+    if (oldState === newState) return; // No change
+
     this.state = newState;
+
+    console.info("KKTP Lobby: State transition", {
+      oldState,
+      newState,
+      isHost: this.isHost,
+      lobbyId: this.lobby?.lobbyId?.slice(0, 16),
+      memberCount: this.lobby?.members?.size,
+    });
+
     this._onStateChange?.(newState, oldState);
   }
 
@@ -1010,7 +1256,30 @@ export class LobbyManager {
       ...extras,
     };
 
-    await this.sm.sendMessage(dmMailboxId, JSON.stringify(response));
+    console.info("KKTP Lobby: Sending join response", {
+      dmMailboxId: dmMailboxId?.slice(0, 16),
+      accepted,
+      reason,
+      hasGroupKey: !!extras.groupKey,
+      keyVersion: extras.keyVersion,
+      memberCount: extras.members?.length,
+    });
+
+    try {
+      // Use retry logic to handle transient UTXO availability issues
+      await this._sendWithRetry(dmMailboxId, JSON.stringify(response), 3);
+      console.info("KKTP Lobby: Join response sent successfully", {
+        dmMailboxId: dmMailboxId?.slice(0, 16),
+        accepted,
+      });
+    } catch (err) {
+      console.error("KKTP Lobby: Failed to send join response", {
+        dmMailboxId: dmMailboxId?.slice(0, 16),
+        accepted,
+        error: err.message,
+      });
+      throw err;
+    }
   }
 
   async _broadcastMemberEvent(eventType, member) {
@@ -1065,13 +1334,102 @@ export class LobbyManager {
     }
   }
 
+  /**
+   * Get the current user's public signing key
+   * @returns {Promise<string|null>}
+   * @private
+   */
+  async _getMyPubSig() {
+    try {
+      const myKeys = await this.sm.portal.generateIdentityKeys(0);
+      return myKeys?.sig?.publicKey || null;
+    } catch {
+      return null;
+    }
+  }
+
   _cleanup() {
     this._stopKeyRotation();
+
+    // Unsubscribe from group mailbox when leaving/closing
+    if (this.lobby?.groupMailboxId) {
+      this._unsubscribeFromGroupMailbox(this.lobby.groupMailboxId);
+    }
+
     this.lobby = null;
     this._pendingJoin = null;
     this._pendingJoins.clear();
     this._messageHistory = [];
     this._setState(LOBBY_STATES.IDLE);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Group Mailbox Subscription
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Subscribe to the group mailbox for incoming group messages.
+   * This adds the KKTP:GROUP:{groupMailboxId}: prefix to the scanner's watch list
+   * so the host/member can receive group messages from all lobby participants.
+   * @private
+   * @param {string} groupMailboxId - The group mailbox ID to watch
+   */
+  _subscribeToGroupMailbox(groupMailboxId) {
+    if (!groupMailboxId) {
+      console.warn("KKTP Lobby: Cannot subscribe - no groupMailboxId");
+      return;
+    }
+
+    const prefix = `KKTP:GROUP:${groupMailboxId}:`;
+
+    // Access portal via session manager
+    const portal = this.sm?.portal;
+    if (!portal?.addPrefix) {
+      console.warn("KKTP Lobby: Cannot subscribe - portal.addPrefix not available");
+      return;
+    }
+
+    try {
+      portal.addPrefix(prefix);
+      console.info("KKTP Lobby: Subscribed to group mailbox", {
+        groupMailboxId: groupMailboxId.slice(0, 16),
+        prefix: prefix.slice(0, 32),
+      });
+    } catch (err) {
+      console.error("KKTP Lobby: Failed to subscribe to group mailbox", {
+        groupMailboxId: groupMailboxId.slice(0, 16),
+        error: err.message,
+      });
+    }
+  }
+
+  /**
+   * Unsubscribe from the group mailbox.
+   * Called during cleanup when leaving or closing the lobby.
+   * @private
+   * @param {string} groupMailboxId - The group mailbox ID to stop watching
+   */
+  _unsubscribeFromGroupMailbox(groupMailboxId) {
+    if (!groupMailboxId) return;
+
+    const prefix = `KKTP:GROUP:${groupMailboxId}:`;
+
+    const portal = this.sm?.portal;
+    if (!portal?.removePrefix) {
+      console.debug("KKTP Lobby: Cannot unsubscribe - portal.removePrefix not available");
+      return;
+    }
+
+    try {
+      portal.removePrefix(prefix);
+      console.info("KKTP Lobby: Unsubscribed from group mailbox", {
+        groupMailboxId: groupMailboxId.slice(0, 16),
+      });
+    } catch (err) {
+      console.warn("KKTP Lobby: Failed to unsubscribe from group mailbox", {
+        error: err.message,
+      });
+    }
   }
 
   _uint8ToHex(bytes) {
@@ -1086,5 +1444,110 @@ export class LobbyManager {
       bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
     }
     return bytes;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // UTXO Management Helpers
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Wait for wallet UTXO refresh after a transaction.
+   * This prevents "Insufficient funds" errors from UTXO race conditions
+   * when sending multiple transactions in quick succession.
+   * @private
+   * @param {number} [delayMs=1500] - Initial delay to wait
+   * @param {number} [maxWaitMs=5000] - Maximum total wait time
+   */
+  async _waitForUtxoRefresh(delayMs = 1500, maxWaitMs = 5000) {
+    const portal = this.sm?.portal;
+    if (!portal) {
+      console.warn("KKTP Lobby: No portal available for UTXO refresh");
+      return;
+    }
+
+    console.info("KKTP Lobby: Waiting for UTXO refresh...");
+    const startTime = Date.now();
+
+    // Initial delay to allow transaction to propagate
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+    // Poll for balance availability (indicates UTXOs are ready)
+    let attempts = 0;
+    const maxAttempts = Math.ceil((maxWaitMs - delayMs) / 500);
+
+    while (attempts < maxAttempts && Date.now() - startTime < maxWaitMs) {
+      try {
+        const balance = await portal.getBalance();
+        if (balance && balance > 0n) {
+          console.info("KKTP Lobby: UTXO refresh complete", {
+            balance: balance.toString(),
+            waitedMs: Date.now() - startTime,
+          });
+          return;
+        }
+      } catch (err) {
+        // Ignore balance check errors, keep polling
+        console.debug("KKTP Lobby: Balance check during UTXO wait", err.message);
+      }
+      attempts++;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+
+    console.warn("KKTP Lobby: UTXO refresh timeout, proceeding anyway", {
+      waitedMs: Date.now() - startTime,
+    });
+  }
+
+  /**
+   * Send a message with retry logic for transient failures.
+   * Handles UTXO availability issues with exponential backoff.
+   * @private
+   * @param {string} mailboxId - Target mailbox
+   * @param {string} message - Message to send
+   * @param {number} [maxRetries=3] - Maximum retry attempts
+   */
+  async _sendWithRetry(mailboxId, message, maxRetries = 3) {
+    let lastError;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.info("KKTP Lobby: Send attempt", {
+          attempt,
+          maxRetries,
+          mailboxId: mailboxId?.slice(0, 16),
+        });
+        await this.sm.sendMessage(mailboxId, message);
+        return; // Success!
+      } catch (err) {
+        lastError = err;
+        const isUtxoError =
+          err.message?.includes("Insufficient funds") ||
+          err.message?.includes("UTXO") ||
+          err.message?.includes("no spendable");
+
+        console.warn("KKTP Lobby: Send attempt failed", {
+          attempt,
+          maxRetries,
+          error: err.message,
+          isUtxoError,
+        });
+
+        if (attempt < maxRetries) {
+          // Exponential backoff: 1s, 2s, 4s
+          const delay = Math.pow(2, attempt - 1) * 1000;
+          console.info("KKTP Lobby: Retrying in", { delayMs: delay });
+
+          // Wait for UTXO refresh before retry if it's a UTXO error
+          if (isUtxoError) {
+            await this._waitForUtxoRefresh(delay, delay + 2000);
+          } else {
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
+        }
+      }
+    }
+
+    // All retries exhausted
+    throw lastError;
   }
 }

@@ -47,37 +47,77 @@ export class LobbyMessageHandler {
       return false;
     }
 
+    console.info("LobbyMessageHandler: Processing DM message", {
+      dmMailboxId: dmMailboxId?.slice(0, 16),
+      msgType: msg.type,
+      lobbyState: this.lobbyManager?.state,
+      isHost: this.lobbyManager?.isHost ?? false,
+    });
+
     // Route based on message type
     switch (msg.type) {
       case LOBBY_MESSAGE_TYPES.JOIN_REQUEST:
+        console.info("LobbyMessageHandler: Routing JOIN_REQUEST", {
+          pubSig: msg.pubSig?.slice(0, 16),
+          displayName: msg.displayName,
+          lobbyId: msg.lobbyId?.slice(0, 16),
+        });
         this._handleJoinRequest(dmMailboxId, msg);
         return true;
 
       case LOBBY_MESSAGE_TYPES.JOIN_RESPONSE:
+        console.info("LobbyMessageHandler: Routing JOIN_RESPONSE", {
+          accepted: msg.accepted,
+          reason: msg.reason,
+          hasGroupKey: !!msg.groupKey,
+          keyVersion: msg.keyVersion,
+          memberCount: msg.members?.length,
+        });
         this._handleJoinResponse(dmMailboxId, msg);
         return true;
 
       case LOBBY_MESSAGE_TYPES.MEMBER_EVENT:
+        console.info("LobbyMessageHandler: Routing MEMBER_EVENT", {
+          eventType: msg.eventType,
+          pubSig: msg.pubSig?.slice(0, 16),
+        });
         this._handleMemberEvent(msg);
         return true;
 
       case LOBBY_MESSAGE_TYPES.KEY_ROTATION:
+        console.info("LobbyMessageHandler: Routing KEY_ROTATION", {
+          keyVersion: msg.keyVersion,
+          reason: msg.reason,
+        });
         this._handleKeyRotation(msg);
         return true;
 
       case LOBBY_MESSAGE_TYPES.LOBBY_LEAVE:
+        console.info("LobbyMessageHandler: Routing LOBBY_LEAVE", {
+          pubSig: msg.pubSig?.slice(0, 16),
+          reason: msg.reason,
+        });
         this._handleMemberLeave(dmMailboxId, msg);
         return true;
 
       case LOBBY_MESSAGE_TYPES.LOBBY_KICKED:
+        console.info("LobbyMessageHandler: Routing LOBBY_KICKED", {
+          reason: msg.reason,
+        });
         this._handleKicked(msg);
         return true;
 
       case LOBBY_MESSAGE_TYPES.LOBBY_CLOSE:
+        console.info("LobbyMessageHandler: Routing LOBBY_CLOSE", {
+          reason: msg.reason,
+        });
         this._handleLobbyClose(msg);
         return true;
 
       default:
+        console.debug("LobbyMessageHandler: Unrecognized lobby message type", {
+          type: msg.type,
+        });
         return false;
     }
   }
