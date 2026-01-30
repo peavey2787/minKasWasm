@@ -10,6 +10,8 @@ The Lobby module enables group communication with:
 - **Automatic key rotation** every 10 minutes
 - **Member management** (join, leave, kick)
 - **State root commitments** for integrity verification
+- **Self-contained message routing** - DM/group message routing handled internally
+- **DM message buffering** - Handles race conditions when DMs arrive before session
 
 ## Architecture
 
@@ -37,7 +39,8 @@ The Lobby module enables group communication with:
 
 | File | Description |
 |------|-------------|
-| `lobbyManager.js` | Main lobby lifecycle management class |
+| `lobbyFacade.js` | **Primary API** - Clean, stable interface for lobby operations |
+| `lobbyManager.js` | Internal lobby lifecycle management (use LobbyFacade instead) |
 | `lobbyMessageHandler.js` | Routes incoming messages to handlers |
 | `lobbyCodec.js` | XChaCha20-Poly1305 encryption for group messages |
 | `lobbySchemas.js` | Validation functions for all lobby messages |
@@ -48,21 +51,23 @@ The Lobby module enables group communication with:
 ### Hosting a Lobby
 
 ```javascript
-import { LobbyManager } from './kktp/lobby/index.js';
+import { LobbyFacade, LOBBY_STATES } from './kktp/lobby/index.js';
 
-const lobbyManager = new LobbyManager(kaspaPortal.sessionManager);
+const lobby = new LobbyFacade(kaspaPortal.sessionManager, {
+  autoAcceptJoins: true,
+});
 
 // Set up event handlers
-lobbyManager.onMemberJoin((member) => {
+lobby.onMemberJoin((member) => {
   console.log(`${member.displayName} joined!`);
 });
 
-lobbyManager.onGroupMessage((msg) => {
+lobby.onGroupMessage((msg) => {
   console.log(`${msg.senderName}: ${msg.plaintext}`);
 });
 
 // Host a lobby
-const { lobbyId, discovery } = await lobbyManager.hostLobby({
+const { lobbyId, discovery } = await lobby.hostLobby({
   lobbyName: "My Game Lobby",
   gameName: "Chess",
   maxMembers: 8,
@@ -77,27 +82,58 @@ const { lobbyId, discovery } = await lobbyManager.hostLobby({
 const lobbyDiscovery = discoveredPeers.find(p => p.meta?.lobby);
 
 // Join it
-await lobbyManager.joinLobby(lobbyDiscovery, "PlayerName");
+await lobby.joinLobby(lobbyDiscovery, "PlayerName");
 ```
 
 ### Sending Group Messages
 
 ```javascript
 // Send to all members
-await lobbyManager.sendGroupMessage("Hello everyone!");
+await lobby.sendGroupMessage("Hello everyone!");
+```
+
+### Routing Incoming Messages
+
+The lobby facade provides APIs for routing incoming messages. Call these
+from your event handler when processing blockchain payloads:
+
+```javascript
+// Route DM messages - returns true if handled as lobby message
+const handled = lobby.routeDMMessage(mailboxId, plaintextJson);
+
+// Parse and route group messages
+const parsed = lobby.parseGroupPayload(rawPayload);
+if (parsed.isGroup && lobby.isGroupPayloadForThisLobby(parsed.groupMailboxId)) {
+  await lobby.routeGroupMessage(parsed.groupMailboxId, parsed.encrypted);
+}
+```
+
+### DM Message Buffering
+
+Handle race conditions where DM arrives before session is established:
+
+```javascript
+// Buffer a DM for later processing
+lobby.bufferDMMessage(mailboxId, payload, timestamp);
+
+// When session is established, pop buffered messages
+const buffered = lobby.popBufferedMessages(mailboxId);
+for (const { payload, timestamp } of buffered) {
+  // Process the buffered payload
+}
 ```
 
 ### Managing Members (Host Only)
 
 ```javascript
 // Kick a member
-await lobbyManager.kickMember(memberPubSig, "Reason");
+await lobby.kickMember(memberPubSig, "Reason");
 
 // Rotate key manually
-await lobbyManager.rotateKey("Security refresh");
+await lobby.rotateKey("Security refresh");
 
 // Close lobby
-await lobbyManager.closeLobby("Game ended");
+await lobby.closeLobby("Game ended");
 ```
 
 ## Message Types
@@ -160,22 +196,43 @@ The lobby extends the KKTP discovery anchor with:
 ## Events
 
 ```javascript
-lobbyManager.onMemberJoin((member) => { });
-lobbyManager.onMemberLeave((pubSig, reason) => { });
-lobbyManager.onGroupMessage((msg) => { });
-lobbyManager.onKeyRotation((version) => { });
-lobbyManager.onLobbyClose((reason) => { });
-lobbyManager.onStateChange((newState, oldState) => { });
+lobby.onMemberJoin((member) => { });
+lobby.onMemberLeave((pubSig, reason) => { });
+lobby.onGroupMessage((msg) => { });
+lobby.onKeyRotation((version) => { });
+lobby.onLobbyClose((reason) => { });
+lobby.onStateChange((newState, oldState) => { });
 ```
 
 ## Configuration
 
 ```javascript
-const lobbyManager = new LobbyManager(sessionManager, {
+const lobby = new LobbyFacade(sessionManager, {
   maxMembers: 16,          // Default max members
   keyRotationMs: 600000,   // 10 minutes
+  autoAcceptJoins: true,   // Auto-accept join requests
 });
 ```
+
+## API Reference
+
+### LobbyFacade Methods
+
+| Method | Description |
+|--------|-------------|
+| `hostLobby(options)` | Host a new lobby |
+| `joinLobby(discovery, name)` | Join an existing lobby |
+| `leaveLobby(reason)` | Leave lobby (member) |
+| `closeLobby(reason)` | Close lobby (host) |
+| `sendGroupMessage(text)` | Send message to lobby group |
+| `routeDMMessage(id, text)` | Route incoming DM, returns true if handled |
+| `parseGroupPayload(payload)` | Parse raw payload for group message |
+| `routeGroupMessage(id, enc)` | Process encrypted group message |
+| `isInLobby()` | Check if in a lobby |
+| `getGroupMailboxId()` | Get current group mailbox ID |
+| `isGroupPayloadForThisLobby(id)` | Check if payload is for this lobby |
+| `bufferDMMessage(id, pl, ts)` | Buffer DM for later processing |
+| `popBufferedMessages(id)` | Get and clear buffered messages |
 
 ## Integration with Dashboard
 

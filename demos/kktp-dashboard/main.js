@@ -14,7 +14,7 @@ import { saveSessionSnapshot, getStoredDiscoveryBlockHash } from "./storage.js";
 import { recoverSessionsOnLoad, handleFetchMissed, stopDagWalk, isDagWalkActive, getDagWalkProgress } from "./sync.js";
 import { handleIncomingMatch, handleIncomingEvent } from "./events.js";
 import { buildAnchorPayload } from "../../kktp/protocol/sessions/index.js";
-import { LobbyManager, LOBBY_STATES } from "../../kktp/lobby/index.js";
+import { LobbyFacade, LOBBY_STATES } from "../../kktp/lobby/index.js";
 import { logger, setDebugLogging } from "./logger.js";
 import {
   logEvent,
@@ -95,43 +95,43 @@ function getEventDeps() {
   };
 }
 
-// Lobby manager instance
-let lobbyManager = null;
+// Lobby facade instance (use LobbyFacade for clean API)
+let lobbyFacade = null;
 
 /**
- * Initialize the lobby manager
+ * Initialize the lobby facade
  */
 function initLobbyManager() {
-  lobbyManager = new LobbyManager(kaspaPortal.sessionManager, {
+  lobbyFacade = new LobbyFacade(kaspaPortal.sessionManager, {
     maxMembers: 16,
     keyRotationMs: 10 * 60 * 1000, // 10 minutes
     autoAcceptJoins: true, // Set to false for manual approval workflow
   });
 
   // Set up lobby event handlers
-  lobbyManager.onMemberJoin((member) => {
+  lobbyFacade.onMemberJoin((member) => {
     logEvent(`Lobby: ${member.displayName} joined`, "success");
-    renderLobbyMembers(lobbyManager.members, lobbyManager.isHost);
-    updateLobbyStatus(lobbyManager.lobbyInfo);
+    renderLobbyMembers(lobbyFacade.members, lobbyFacade.isHost);
+    updateLobbyStatus(lobbyFacade.lobbyInfo);
   });
 
-  lobbyManager.onMemberLeave((pubSig, reason) => {
+  lobbyFacade.onMemberLeave((pubSig, reason) => {
     logEvent(`Lobby: Member left (${reason})`, "info");
-    renderLobbyMembers(lobbyManager.members, lobbyManager.isHost);
-    updateLobbyStatus(lobbyManager.lobbyInfo);
+    renderLobbyMembers(lobbyFacade.members, lobbyFacade.isHost);
+    updateLobbyStatus(lobbyFacade.lobbyInfo);
   });
 
-  lobbyManager.onGroupMessage((msg) => {
+  lobbyFacade.onGroupMessage((msg) => {
     logEvent(`Lobby msg from ${msg.senderName || msg.senderPubSig.slice(0, 8)}`, "info");
-    renderLobbyChatMessages(lobbyManager.messageHistory, dashboardState.myPubSig);
+    renderLobbyChatMessages(lobbyFacade.messageHistory, dashboardState.myPubSig);
   });
 
-  lobbyManager.onKeyRotation((version) => {
+  lobbyFacade.onKeyRotation((version) => {
     logEvent(`Lobby: Key rotated to v${version}`, "info");
-    updateLobbyStatus(lobbyManager.lobbyInfo);
+    updateLobbyStatus(lobbyFacade.lobbyInfo);
   });
 
-  lobbyManager.onLobbyClose((reason) => {
+  lobbyFacade.onLobbyClose((reason) => {
     logEvent(`Lobby closed: ${reason}`, "info");
     clearActiveLobby();
     updateLobbyStatus(null);
@@ -141,22 +141,22 @@ function initLobbyManager() {
     renderDiscoveredLobbies(handleJoinLobby);
   });
 
-  lobbyManager.onStateChange((newState, oldState) => {
+  lobbyFacade.onStateChange((newState, oldState) => {
     logger.debug(`Lobby state: ${oldState} → ${newState}`);
 
     // When we become a member or host, switch UI to lobby mode
     if (newState === LOBBY_STATES.MEMBER || newState === LOBBY_STATES.HOSTING) {
       // Set lobby mode active
       setLobbyMode(true);
-      setActiveLobby(lobbyManager.lobbyInfo);
+      setActiveLobby(lobbyFacade.lobbyInfo);
 
       // Mark that lobby is selected for chat (not a 1:1 session)
       dashboardState.activeLobbySelected = true;
 
       // Update UI to show lobby controls
-      updateLobbyStatus(lobbyManager.lobbyInfo);
+      updateLobbyStatus(lobbyFacade.lobbyInfo);
       updateLobbyControlsVisibility(true, newState === LOBBY_STATES.HOSTING);
-      renderLobbyMembers(lobbyManager.members, newState === LOBBY_STATES.HOSTING);
+      renderLobbyMembers(lobbyFacade.members, newState === LOBBY_STATES.HOSTING);
 
       // Show lobby status and member section
       if (elements.lobbyStatus) {
@@ -168,7 +168,7 @@ function initLobbyManager() {
 
       // Update chat to show lobby messages
       setChatEnabled(true);
-      renderLobbyChatMessages(lobbyManager.messageHistory, dashboardState.myPubSig);
+      renderLobbyChatMessages(lobbyFacade.messageHistory, dashboardState.myPubSig);
 
       // Update checkbox state
       setLobbyModeChecked(true);
@@ -198,7 +198,7 @@ function initLobbyManager() {
   });
 
   // Handle join requests when autoAcceptJoins is false
-  lobbyManager.onJoinRequest((request, acceptFn, rejectFn) => {
+  lobbyFacade.onJoinRequest((request, acceptFn, rejectFn) => {
     const displayName = request.displayName || request.pubSig?.slice(0, 8) + "...";
     logEvent(`Lobby: Join request from ${displayName}`, "info");
 
@@ -208,7 +208,8 @@ function initLobbyManager() {
     acceptFn();
   });
 
-  dashboardState.lobbyManager = lobbyManager;
+  // Store in dashboard state for events.js access
+  dashboardState.lobbyManager = lobbyFacade;
 }
 
 /**
@@ -384,9 +385,9 @@ function setupEventListeners() {
   elements.lobbyMemberList?.addEventListener("click", async (e) => {
     if (e.target.classList.contains("btn-kick")) {
       const pubSig = e.target.dataset.pubsig;
-      if (pubSig && lobbyManager?.isHost) {
+      if (pubSig && lobbyFacade?.isHost) {
         try {
-          await lobbyManager.kickMember(pubSig, "Kicked by host");
+          await lobbyFacade.kickMember(pubSig, "Kicked by host");
           logEvent("Member kicked", "success");
         } catch (err) {
           logEvent(`Kick failed: ${err.message}`, "error");
@@ -614,7 +615,7 @@ async function handleBroadcastDiscovery() {
       const lobbyName = getLobbyNameInput() || `${dashboardState.gameName} Lobby`;
 
       updateBroadcastStatus("Hosting lobby...", "pending");
-      const { lobbyId, discovery } = await lobbyManager.hostLobby({
+      const { lobbyId, discovery } = await lobbyFacade.hostLobby({
         lobbyName,
         gameName: dashboardState.gameName,
         maxMembers: 16,
@@ -627,10 +628,10 @@ async function handleBroadcastDiscovery() {
       updateIdentityDisplay(discovery.pub_sig);
 
       // Update lobby UI
-      setActiveLobby(lobbyManager.lobbyInfo);
-      updateLobbyStatus(lobbyManager.lobbyInfo);
+      setActiveLobby(lobbyFacade.lobbyInfo);
+      updateLobbyStatus(lobbyFacade.lobbyInfo);
       updateLobbyControlsVisibility(true, true);
-      renderLobbyMembers(lobbyManager.members, true);
+      renderLobbyMembers(lobbyFacade.members, true);
 
       // Show lobby status element
       if (elements.lobbyStatus) {
@@ -808,8 +809,8 @@ function selectLobbySession() {
 
   // Enable chat and render lobby messages
   setChatEnabled(true);
-  if (lobbyManager) {
-    renderLobbyChatMessages(lobbyManager.messageHistory, dashboardState.myPubSig);
+  if (lobbyFacade) {
+    renderLobbyChatMessages(lobbyFacade.messageHistory, dashboardState.myPubSig);
   }
 
   refreshSessionList();
@@ -824,7 +825,7 @@ function refreshSessionList() {
   // Pass lobby callbacks so session list can render both 1:1 and lobby sessions
   renderSessionList(sessions, dashboardState.activeSessionId, selectSession, {
     onSelectLobby: selectLobbySession,
-    lobbyManager: lobbyManager,
+    lobbyManager: lobbyFacade,
   });
 
   // Refresh peer list (regular peers only)
@@ -838,8 +839,8 @@ function refreshSessionList() {
  * Handle joining a lobby
  */
 async function handleJoinLobby(lobbyDiscovery) {
-  if (!lobbyManager) {
-    logEvent("Lobby manager not initialized", "error");
+  if (!lobbyFacade) {
+    logEvent("Lobby not initialized", "error");
     return;
   }
 
@@ -847,7 +848,7 @@ async function handleJoinLobby(lobbyDiscovery) {
     logEvent(`Joining lobby: ${lobbyDiscovery.meta.lobby_name}...`, "info");
 
     const displayName = dashboardState.gameName || "Anonymous";
-    const result = await lobbyManager.joinLobby(lobbyDiscovery, displayName);
+    const result = await lobbyFacade.joinLobby(lobbyDiscovery, displayName);
 
     if (result.pending) {
       logEvent("Join request sent, waiting for host approval...", "info");
@@ -862,13 +863,13 @@ async function handleJoinLobby(lobbyDiscovery) {
  * Handle leaving a lobby (member)
  */
 async function handleLeaveLobby() {
-  if (!lobbyManager || lobbyManager.currentState !== LOBBY_STATES.MEMBER) {
+  if (!lobbyFacade || lobbyFacade.currentState !== LOBBY_STATES.MEMBER) {
     logEvent("Not in a lobby", "error");
     return;
   }
 
   try {
-    await lobbyManager.leaveLobby("Left voluntarily");
+    await lobbyFacade.leaveLobby("Left voluntarily");
     clearActiveLobby();
     updateLobbyStatus(null);
     updateLobbyControlsVisibility(false, false);
@@ -882,13 +883,13 @@ async function handleLeaveLobby() {
  * Handle closing a lobby (host)
  */
 async function handleCloseLobby() {
-  if (!lobbyManager || lobbyManager.currentState !== LOBBY_STATES.HOSTING) {
+  if (!lobbyFacade || lobbyFacade.currentState !== LOBBY_STATES.HOSTING) {
     logEvent("Not hosting a lobby", "error");
     return;
   }
 
   try {
-    await lobbyManager.closeLobby("Closed by host");
+    await lobbyFacade.closeLobby("Closed by host");
     clearActiveLobby();
     updateLobbyStatus(null);
     updateLobbyControlsVisibility(false, false);
@@ -922,17 +923,14 @@ async function handleSendMessage() {
   if (!plaintext) return;
 
   // Check if lobby chat is selected AND we're actually in a lobby
-  const inLobby = lobbyManager && (
-    lobbyManager.currentState === LOBBY_STATES.HOSTING ||
-    lobbyManager.currentState === LOBBY_STATES.MEMBER
-  );
+  const inLobby = lobbyFacade && lobbyFacade.isInLobby();
 
   if (dashboardState.activeLobbySelected && inLobby) {
     // Send to lobby group
     try {
-      await lobbyManager.sendGroupMessage(plaintext);
+      await lobbyFacade.sendGroupMessage(plaintext);
       clearMessageInput();
-      renderLobbyChatMessages(lobbyManager.messageHistory, dashboardState.myPubSig);
+      renderLobbyChatMessages(lobbyFacade.messageHistory, dashboardState.myPubSig);
       logEvent("Lobby message sent", "success");
     } catch (err) {
       logEvent(`Lobby send failed: ${err.message}`, "error");

@@ -16,12 +16,32 @@
  * - Host distributes GroupKey_vN via encrypted 1:1 DMs
  * - All group messages encrypted with group key and broadcast to group mailbox
  *
+ * Usage:
+ * ```js
+ * import { LobbyFacade, LOBBY_STATES } from 'kktp/lobby';
+ *
+ * const lobby = new LobbyFacade(sessionManager, { autoAcceptJoins: true });
+ *
+ * // Host a lobby
+ * await lobby.hostLobby({ lobbyName: 'My Lobby', gameName: 'KKTP Chat' });
+ *
+ * // Route incoming messages
+ * lobby.routeDMMessage(mailboxId, plaintext);
+ * lobby.routeGroupMessage(groupMailboxId, encrypted);
+ * ```
+ *
  * @module kktp/lobby
  */
 
-export { LobbyManager, LOBBY_STATES, MEMBER_ROLES } from "./lobbyManager.js";
+// Primary API - Use LobbyFacade for clean, stable interface
+export { LobbyFacade, LOBBY_STATES, MEMBER_ROLES } from "./lobbyFacade.js";
+
+// Internal - Only use if you need low-level access
+export { LobbyManager } from "./lobbyManager.js";
 export { LobbyMessageHandler, LOBBY_MESSAGE_TYPES } from "./lobbyMessageHandler.js";
 export { LobbyCodec } from "./lobbyCodec.js";
+
+// Validation utilities
 export {
   LobbyValidationError,
   validateLobbyMeta,

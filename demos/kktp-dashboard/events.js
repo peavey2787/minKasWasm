@@ -25,79 +25,34 @@ import { getExpectedEndMs } from "../../kktp/protocol/sessions/index.js";
 const KKTP_PREFIX = "KKTP:";
 
 // ─────────────────────────────────────────────────────────────
-// DM Message Buffer - Handles race condition where DM arrives before session
+// Lobby Facade Access - DM buffer is now in LobbyFacade
 // ─────────────────────────────────────────────────────────────
 
-const DM_BUFFER_TTL_MS = 30_000; // 30 seconds TTL for buffered messages
-const DM_BUFFER_MAX_PER_MAILBOX = 5; // Max messages per mailbox to prevent spam
-const DM_BUFFER_CLEANUP_INTERVAL_MS = 10_000; // Cleanup every 10 seconds
-
-// Buffer: mailboxId -> [{ payload, timestamp, bufferedAt }]
-const pendingDMBuffer = new Map();
-let bufferCleanupTimer = null;
-
 /**
- * Buffer a DM message for later processing when session is established
+ * Get the lobby facade from dashboard state
+ * @returns {import('../../kktp/lobby/lobbyFacade.js').LobbyFacade|null}
  */
-function bufferDMMessage(mailboxId, payload, timestamp) {
-  const now = Date.now();
-
-  if (!pendingDMBuffer.has(mailboxId)) {
-    pendingDMBuffer.set(mailboxId, []);
-  }
-
-  const buffer = pendingDMBuffer.get(mailboxId);
-
-  // Limit buffer size per mailbox to prevent spam attacks
-  if (buffer.length >= DM_BUFFER_MAX_PER_MAILBOX) {
-    logger.warn("KKTP: DM buffer full for mailbox, dropping oldest", {
-      mailboxId: mailboxId?.slice(0, 16),
-      bufferSize: buffer.length,
-    });
-    buffer.shift(); // Remove oldest
-  }
-
-  buffer.push({ payload, timestamp, bufferedAt: now });
-
-  logger.info("KKTP: Buffered early DM message", {
-    mailboxId: mailboxId?.slice(0, 16),
-    bufferSize: buffer.length,
-    ttlMs: DM_BUFFER_TTL_MS,
-  });
-
-  // Start cleanup timer if not running
-  startBufferCleanup();
+function getLobby() {
+  return dashboardState.lobbyManager ?? null;
 }
 
 /**
- * Process any buffered DM messages for a mailbox
+ * Process any buffered DM messages for a mailbox via the lobby module.
+ * Called when a session is established to handle early-arriving messages.
  */
 async function processPendingDMMessages(mailboxId, deps = {}) {
-  const buffer = pendingDMBuffer.get(mailboxId);
-  if (!buffer || buffer.length === 0) return;
+  const lobby = getLobby();
+  if (!lobby) return;
 
-  const now = Date.now();
+  const bufferedMessages = lobby.popBufferedMessages(mailboxId);
+  if (bufferedMessages.length === 0) return;
 
-  // Filter out expired messages
-  const validMessages = buffer.filter(
-    (msg) => now - msg.bufferedAt < DM_BUFFER_TTL_MS
-  );
-
-  if (validMessages.length === 0) {
-    pendingDMBuffer.delete(mailboxId);
-    return;
-  }
-
-  logger.info("KKTP: Processing buffered DM messages", {
+  logger.info("KKTP Events: Processing buffered DM messages", {
     mailboxId: mailboxId?.slice(0, 16),
-    count: validMessages.length,
-    droppedExpired: buffer.length - validMessages.length,
+    count: bufferedMessages.length,
   });
 
-  // Clear buffer before processing to avoid loops
-  pendingDMBuffer.delete(mailboxId);
-
-  for (const { payload, timestamp } of validMessages) {
+  for (const { payload, timestamp } of bufferedMessages) {
     try {
       const event = await kaspaPortal.processIncomingPayload(payload);
       if (event) {
@@ -105,55 +60,12 @@ async function processPendingDMMessages(mailboxId, deps = {}) {
         handleIncomingEvent(event, deps);
       }
     } catch (err) {
-      logger.warn("KKTP: Failed to process buffered DM", {
+      logger.warn("KKTP Events: Failed to process buffered DM", {
         mailboxId: mailboxId?.slice(0, 16),
         error: err.message,
       });
     }
   }
-}
-
-/**
- * Clean up expired buffer entries
- */
-function cleanupExpiredBuffers() {
-  const now = Date.now();
-  let totalCleaned = 0;
-
-  for (const [mailboxId, buffer] of pendingDMBuffer.entries()) {
-    const validMessages = buffer.filter(
-      (msg) => now - msg.bufferedAt < DM_BUFFER_TTL_MS
-    );
-
-    if (validMessages.length === 0) {
-      pendingDMBuffer.delete(mailboxId);
-      totalCleaned += buffer.length;
-    } else if (validMessages.length < buffer.length) {
-      totalCleaned += buffer.length - validMessages.length;
-      pendingDMBuffer.set(mailboxId, validMessages);
-    }
-  }
-
-  if (totalCleaned > 0) {
-    logger.debug("KKTP: Cleaned expired DM buffer entries", {
-      cleaned: totalCleaned,
-      remainingMailboxes: pendingDMBuffer.size,
-    });
-  }
-
-  // Stop cleanup timer if buffer is empty
-  if (pendingDMBuffer.size === 0 && bufferCleanupTimer) {
-    clearInterval(bufferCleanupTimer);
-    bufferCleanupTimer = null;
-  }
-}
-
-/**
- * Start the buffer cleanup timer if not already running
- */
-function startBufferCleanup() {
-  if (bufferCleanupTimer) return;
-  bufferCleanupTimer = setInterval(cleanupExpiredBuffers, DM_BUFFER_CLEANUP_INTERVAL_MS);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -296,6 +208,8 @@ export async function handleIncomingMatch(matchObjOrArray, deps = {}) {
   // THIRD PASS: Process DM messages (session must exist)
   // ─────────────────────────────────────────────────────────────
 
+  const lobby = getLobby();
+
   for (const { payload, timestamp, mailboxId, matchObj } of dmMessages) {
     // Update last seen block for every KKTP match
     maybeStoreLastSeenBlock(matchObj);
@@ -304,11 +218,11 @@ export async function handleIncomingMatch(matchObjOrArray, deps = {}) {
     const session = kaspaPortal.getSession(mailboxId);
 
     if (!session) {
-      // Session doesn't exist yet - buffer the message for later
-      logger.info("KKTP: DM arrived before session, buffering", {
+      // Session doesn't exist yet - buffer via lobby module
+      logger.info("KKTP Events: DM arrived before session, buffering", {
         mailboxId: mailboxId?.slice(0, 16),
       });
-      bufferDMMessage(mailboxId, payload, timestamp);
+      lobby?.bufferDMMessage(mailboxId, payload, timestamp);
       continue;
     }
 
@@ -319,7 +233,7 @@ export async function handleIncomingMatch(matchObjOrArray, deps = {}) {
         handleIncomingEvent(event, deps);
       }
     } catch (err) {
-      logger.warn("KKTP: Error processing DM", {
+      logger.warn("KKTP Events: Error processing DM", {
         mailboxId: mailboxId?.slice(0, 16),
         error: err.message,
       });
@@ -327,41 +241,40 @@ export async function handleIncomingMatch(matchObjOrArray, deps = {}) {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // FOURTH PASS: Process GROUP messages
+  // FOURTH PASS: Process GROUP messages via lobby facade
   // ─────────────────────────────────────────────────────────────
 
-  const lobbyManager = dashboardState.lobbyManager;
   for (const { payload, timestamp, matchObj } of groupMessages) {
     // Update last seen block for every KKTP match
     maybeStoreLastSeenBlock(matchObj);
 
-    if (!lobbyManager) continue;
+    if (!lobby) continue;
 
-    const parsed = lobbyManager.handler.parseGroupPayload(payload);
+    const parsed = lobby.parseGroupPayload(payload);
     if (parsed.isGroup && parsed.groupMailboxId && parsed.encrypted) {
-      logger.info("KKTP: Processing group message", {
+      logger.info("KKTP Events: Processing group message", {
         groupMailboxId: parsed.groupMailboxId.slice(0, 16),
         senderPubSig: parsed.encrypted?.senderPubSig?.slice(0, 16),
       });
       try {
-        const handled = await lobbyManager.handler.processGroupMessage(
+        const handled = await lobby.routeGroupMessage(
           parsed.groupMailboxId,
           parsed.encrypted,
         );
         if (handled) {
-          logger.info("KKTP: Group message handled successfully", {
+          logger.info("KKTP Events: Group message handled successfully", {
             groupMailboxId: parsed.groupMailboxId.slice(0, 16),
           });
           logEvent("Lobby message received", "info");
           if (dashboardState.activeLobbySelected && dashboardState.activeLobby) {
             renderLobbyChatMessages(
-              lobbyManager.messageHistory,
+              lobby.messageHistory,
               dashboardState.myPubSig,
             );
           }
         }
       } catch (err) {
-        logger.warn("KKTP: Failed to process group message", {
+        logger.warn("KKTP Events: Failed to process group message", {
           error: err.message,
         });
       }
@@ -426,9 +339,9 @@ export function handleIncomingEvent(event, deps = {}) {
           messageCount: event.messages.length,
         });
 
-        // Route messages through LobbyMessageHandler to detect lobby DMs
-        const lobbyManager = dashboardState.lobbyManager;
-        if (lobbyManager && event.mailboxId) {
+        // Route messages through LobbyFacade to detect lobby DMs
+        const lobby = getLobby();
+        if (lobby && event.mailboxId) {
           for (let i = 0; i < event.messages.length; i++) {
             const msg = event.messages[i];
             const plaintext = msg?.plaintext ?? msg;
@@ -442,26 +355,26 @@ export function handleIncomingEvent(event, deps = {}) {
 
             if (typeof plaintext === "string" && plaintext.trim().startsWith("{")) {
               try {
-                const handled = lobbyManager.handler.processDMMessage(
+                const handled = lobby.routeDMMessage(
                   event.mailboxId,
                   plaintext,
                 );
                 if (handled) {
                   logger.info("KKTP Events: Lobby DM message handled successfully", {
                     mailboxId: event.mailboxId?.slice(0, 8),
-                    lobbyState: lobbyManager.state,
-                    isHost: lobbyManager.isHost,
-                    memberCount: lobbyManager.members?.length,
+                    lobbyState: lobby.currentState,
+                    isHost: lobby.isHost,
+                    memberCount: lobby.members?.length,
                   });
 
                   // Update lobby UI after processing lobby message
-                  renderLobbyMembers(lobbyManager.members, lobbyManager.isHost);
-                  updateLobbyStatus(lobbyManager.lobbyInfo);
+                  renderLobbyMembers(lobby.members, lobby.isHost);
+                  updateLobbyStatus(lobby.lobbyInfo);
 
                   // If in lobby mode, update the chat
                   if (dashboardState.activeLobbySelected) {
                     renderLobbyChatMessages(
-                      lobbyManager.messageHistory,
+                      lobby.messageHistory,
                       dashboardState.myPubSig,
                     );
                   }
@@ -479,8 +392,8 @@ export function handleIncomingEvent(event, deps = {}) {
             }
           }
         } else {
-          logger.debug("KKTP Events: No lobbyManager or mailboxId for message routing", {
-            hasLobbyManager: !!lobbyManager,
+          logger.debug("KKTP Events: No lobby or mailboxId for message routing", {
+            hasLobby: !!lobby,
             hasMailboxId: !!event.mailboxId,
           });
         }
@@ -501,8 +414,8 @@ export function handleIncomingEvent(event, deps = {}) {
       }
       if (event.mailboxId) {
         dashboardState.closingSessions?.delete(event.mailboxId);
-        // Clear any pending buffered messages for this session
-        pendingDMBuffer.delete(event.mailboxId);
+        // Clear any pending buffered messages for this session via lobby
+        getLobby()?.clearBufferedMessages(event.mailboxId);
       }
       if (
         event.mailboxId &&

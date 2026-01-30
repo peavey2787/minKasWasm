@@ -108,6 +108,16 @@ export class LobbyManager {
     // Message history
     this._messageHistory = [];
     this._maxHistorySize = 1000;
+
+    // ─────────────────────────────────────────────────────────────
+    // DM Buffer - Handles race condition where DM arrives before session
+    // Moved from dashboard/events.js to keep lobby module self-contained
+    // ─────────────────────────────────────────────────────────────
+    this._dmBuffer = new Map(); // mailboxId -> [{ payload, timestamp, bufferedAt }]
+    this._dmBufferTtlMs = 30_000; // 30 seconds TTL
+    this._dmBufferMaxPerMailbox = 5;
+    this._dmBufferCleanupTimer = null;
+    this._dmBufferCleanupIntervalMs = 10_000;
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -457,6 +467,10 @@ export class LobbyManager {
       members: this._exportMemberList(),
     });
 
+    // Wait for UTXO refresh before broadcasting to prevent race condition
+    // The join response transaction needs time to be mined before we can spend again
+    await this._waitForUtxoRefresh(1000, 4000);
+
     // Broadcast member join to all existing members
     await this._broadcastMemberEvent("join", member);
 
@@ -494,10 +508,10 @@ export class LobbyManager {
     // Remove from roster
     this.lobby.members.delete(pubSig);
 
-    // Notify the kicked member via DM
+    // Notify the kicked member via DM (best-effort with retry)
     if (member.dmMailboxId) {
       try {
-        await this.sm.sendMessage(
+        await this._sendWithRetry(
           member.dmMailboxId,
           JSON.stringify({
             type: "lobby_kicked",
@@ -505,9 +519,13 @@ export class LobbyManager {
             lobbyId: this.lobby.lobbyId,
             reason,
           }),
+          2, // Fewer retries for kicked notification (not critical)
         );
       } catch (err) {
-        console.warn("KKTP Lobby: Failed to notify kicked member", err);
+        console.warn("KKTP Lobby: Failed to notify kicked member", {
+          pubSig: pubSig.slice(0, 16),
+          error: err.message,
+        });
       }
     }
 
@@ -554,16 +572,15 @@ export class LobbyManager {
       timestamp: Date.now(),
     };
 
-    // Send to each member
+    const distributionJson = JSON.stringify(distribution);
+
+    // Send to each member with retry logic for UTXO resilience
     for (const [pubSig, member] of this.lobby.members) {
       if (member.role === MEMBER_ROLES.HOST) continue;
       if (!member.dmMailboxId) continue;
 
       try {
-        await this.sm.sendMessage(
-          member.dmMailboxId,
-          JSON.stringify(distribution),
-        );
+        await this._sendWithRetry(member.dmMailboxId, distributionJson, 3);
       } catch (err) {
         console.warn("KKTP Lobby: Failed to send key rotation to member", {
           pubSig: pubSig.slice(0, 16),
@@ -607,14 +624,19 @@ export class LobbyManager {
       timestamp: Date.now(),
     };
 
+    const closeMsgJson = JSON.stringify(closeMsg);
+
     for (const [pubSig, member] of this.lobby.members) {
       if (member.role === MEMBER_ROLES.HOST) continue;
       if (!member.dmMailboxId) continue;
 
       try {
-        await this.sm.sendMessage(member.dmMailboxId, JSON.stringify(closeMsg));
+        await this._sendWithRetry(member.dmMailboxId, closeMsgJson, 2);
       } catch (err) {
-        console.warn("KKTP Lobby: Failed to notify member of close", err);
+        console.warn("KKTP Lobby: Failed to notify member of close", {
+          pubSig: pubSig.slice(0, 16),
+          error: err.message,
+        });
       }
     }
 
@@ -972,14 +994,14 @@ export class LobbyManager {
       throw new Error("Not a lobby member");
     }
 
-    // Notify host via DM
+    // Notify host via DM (best-effort with retry)
     if (this.lobby?.dmMailboxId) {
       try {
         const myKeys = await this.sm.portal.generateIdentityKeys(0);
         if (!myKeys?.sig?.publicKey) {
           throw new Error("Failed to get identity keys");
         }
-        await this.sm.sendMessage(
+        await this._sendWithRetry(
           this.lobby.dmMailboxId,
           JSON.stringify({
             type: "lobby_leave",
@@ -989,9 +1011,12 @@ export class LobbyManager {
             reason,
             timestamp: Date.now(),
           }),
+          2, // Fewer retries for leave notification
         );
       } catch (err) {
-        console.warn("KKTP Lobby: Failed to notify host of leave", err);
+        console.warn("KKTP Lobby: Failed to notify host of leave", {
+          error: err.message,
+        });
       }
     }
 
@@ -1294,16 +1319,22 @@ export class LobbyManager {
       timestamp: Date.now(),
     };
 
-    // Send to all members via DM
+    const eventJson = JSON.stringify(event);
+
+    // Send to all members via DM with retry logic for UTXO resilience
     for (const [pubSig, m] of this.lobby.members) {
       if (m.role === MEMBER_ROLES.HOST) continue;
       if (pubSig === member.pubSig) continue; // Don't send to the subject
       if (!m.dmMailboxId) continue;
 
       try {
-        await this.sm.sendMessage(m.dmMailboxId, JSON.stringify(event));
+        await this._sendWithRetry(m.dmMailboxId, eventJson, 3);
       } catch (err) {
-        console.warn("KKTP Lobby: Failed to broadcast member event", err);
+        console.warn("KKTP Lobby: Failed to broadcast member event", {
+          eventType,
+          targetPubSig: pubSig.slice(0, 16),
+          error: err.message,
+        });
       }
     }
   }
@@ -1348,12 +1379,192 @@ export class LobbyManager {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // Public Routing API - For external message processing
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Route a decrypted DM plaintext to the lobby handler.
+   * Called by the dashboard/events layer when a DM is received.
+   * @param {string} mailboxId - The DM mailbox ID
+   * @param {string} plaintext - The decrypted message content (JSON string or plain text)
+   * @returns {boolean} True if message was handled as a lobby message
+   */
+  routeDMMessage(mailboxId, plaintext) {
+    return this.handler.processDMMessage(mailboxId, plaintext);
+  }
+
+  /**
+   * Parse a raw KKTP payload to check if it's a group message.
+   * @param {string} rawPayload - Raw KKTP payload string
+   * @returns {{ isGroup: boolean, groupMailboxId?: string, encrypted?: Object }}
+   */
+  parseGroupPayload(rawPayload) {
+    return this.handler.parseGroupPayload(rawPayload);
+  }
+
+  /**
+   * Process a group message for this lobby.
+   * @param {string} groupMailboxId - The group mailbox ID
+   * @param {Object} encrypted - The encrypted group message object
+   * @returns {Promise<boolean>} True if handled successfully
+   */
+  async routeGroupMessage(groupMailboxId, encrypted) {
+    return await this.handler.processGroupMessage(groupMailboxId, encrypted);
+  }
+
+  /**
+   * Check if we are currently in a lobby (either hosting or as member).
+   * @returns {boolean}
+   */
+  isInLobby() {
+    return this.state === LOBBY_STATES.HOSTING || this.state === LOBBY_STATES.MEMBER;
+  }
+
+  /**
+   * Get the current lobby's group mailbox ID (if in a lobby).
+   * @returns {string|null}
+   */
+  getGroupMailboxId() {
+    return this.lobby?.groupMailboxId ?? null;
+  }
+
+  /**
+   * Check if a group payload belongs to this lobby.
+   * @param {string} groupMailboxId - The group mailbox ID from the payload
+   * @returns {boolean}
+   */
+  isGroupPayloadForThisLobby(groupMailboxId) {
+    if (!this.isInLobby() || !this.lobby?.groupMailboxId) return false;
+    return this.lobby.groupMailboxId === groupMailboxId;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // DM Buffer Management - Race condition handling
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Buffer a DM message for later processing when session is established.
+   * @param {string} mailboxId - The DM mailbox ID
+   * @param {string} payload - Raw payload to buffer
+   * @param {number} [timestamp] - Message timestamp
+   */
+  bufferDMMessage(mailboxId, payload, timestamp) {
+    const now = Date.now();
+
+    if (!this._dmBuffer.has(mailboxId)) {
+      this._dmBuffer.set(mailboxId, []);
+    }
+
+    const buffer = this._dmBuffer.get(mailboxId);
+
+    // Limit buffer size per mailbox
+    if (buffer.length >= this._dmBufferMaxPerMailbox) {
+      console.warn("KKTP Lobby: DM buffer full, dropping oldest", {
+        mailboxId: mailboxId?.slice(0, 16),
+      });
+      buffer.shift();
+    }
+
+    buffer.push({ payload, timestamp, bufferedAt: now });
+
+    console.info("KKTP Lobby: Buffered early DM message", {
+      mailboxId: mailboxId?.slice(0, 16),
+      bufferSize: buffer.length,
+    });
+
+    this._startDMBufferCleanup();
+  }
+
+  /**
+   * Check if there are buffered messages for a mailbox.
+   * @param {string} mailboxId
+   * @returns {boolean}
+   */
+  hasBufferedMessages(mailboxId) {
+    const buffer = this._dmBuffer.get(mailboxId);
+    return buffer && buffer.length > 0;
+  }
+
+  /**
+   * Get and clear buffered messages for a mailbox.
+   * Called when session is established to process pending messages.
+   * @param {string} mailboxId
+   * @returns {Array<{ payload: string, timestamp: number }>}
+   */
+  popBufferedMessages(mailboxId) {
+    const buffer = this._dmBuffer.get(mailboxId);
+    if (!buffer || buffer.length === 0) return [];
+
+    const now = Date.now();
+    const validMessages = buffer.filter(
+      (msg) => now - msg.bufferedAt < this._dmBufferTtlMs
+    );
+
+    this._dmBuffer.delete(mailboxId);
+    return validMessages;
+  }
+
+  /**
+   * Clear buffered messages for a mailbox (e.g., on session end).
+   * @param {string} mailboxId
+   */
+  clearBufferedMessages(mailboxId) {
+    this._dmBuffer.delete(mailboxId);
+  }
+
+  /**
+   * @private
+   */
+  _startDMBufferCleanup() {
+    if (this._dmBufferCleanupTimer) return;
+    this._dmBufferCleanupTimer = setInterval(
+      () => this._cleanupExpiredBuffers(),
+      this._dmBufferCleanupIntervalMs
+    );
+  }
+
+  /**
+   * @private
+   */
+  _cleanupExpiredBuffers() {
+    const now = Date.now();
+    let totalCleaned = 0;
+
+    for (const [mailboxId, buffer] of this._dmBuffer.entries()) {
+      const validMessages = buffer.filter(
+        (msg) => now - msg.bufferedAt < this._dmBufferTtlMs
+      );
+
+      if (validMessages.length === 0) {
+        this._dmBuffer.delete(mailboxId);
+        totalCleaned += buffer.length;
+      } else if (validMessages.length < buffer.length) {
+        totalCleaned += buffer.length - validMessages.length;
+        this._dmBuffer.set(mailboxId, validMessages);
+      }
+    }
+
+    // Stop cleanup timer if buffer is empty
+    if (this._dmBuffer.size === 0 && this._dmBufferCleanupTimer) {
+      clearInterval(this._dmBufferCleanupTimer);
+      this._dmBufferCleanupTimer = null;
+    }
+  }
+
   _cleanup() {
     this._stopKeyRotation();
 
     // Unsubscribe from group mailbox when leaving/closing
     if (this.lobby?.groupMailboxId) {
       this._unsubscribeFromGroupMailbox(this.lobby.groupMailboxId);
+    }
+
+    // Clear DM buffer and stop cleanup timer
+    this._dmBuffer.clear();
+    if (this._dmBufferCleanupTimer) {
+      clearInterval(this._dmBufferCleanupTimer);
+      this._dmBufferCleanupTimer = null;
     }
 
     this.lobby = null;
