@@ -108,6 +108,18 @@ export class IdentityFacade {
   }
 
   /**
+   * Get private keys for signing transactions manually.
+   * Derives keys from the wallet's xprv for the active account.
+   * @param {Object} [options] - Options
+   * @param {number} [options.keyCount=10] - Number of receive keys
+   * @param {number} [options.changeKeyCount=5] - Number of change keys
+   * @returns {Promise<Array>} Array of PrivateKey objects
+   */
+  async getPrivateKeys(options) {
+    return await walletService.getPrivateKeys(options);
+  }
+
+  /**
    * Access the mnemonic of the active wallet.
    */
   async getMnemonic() {

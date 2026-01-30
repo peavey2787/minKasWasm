@@ -215,6 +215,130 @@ export class KaspaPortal {
     return await this.identity.generateNewAddress();
   }
 
+  /**
+   * Get private keys for signing transactions manually.
+   * Required for manualSend() and splitUtxos() operations.
+   * @param {Object} [options] - Options
+   * @param {number} [options.keyCount=10] - Number of receive keys
+   * @param {number} [options.changeKeyCount=5] - Number of change keys
+   * @returns {Promise<Array>} Array of PrivateKey objects
+   */
+  async getPrivateKeys(options) {
+    return await this.identity.getPrivateKeys(options);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Manual Transaction Methods (Transport Proxy)
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Manually build and send a transaction with full UTXO control.
+   * Designed for rapid-fire transactions to avoid UTXO refresh delays.
+   *
+   * @param {Object} options
+   * @param {string} options.fromAddress - Source address for UTXO lookup
+   * @param {string} options.toAddress - Destination address
+   * @param {string|bigint} options.amount - Amount to send (KAS string or sompi)
+   * @param {string} [options.payload] - Optional payload
+   * @param {Array} [options.privateKeys] - Private keys for signing
+   * @param {bigint} [options.priorityFee=0n] - Priority fee in sompi
+   * @param {number} [options.engineIndex] - Engine index for multi-engine mode
+   * @param {number} [options.totalEngines] - Total engines for multi-engine mode
+   * @returns {Promise<Object>} Transaction result
+   */
+  async manualSend(options) {
+    return await this.transport.manualSend(options);
+  }
+
+  /**
+   * Split UTXOs into multiple equal outputs for parallel transactions.
+   * Use this before rapid-fire sends to prevent UTXO contention.
+   *
+   * @param {Object} options
+   * @param {string} options.address - Address for UTXO lookup and outputs
+   * @param {number} options.splitCount - Number of outputs (2-100)
+   * @param {Array} options.privateKeys - Private keys for signing
+   * @param {bigint} [options.priorityFee=0n] - Priority fee
+   * @returns {Promise<Object>} Split result with txid and output details
+   */
+  async splitUtxos(options) {
+    return await this.transport.splitUtxos(options);
+  }
+
+  /**
+   * Analyze UTXOs for an address.
+   * Returns count, categories (dust/small/medium/large), and totals.
+   *
+   * @param {string} address - Address to analyze
+   * @returns {Promise<Object>} UTXO analysis
+   */
+  async analyzeUtxos(address) {
+    return await this.transport.analyzeUtxos(address);
+  }
+
+  /**
+   * Fetch UTXOs for an address.
+   * @param {string} address - Kaspa address
+   * @param {Object} [options] - { useCache, excludeSpent }
+   * @returns {Promise<Array>} UTXO entries
+   */
+  async getUtxos(address, options) {
+    return await this.transport.getUtxos(address, options);
+  }
+
+  /**
+   * Mark UTXOs as spent (optimistic update for rapid sends).
+   * @param {Array} entries - UTXO entries that were spent
+   */
+  markUtxosAsSpent(entries) {
+    this.transport.markUtxosAsSpent(entries);
+  }
+
+  /**
+   * Clear spent UTXO tracking.
+   * @param {Array} [entries] - Specific entries or all if not provided
+   */
+  clearSpentUtxos(entries) {
+    this.transport.clearSpentUtxos(entries);
+  }
+
+  /**
+   * Invalidate UTXO cache for an address.
+   * @param {string} [address] - Address or all if not provided
+   */
+  invalidateUtxoCache(address) {
+    this.transport.invalidateUtxoCache(address);
+  }
+
+  /**
+   * Build a manual transaction with explicit change handling.
+   * @param {Object} options - Transaction options
+   * @returns {Promise<Object>} Transaction details with pendingTx
+   */
+  async buildManualTransaction(options) {
+    return await this.transport.buildManualTransaction(options);
+  }
+
+  /**
+   * Build a UTXO split transaction.
+   * @param {Object} options - Split options
+   * @returns {Promise<Object>} Split transaction details
+   */
+  async buildSplitUtxoTransaction(options) {
+    return await this.transport.buildSplitUtxoTransaction(options);
+  }
+
+  /**
+   * Estimate fee for a transaction based on input/output counts.
+   * @param {number} inputCount - Number of inputs
+   * @param {number} outputCount - Number of outputs
+   * @param {number} [payloadBytes=0] - Payload size in bytes
+   * @returns {bigint} Estimated fee in sompi
+   */
+  estimateFee(inputCount, outputCount, payloadBytes = 0) {
+    return this.transport.estimateFee(inputCount, outputCount, payloadBytes);
+  }
+
   // --- Intelligence Proxy Methods ---
 
   // Scanner Methods

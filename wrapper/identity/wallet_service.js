@@ -7,6 +7,7 @@ import {
   Generator,
   XPrv,
   Mnemonic,
+  PrivateKeyGenerator,
 } from "../kas-wasm/kaspa.js";
 import { storeWalletData, loadWalletData } from "./storage.js";
 import * as utilities from "../utilities/utilities.js";
@@ -103,6 +104,38 @@ export async function getXprv() {
   const walletData = await loadWalletData(filename, walletSecret);
   const xPrv = XPrv.fromXPrv(walletData.xprv);
   return xPrv.toString();
+}
+
+/**
+ * Get private keys for signing transactions.
+ * This derives private keys from the wallet's xprv for the active account.
+ * @param {number} [keyCount=10] - Number of receive keys to generate.
+ * @param {number} [changeKeyCount=5] - Number of change keys to generate.
+ * @returns {Promise<Array>} - Array of PrivateKey objects (WASM).
+ */
+export async function getPrivateKeys({ keyCount = 10, changeKeyCount = 5 } = {}) {
+  if (!walletInitialized || !wallet) {
+    throw new Error("Wallet not initialized. Call init() first.");
+  }
+  const walletData = await loadWalletData(filename, walletSecret);
+  if (!walletData?.xprv) {
+    throw new Error("No xprv found in wallet data. Cannot derive private keys.");
+  }
+
+  const xPrv = XPrv.fromXPrv(walletData.xprv);
+  const keyGen = new PrivateKeyGenerator(xPrv, false, BigInt(currentAccountIndex), null);
+
+  const keys = [];
+  // Generate receive keys
+  for (let i = 0; i < keyCount; i++) {
+    keys.push(keyGen.receiveKey(i));
+  }
+  // Generate change keys
+  for (let i = 0; i < changeKeyCount; i++) {
+    keys.push(keyGen.changeKey(i));
+  }
+
+  return keys;
 }
 
 /**

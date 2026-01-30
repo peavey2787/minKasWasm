@@ -22,9 +22,36 @@
         <div class="stat"><div class="k">Loop</div><div class="v" id="loopState">Stopped</div></div>
       </div>
 
+      <!-- UTXO Analysis Section -->
+      <div class="stats-row stats-row-4 mt-2">
+        <div class="stat"><div class="k">UTXOs</div><div class="v" id="utxoCount">--</div></div>
+        <div class="stat"><div class="k">Large (&gt;100 KAS)</div><div class="v" id="utxoLarge">--</div></div>
+        <div class="stat"><div class="k">Medium (1-100 KAS)</div><div class="v" id="utxoMedium">--</div></div>
+        <div class="stat"><div class="k">Small (&lt;1 KAS)</div><div class="v" id="utxoSmall">--</div></div>
+      </div>
+
       <div class="controls-row mt-2">
-        <button id="btnStart" class="secondary" disabled>Start sending (1 KAS / 5s)</button>
+        <button id="btnSplit" class="primary" disabled>Split UTXOs (5)</button>
+        <button id="btnAnalyze" class="secondary" disabled>Analyze UTXOs</button>
+        <button id="btnClearSpent" class="secondary" disabled>Clear Spent Cache</button>
+      </div>
+
+      <div class="controls-row mt-2">
+        <button id="btnStart" class="secondary" disabled>Start Rapid Send</button>
         <button id="btnStop" class="secondary" disabled>Stop</button>
+        <label class="inline-label">
+          <span>Engines:</span>
+          <select id="engineCount">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="5" selected>5</option>
+          </select>
+        </label>
+        <label class="inline-label">
+          <span>Delay (ms):</span>
+          <input type="number" id="sendDelay" value="200" min="50" max="5000" style="width: 80px;">
+        </label>
       </div>
 
       <div class="stats-row stats-row-4 mt-2">
@@ -34,6 +61,13 @@
         <div class="stat"><div class="k">Latency (last)</div><div class="v" id="latency">--</div></div>
       </div>
 
+      <div class="stats-row stats-row-4 mt-2">
+        <div class="stat"><div class="k">Pending TXs</div><div class="v" id="pendingCount">0</div></div>
+        <div class="stat"><div class="k">Errors</div><div class="v" id="errorCount">0</div></div>
+        <div class="stat"><div class="k">Avg Latency</div><div class="v" id="avgLatency">--</div></div>
+        <div class="stat"><div class="k">TX/sec</div><div class="v" id="txPerSec">--</div></div>
+      </div>
+
       <details class="mt-2" open>
         <summary class="muted">Log</summary>
         <pre id="log" class="log-panel"></pre>
@@ -41,6 +75,7 @@
 
       <p class="muted mt-2">
         Auto-connects to <span class="mono">testnet-10</span> and opens/creates wallet <span class="mono">rapid_tx_wallet</span> with password <span class="mono">1234</span>.
+        <br><strong>Tip:</strong> Click "Split UTXOs" first to create 5 separate UTXOs for parallel sending.
       </p>
     </div>
   </div>
