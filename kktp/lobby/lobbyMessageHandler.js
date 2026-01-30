@@ -124,11 +124,12 @@ export class LobbyMessageHandler {
 
   /**
    * Process an incoming group message from the DAG
+   * Handles both encrypted chat messages and unencrypted control messages.
    * @param {string} groupMailboxId - The group mailbox ID
-   * @param {Object} encrypted - The encrypted group message object
+   * @param {Object} payload - The group message object (encrypted or control)
    * @returns {boolean} - True if message was handled
    */
-  async processGroupMessage(groupMailboxId, encrypted) {
+  async processGroupMessage(groupMailboxId, payload) {
     // Verify this is for our lobby
     if (!this.lobbyManager.lobby) {
       return false;
@@ -138,7 +139,38 @@ export class LobbyMessageHandler {
       return false;
     }
 
-    await this.lobbyManager.processGroupMessage(encrypted);
+    // ─────────────────────────────────────────────────────────────
+    // Check for unencrypted control messages (lobby_close, etc.)
+    // These are broadcast by the host as single-shot notifications
+    // ─────────────────────────────────────────────────────────────
+    if (payload && typeof payload.type === "string") {
+      switch (payload.type) {
+        case LOBBY_MESSAGE_TYPES.LOBBY_CLOSE:
+          console.info("LobbyMessageHandler: Received LOBBY_CLOSE via group mailbox", {
+            lobbyId: payload.lobbyId?.slice(0, 16),
+            reason: payload.reason,
+          });
+          await this._handleLobbyClose(payload);
+          return true;
+
+        case LOBBY_MESSAGE_TYPES.LOBBY_KICKED:
+          // Could support targeted kick via group in future
+          console.info("LobbyMessageHandler: Received LOBBY_KICKED via group mailbox", {
+            reason: payload.reason,
+          });
+          await this._handleKicked(payload);
+          return true;
+
+        default:
+          // Not a recognized control message, fall through to encrypted handling
+          break;
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Encrypted group chat message
+    // ─────────────────────────────────────────────────────────────
+    await this.lobbyManager.processGroupMessage(payload);
     return true;
   }
 
@@ -234,17 +266,17 @@ export class LobbyMessageHandler {
     });
   }
 
-  _handleKicked(msg) {
+  async _handleKicked(msg) {
     try {
-      this.lobbyManager.handleKicked(msg);
+      await this.lobbyManager.handleKicked(msg);
     } catch (err) {
       console.error("LobbyMessageHandler: Failed to handle kicked", err);
     }
   }
 
-  _handleLobbyClose(msg) {
+  async _handleLobbyClose(msg) {
     try {
-      this.lobbyManager.handleLobbyClose(msg);
+      await this.lobbyManager.handleLobbyClose(msg);
     } catch (err) {
       console.error("LobbyMessageHandler: Failed to handle lobby close", err);
     }

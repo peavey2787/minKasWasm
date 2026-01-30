@@ -22,6 +22,7 @@ import {
   validateKeyRotation,
   validateMemberEvent,
 } from "./lobbySchemas.js";
+import { buildAnchorPayload } from "../protocol/sessions/index.js";
 
 // Constants
 const KEY_ROTATION_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
@@ -666,6 +667,13 @@ export class LobbyManager {
 
   /**
    * Kick a member from the lobby (host only)
+   *
+   * Order of operations (session_end is LAST):
+   * 1. Send kick notification to the member via DM
+   * 2. Broadcast member leave event to remaining members
+   * 3. Rotate key for forward secrecy (kicked member can't decrypt new messages)
+   * 4. ONLY AFTER all above succeed: End the 1:1 DM session with the kicked member
+   *
    * @param {string} pubSig - Member's public signing key
    * @param {string} [reason="Kicked by host"]
    */
@@ -683,41 +691,112 @@ export class LobbyManager {
       throw new Error("Member not found");
     }
 
-    // Remove from roster
-    this.lobby.members.delete(pubSig);
+    const dmMailboxId = member.dmMailboxId;
 
-    // Notify the kicked member via DM (best-effort with retry)
-    if (member.dmMailboxId) {
+    console.info("KKTP Lobby: Kicking member", {
+      pubSig: pubSig.slice(0, 16),
+      displayName: member.displayName,
+      dmMailboxId: dmMailboxId?.slice(0, 16),
+      reason,
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // Step 1: Notify the kicked member via DM (must complete first)
+    // ─────────────────────────────────────────────────────────────
+    if (dmMailboxId) {
       try {
         await this._sendWithRetry(
-          member.dmMailboxId,
+          dmMailboxId,
           JSON.stringify({
             type: "lobby_kicked",
             version: LOBBY_VERSION,
             lobbyId: this.lobby.lobbyId,
             reason,
+            timestamp: Date.now(),
           }),
-          2, // Fewer retries for kicked notification (not critical)
+          3, // More retries to ensure delivery
         );
+        console.info("KKTP Lobby: Kick notification sent", {
+          pubSig: pubSig.slice(0, 16),
+        });
       } catch (err) {
         console.warn("KKTP Lobby: Failed to notify kicked member", {
           pubSig: pubSig.slice(0, 16),
           error: err.message,
         });
+        // Continue anyway - member will be out of sync but that's acceptable
       }
+
+      // Wait for UTXO refresh before next operation
+      await this._waitForUtxoRefresh(1500, 3000);
     }
 
-    // Broadcast member leave to remaining members
-    await this._broadcastMemberEvent("leave", { pubSig, reason });
+    // ─────────────────────────────────────────────────────────────
+    // Step 2: Remove from roster (must happen before key rotation)
+    // ─────────────────────────────────────────────────────────────
+    this.lobby.members.delete(pubSig);
 
-    // Rotate key to exclude kicked member
-    await this.rotateKey("Member kicked");
+    // ─────────────────────────────────────────────────────────────
+    // Step 3: Broadcast member leave to remaining members
+    // ─────────────────────────────────────────────────────────────
+    try {
+      await this._broadcastMemberEvent("leave", { pubSig, reason });
+      console.info("KKTP Lobby: Member leave event broadcast", {
+        pubSig: pubSig.slice(0, 16),
+      });
+    } catch (err) {
+      console.warn("KKTP Lobby: Failed to broadcast member leave", {
+        pubSig: pubSig.slice(0, 16),
+        error: err.message,
+      });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Step 4: Rotate key for forward secrecy
+    // This ensures kicked member can't decrypt future messages
+    // ─────────────────────────────────────────────────────────────
+    try {
+      await this.rotateKey("Member kicked - forward secrecy");
+      console.info("KKTP Lobby: Key rotated after kick", {
+        pubSig: pubSig.slice(0, 16),
+        newKeyVersion: this.lobby.keyVersion,
+      });
+    } catch (err) {
+      console.error("KKTP Lobby: Failed to rotate key after kick", {
+        pubSig: pubSig.slice(0, 16),
+        error: err.message,
+      });
+      // Continue anyway - security is degraded but kick should complete
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Step 5: LAST STEP - End the 1:1 DM session (after all above)
+    // This is the final acknowledgment that the kick is complete
+    // ─────────────────────────────────────────────────────────────
+    if (dmMailboxId) {
+      await this._waitForUtxoRefresh(1500, 3000);
+
+      try {
+        await this._endDMSession(dmMailboxId, reason);
+        console.info("KKTP Lobby: DM session ended with kicked member", {
+          pubSig: pubSig.slice(0, 16),
+          dmMailboxId: dmMailboxId.slice(0, 16),
+        });
+      } catch (err) {
+        console.warn("KKTP Lobby: Failed to end DM session after kick", {
+          pubSig: pubSig.slice(0, 16),
+          error: err.message,
+        });
+        // This is truly the last step, so we just log the failure
+      }
+    }
 
     // Emit event
     this._onMemberLeave?.(pubSig, reason);
 
-    console.info("KKTP Lobby: Member kicked", {
+    console.info("KKTP Lobby: Member kicked successfully", {
       pubSig: pubSig.slice(0, 16),
+      remainingMembers: this.lobby.members.size,
       reason,
     });
   }
@@ -853,6 +932,12 @@ export class LobbyManager {
 
   /**
    * Close the lobby (host only)
+   *
+   * Single-Shot Close Strategy:
+   * - Broadcasts a single LOBBY_CLOSE to the Group Mailbox (not N individual DMs)
+   * - Every member sees this on the ledger and cleans up their own local session vault
+   * - Host doesn't need to "handshake" members out individually
+   *
    * @param {string} [reason="Lobby closed by host"]
    */
   async closeLobby(reason = "Lobby closed by host") {
@@ -860,50 +945,61 @@ export class LobbyManager {
       throw new Error("Only host can close lobby");
     }
 
-    // Stop key rotation
+    if (!this.lobby?.groupMailboxId) {
+      throw new Error("No lobby to close");
+    }
+
+    console.info("KKTP Lobby: Closing lobby (single-shot broadcast)", {
+      lobbyId: this.lobby.lobbyId?.slice(0, 16),
+      lobbyName: this.lobby.lobbyName,
+      memberCount: this.lobby.members.size,
+      reason,
+    });
+
+    // Stop key rotation first
     this._stopKeyRotation();
 
-    // Notify all members
+    // Build the close notification
     const closeMsg = {
       type: "lobby_close",
       version: LOBBY_VERSION,
       lobbyId: this.lobby.lobbyId,
+      hostPubSig: this.lobby.hostPubSig,
       reason,
       timestamp: Date.now(),
     };
 
-    const closeMsgJson = JSON.stringify(closeMsg);
+    // Broadcast to group mailbox (single transaction, all members see it)
+    try {
+      const payload = `KKTP:GROUP:${this.lobby.groupMailboxId}:${JSON.stringify(closeMsg)}`;
+      const address = await this.sm.portal.identity.address;
 
-    for (const [pubSig, member] of this.lobby.members) {
-      if (member.role === MEMBER_ROLES.HOST) continue;
-      if (!member.dmMailboxId) continue;
+      await this.sm.portal.send({
+        toAddress: address,
+        amount: "1",
+        payload,
+      });
 
-      try {
-        await this._sendWithRetry(member.dmMailboxId, closeMsgJson, 2);
-      } catch (err) {
-        console.warn("KKTP Lobby: Failed to notify member of close", {
-          pubSig: pubSig.slice(0, 16),
-          error: err.message,
-        });
-      }
+      console.info("KKTP Lobby: Close notification broadcast to group mailbox", {
+        groupMailboxId: this.lobby.groupMailboxId?.slice(0, 16),
+      });
+    } catch (err) {
+      console.warn("KKTP Lobby: Failed to broadcast close notification", {
+        error: err.message,
+      });
+      // Continue with cleanup even if broadcast fails
     }
 
-    // Broadcast session end for the discovery anchor
-    if (this.lobby.discovery) {
-      try {
-        await this.sm.closeSession(this.lobby.lobbyId, reason);
-      } catch (err) {
-        console.warn("KKTP Lobby: Failed to broadcast session end", err);
-      }
-    }
+    // Wait for broadcast to propagate before cleanup
+    await this._waitForUtxoRefresh(1500, 3000);
 
-    // Clean up
-    this._cleanup();
-
-    // Emit event
+    // Emit event before cleanup so UI can react
     this._onLobbyClose?.(reason);
 
-    console.info("KKTP Lobby: Closed", { reason });
+    // Clean up local state (unsubscribes from prefixes, clears members, etc.)
+    this._cleanup();
+
+    console.info("KKTP Lobby: Closed successfully", { reason });
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -1237,37 +1333,119 @@ export class LobbyManager {
   }
 
   /**
-   * Handle being kicked from lobby
+   * Handle being kicked from lobby (member only)
+   * Cleans up both lobby state and the 1:1 DM session with the host.
    * @param {Object} kickMsg - Kick message
    */
-  handleKicked(kickMsg) {
-    if (this.state !== LOBBY_STATES.MEMBER) return;
+  async handleKicked(kickMsg) {
+    if (this.state !== LOBBY_STATES.MEMBER) {
+      console.debug("KKTP Lobby: Ignoring kick (not a member)", {
+        currentState: this.state,
+      });
+      return;
+    }
 
-    if (kickMsg.lobbyId !== this.lobby.lobbyId) return;
+    if (kickMsg.lobbyId !== this.lobby?.lobbyId) {
+      console.debug("KKTP Lobby: Ignoring kick for different lobby", {
+        kickLobbyId: kickMsg.lobbyId?.slice(0, 16),
+        ourLobbyId: this.lobby?.lobbyId?.slice(0, 16),
+      });
+      return;
+    }
 
-    console.warn("KKTP Lobby: Kicked from lobby", kickMsg.reason);
+    const reason = kickMsg.reason || "Kicked by host";
+    const hostDmMailboxId = this._hostDmMailboxId;
 
+    console.warn("KKTP Lobby: Kicked from lobby", {
+      lobbyId: this.lobby.lobbyId?.slice(0, 16),
+      lobbyName: this.lobby.lobbyName,
+      reason,
+      hostDmMailboxId: hostDmMailboxId?.slice(0, 16),
+    });
+
+    // Emit event before cleanup so UI can react
+    this._onLobbyClose?.(reason);
+
+    // Clean up lobby state (unsubscribes from group mailbox, clears vault, etc.)
     this._cleanup();
-    this._onLobbyClose?.(kickMsg.reason);
+
+    // End the 1:1 DM session with the host
+    // This happens AFTER lobby cleanup to ensure we don't receive more messages
+    if (hostDmMailboxId) {
+      try {
+        await this._endDMSession(hostDmMailboxId, reason);
+        console.info("KKTP Lobby: Ended DM session with host after kick", {
+          dmMailboxId: hostDmMailboxId.slice(0, 16),
+        });
+      } catch (err) {
+        console.warn("KKTP Lobby: Failed to end host DM session after kick", {
+          error: err.message,
+        });
+      }
+    }
+
+    console.info("KKTP Lobby: Cleanup complete after kick");
   }
 
   /**
-   * Handle lobby close notification
+   * Handle lobby close notification (member only)
+   * Can receive this via DM (old path) or via group mailbox (new single-shot path).
+   * Cleans up both lobby state and the 1:1 DM session with the host.
    * @param {Object} closeMsg - Close message
    */
-  handleLobbyClose(closeMsg) {
-    if (this.state !== LOBBY_STATES.MEMBER) return;
+  async handleLobbyClose(closeMsg) {
+    if (this.state !== LOBBY_STATES.MEMBER) {
+      console.debug("KKTP Lobby: Ignoring lobby close (not a member)", {
+        currentState: this.state,
+      });
+      return;
+    }
 
-    if (closeMsg.lobbyId !== this.lobby.lobbyId) return;
+    if (closeMsg.lobbyId !== this.lobby?.lobbyId) {
+      console.debug("KKTP Lobby: Ignoring close for different lobby", {
+        closeLobbyId: closeMsg.lobbyId?.slice(0, 16),
+        ourLobbyId: this.lobby?.lobbyId?.slice(0, 16),
+      });
+      return;
+    }
 
-    console.info("KKTP Lobby: Lobby closed by host", closeMsg.reason);
+    const reason = closeMsg.reason || "Lobby closed by host";
+    const hostDmMailboxId = this._hostDmMailboxId;
 
+    console.info("KKTP Lobby: Lobby closed by host", {
+      lobbyId: this.lobby.lobbyId?.slice(0, 16),
+      lobbyName: this.lobby.lobbyName,
+      reason,
+      hostDmMailboxId: hostDmMailboxId?.slice(0, 16),
+    });
+
+    // Emit event before cleanup so UI can react
+    this._onLobbyClose?.(reason);
+
+    // Clean up lobby state (unsubscribes from group mailbox, clears vault, etc.)
     this._cleanup();
-    this._onLobbyClose?.(closeMsg.reason);
+
+    // End the 1:1 DM session with the host
+    // This happens AFTER lobby cleanup to ensure we don't receive more messages
+    if (hostDmMailboxId) {
+      try {
+        await this._endDMSession(hostDmMailboxId, reason);
+        console.info("KKTP Lobby: Ended DM session with host after close", {
+          dmMailboxId: hostDmMailboxId.slice(0, 16),
+        });
+      } catch (err) {
+        console.warn("KKTP Lobby: Failed to end host DM session after close", {
+          error: err.message,
+        });
+      }
+    }
+
+    console.info("KKTP Lobby: Cleanup complete after lobby close");
   }
 
   /**
    * Leave the lobby voluntarily (member only)
+   * Sends leave notification to host and cleans up the 1:1 DM session.
    * @param {string} [reason="Left voluntarily"]
    */
   async leaveLobby(reason = "Left voluntarily") {
@@ -1275,15 +1453,30 @@ export class LobbyManager {
       throw new Error("Not a lobby member");
     }
 
-    // Notify host via DM (best-effort with retry)
-    if (this.lobby?.dmMailboxId) {
+    if (!this.lobby) {
+      throw new Error("No lobby to leave");
+    }
+
+    const hostDmMailboxId = this.lobby.dmMailboxId || this._hostDmMailboxId;
+
+    console.info("KKTP Lobby: Leaving lobby", {
+      lobbyId: this.lobby.lobbyId?.slice(0, 16),
+      lobbyName: this.lobby.lobbyName,
+      reason,
+      hostDmMailboxId: hostDmMailboxId?.slice(0, 16),
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // Step 1: Notify host via DM (best-effort)
+    // ─────────────────────────────────────────────────────────────
+    if (hostDmMailboxId) {
       try {
         const myKeys = await this.sm.portal.generateIdentityKeys(0);
         if (!myKeys?.sig?.publicKey) {
           throw new Error("Failed to get identity keys");
         }
         await this._sendWithRetry(
-          this.lobby.dmMailboxId,
+          hostDmMailboxId,
           JSON.stringify({
             type: "lobby_leave",
             version: LOBBY_VERSION,
@@ -1294,16 +1487,43 @@ export class LobbyManager {
           }),
           2, // Fewer retries for leave notification
         );
+        console.info("KKTP Lobby: Leave notification sent to host");
       } catch (err) {
         console.warn("KKTP Lobby: Failed to notify host of leave", {
+          error: err.message,
+        });
+        // Continue with cleanup anyway
+      }
+
+      // Wait for UTXO refresh before ending session
+      await this._waitForUtxoRefresh(1500, 3000);
+    }
+
+    // Emit event before cleanup
+    this._onLobbyClose?.(reason);
+
+    // ─────────────────────────────────────────────────────────────
+    // Step 2: Clean up lobby state (unsubscribe from group, clear vault)
+    // ─────────────────────────────────────────────────────────────
+    this._cleanup();
+
+    // ─────────────────────────────────────────────────────────────
+    // Step 3: End the 1:1 DM session with the host (LAST step)
+    // ─────────────────────────────────────────────────────────────
+    if (hostDmMailboxId) {
+      try {
+        await this._endDMSession(hostDmMailboxId, reason);
+        console.info("KKTP Lobby: Ended DM session with host", {
+          dmMailboxId: hostDmMailboxId.slice(0, 16),
+        });
+      } catch (err) {
+        console.warn("KKTP Lobby: Failed to end host DM session", {
           error: err.message,
         });
       }
     }
 
-    this._cleanup();
-
-    console.info("KKTP Lobby: Left lobby", { reason });
+    console.info("KKTP Lobby: Left lobby successfully", { reason });
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -2512,5 +2732,154 @@ export class LobbyManager {
 
     // All retries exhausted
     throw lastError;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // DM Session End - Clean session_end broadcast for 1:1 sessions
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * End a 1:1 DM session cleanly by broadcasting session_end anchor.
+   * This is the FINAL step when leaving/closing a lobby or being kicked.
+   *
+   * The session_end anchor is broadcast to the ledger so the peer can
+   * observe the session termination and clean up their local state.
+   *
+   * @private
+   * @param {string} dmMailboxId - The DM mailbox ID for the 1:1 session
+   * @param {string} [reason="lobby_closed"] - Reason for ending the session
+   * @returns {Promise<boolean>} True if session_end was broadcast, false otherwise
+   */
+  async _endDMSession(dmMailboxId, reason = "lobby_closed") {
+    if (!dmMailboxId) {
+      console.debug("KKTP Lobby: _endDMSession - no dmMailboxId provided");
+      return false;
+    }
+
+    console.info("KKTP Lobby: Ending DM session", {
+      dmMailboxId: dmMailboxId.slice(0, 16),
+      reason,
+    });
+
+    try {
+      // Step 1: Get the session from the vault
+      const session = this.sm.getSession(dmMailboxId);
+      if (!session) {
+        console.info("KKTP Lobby: DM session not found, already closed", {
+          dmMailboxId: dmMailboxId.slice(0, 16),
+        });
+        // Still unsubscribe from the mailbox prefix
+        this.unsubscribeFromDMMailbox(dmMailboxId);
+        return false;
+      }
+
+      // Step 2: Create session_end anchor
+      if (!session.protocol?.createEndAnchor) {
+        console.warn("KKTP Lobby: Session protocol unavailable for session_end", {
+          dmMailboxId: dmMailboxId.slice(0, 16),
+        });
+        // Force close locally without broadcasting
+        this.sm.closeSession(dmMailboxId);
+        this.unsubscribeFromDMMailbox(dmMailboxId);
+        return false;
+      }
+
+      const endAnchor = await session.protocol.createEndAnchor(reason);
+      const payload = buildAnchorPayload(endAnchor);
+
+      // Step 3: Broadcast the session_end to the ledger
+      const address = this.sm.portal?.identity?.address;
+      if (!address) {
+        console.error("KKTP Lobby: No wallet address for session_end broadcast");
+        this.sm.closeSession(dmMailboxId);
+        this.unsubscribeFromDMMailbox(dmMailboxId);
+        return false;
+      }
+
+      await this.sm.portal.send({
+        toAddress: address,
+        amount: "1",
+        payload,
+      });
+
+      console.info("KKTP Lobby: Session_end broadcast successful", {
+        dmMailboxId: dmMailboxId.slice(0, 16),
+        reason,
+      });
+
+      // Step 4: Close the session locally (if not already closed by createEndAnchor)
+      // Note: createEndAnchor calls sm.terminate() which may already close it
+      if (this.sm.getSession(dmMailboxId)) {
+        this.sm.closeSession(dmMailboxId);
+      }
+
+      // Step 5: Unsubscribe from the DM mailbox
+      this.unsubscribeFromDMMailbox(dmMailboxId);
+
+      return true;
+    } catch (err) {
+      console.error("KKTP Lobby: Failed to end DM session", {
+        dmMailboxId: dmMailboxId.slice(0, 16),
+        reason,
+        error: err.message,
+      });
+
+      // Best-effort cleanup even on failure
+      try {
+        this.sm.closeSession(dmMailboxId);
+      } catch { /* ignore */ }
+      this.unsubscribeFromDMMailbox(dmMailboxId);
+
+      return false;
+    }
+  }
+
+  /**
+   * End all DM sessions with lobby members.
+   * Used by the host when closing the lobby.
+   *
+   * @private
+   * @param {string} reason - Reason for ending sessions
+   * @returns {Promise<void>}
+   */
+  async _endAllMemberDMSessions(reason = "lobby_closed") {
+    if (!this.lobby?.members) {
+      console.debug("KKTP Lobby: No members to end DM sessions with");
+      return;
+    }
+
+    const memberIds = Array.from(this.lobby.members.values())
+      .filter(m => m.dmMailboxId)
+      .map(m => ({ memberId: m.memberId, dmMailboxId: m.dmMailboxId }));
+
+    if (memberIds.length === 0) {
+      console.debug("KKTP Lobby: No DM sessions to end");
+      return;
+    }
+
+    console.info("KKTP Lobby: Ending all member DM sessions", {
+      count: memberIds.length,
+      reason,
+    });
+
+    // End sessions sequentially with UTXO refresh between each
+    for (const { memberId, dmMailboxId } of memberIds) {
+      try {
+        await this._endDMSession(dmMailboxId, reason);
+        // Wait for UTXO refresh between session ends
+        if (memberIds.indexOf({ memberId, dmMailboxId }) < memberIds.length - 1) {
+          await this._waitForUtxoRefresh(1000, 2000);
+        }
+      } catch (err) {
+        console.warn("KKTP Lobby: Failed to end DM session with member", {
+          memberId,
+          dmMailboxId: dmMailboxId?.slice(0, 16),
+          error: err.message,
+        });
+        // Continue with next member
+      }
+    }
+
+    console.info("KKTP Lobby: Finished ending all member DM sessions");
   }
 }
