@@ -11,7 +11,16 @@ import {
 } from "./state.js";
 import { elements } from "./dom.js";
 import { saveSessionSnapshot, getStoredDiscoveryBlockHash } from "./storage.js";
-import { recoverSessionsOnLoad, handleFetchMissed, stopDagWalk, isDagWalkActive, getDagWalkProgress } from "./sync.js";
+import {
+  recoverSessionsOnLoad,
+  handleJoinViaBlockHash,
+  stopBackgroundSync,
+  isBackgroundSyncActive,
+  getBackgroundSyncProgress,
+  captureFirstLiveBlock,
+  resetFirstBlockCapture,
+  getFirstLiveBlockHash,
+} from "./sync.js";
 import { handleIncomingMatch, handleIncomingEvent } from "./events.js";
 import { buildAnchorPayload } from "../../kktp/protocol/sessions/index.js";
 import { LobbyFacade, LOBBY_STATES } from "../../kktp/lobby/index.js";
@@ -25,13 +34,14 @@ import {
   updateWalletBalance,
   setCopyStatus,
   updateBroadcastStatus,
+  updateUtxoStatus,
   renderPeerList,
   renderDiscoveredLobbies,
   renderSessionList,
   renderChatMessages,
   setChatEnabled,
   clearMessageInput,
-  setMissedStatus,
+  setJoinStatus,
   showFullWalletAddress,
   renderLobbyMembers,
   renderLobbyChatMessages,
@@ -44,6 +54,19 @@ import {
 // Constants
 const NETWORK_ID = "testnet-10";
 const KKTP_PREFIX = "KKTP:";
+
+// UTXO heartbeat configuration for reliable transaction sending
+const UTXO_CONFIG = Object.freeze({
+  heartbeatIntervalMs: 15000,    // Check every 15 seconds
+  targetUtxoCount: 10,           // Maintain 10 usable UTXOs
+  usableThresholdKas: 1.5,       // Min 1.5 KAS to be "usable"
+  maxSmallUtxos: 30,             // Consolidate if >30 small UTXOs
+  sendAmountKas: "1",            // Default send amount for KKTP messages
+});
+
+// Heartbeat monitor instance
+let heartbeatMonitor = null;
+let cachedPrivateKeys = null;
 
 // Optional debug controls for production (localStorage + query params supported)
 window.KKTP_DEBUG = {
@@ -81,6 +104,186 @@ function flushLocalState() {
     });
   } catch {
     // no-op
+  }
+}
+
+/**
+ * Get private keys for manualSend and heartbeat operations.
+ * Uses kaspaPortal.getPrivateKeys() which delegates to IdentityFacade.
+ * Caches the result to avoid repeated wallet enumeration.
+ * @returns {Promise<Array>} Array of PrivateKey objects
+ */
+async function getPrivateKeys() {
+  if (cachedPrivateKeys) return cachedPrivateKeys;
+
+  try {
+    // Use the portal's getPrivateKeys method (delegates to IdentityFacade -> walletService)
+    const keys = await kaspaPortal.getPrivateKeys({
+      keyCount: 10,
+      changeKeyCount: 5,
+    });
+
+    if (!keys || keys.length === 0) {
+      throw new Error("No private keys returned from wallet");
+    }
+
+    cachedPrivateKeys = keys;
+    logger.debug("KKTP: Cached private keys for transactions", { count: keys.length });
+    return cachedPrivateKeys;
+  } catch (err) {
+    logger.error("KKTP: Failed to get private keys", { error: err.message });
+    throw err;
+  }
+}
+
+/**
+ * Send a KKTP transaction using manualSend for better UTXO control.
+ * Falls back to regular send if manualSend fails.
+ * @param {Object} options - { toAddress, amount, payload }
+ * @returns {Promise<Object>} Transaction result
+ */
+async function sendKKTPTransaction({ toAddress, amount, payload }) {
+  const address = toAddress || dashboardState.walletAddress;
+  const sendAmount = amount || UTXO_CONFIG.sendAmountKas;
+
+  try {
+    const privateKeys = await getPrivateKeys();
+    const result = await kaspaPortal.manualSend({
+      toAddress: address,
+      amount: sendAmount,
+      payload,
+      privateKeys,
+    });
+    logger.debug("KKTP: manualSend success", { txid: result.txid?.slice(0, 16) });
+    return result;
+  } catch (err) {
+    logger.warn("KKTP: manualSend failed, trying regular send", err.message);
+    // Fallback to regular send
+    return kaspaPortal.send({
+      toAddress: address,
+      amount: sendAmount,
+      payload,
+    });
+  }
+}
+
+/**
+ * Start the UTXO heartbeat monitor for reliable transaction sending.
+ * Now monitors BOTH receive and change addresses for complete UTXO visibility.
+ */
+async function startUtxoHeartbeat() {
+  if (heartbeatMonitor) {
+    logger.debug("KKTP: Heartbeat already running");
+    return;
+  }
+
+  try {
+    const privateKeys = await getPrivateKeys();
+
+    // Get both receive and change addresses for complete UTXO monitoring
+    const walletAddresses = await kaspaPortal.getWalletAddresses();
+    const receiveAddress = walletAddresses.receiveAddress || dashboardState.walletAddress;
+    const changeAddress = walletAddresses.changeAddress;
+
+    if (!receiveAddress) {
+      logger.warn("KKTP: Cannot start heartbeat - no wallet address");
+      return;
+    }
+
+    // Build addresses array
+    const addresses = [receiveAddress];
+    if (changeAddress && changeAddress !== receiveAddress) {
+      addresses.push(changeAddress);
+    }
+
+    logger.info("KKTP: Starting UTXO heartbeat", {
+      addressCount: addresses.length,
+      receiveAddr: receiveAddress?.slice(0, 20) + '...',
+      changeAddr: changeAddress ? changeAddress?.slice(0, 20) + '...' : null,
+    });
+
+    const thresholdSompi = BigInt(Math.floor(UTXO_CONFIG.usableThresholdKas * 1e8));
+
+    // Use kaspaPortal.startHeartbeat which auto-detects addresses
+    await kaspaPortal.startHeartbeat({
+      addresses, // Monitor all wallet addresses
+      address: receiveAddress, // Primary address for operations
+      changeAddress: changeAddress,
+      privateKeys,
+      intervalMs: UTXO_CONFIG.heartbeatIntervalMs,
+      targetUtxoCount: UTXO_CONFIG.targetUtxoCount,
+      splitCount: UTXO_CONFIG.targetUtxoCount + 5,
+      usableThreshold: thresholdSompi,
+      maxSmallUtxos: UTXO_CONFIG.maxSmallUtxos,
+      autoConsolidate: true,
+      priorityFee: 0n,
+
+      onCheck: (status) => {
+        const { usableCount, smallCount, totalBalance, addresses: checkedAddresses } = status;
+        const balanceKas = Number(totalBalance) / 1e8;
+        updateUtxoStatus(usableCount, smallCount, balanceKas);
+        logger.debug("KKTP: Heartbeat check", {
+          usableCount,
+          smallCount,
+          balanceKas: balanceKas.toFixed(2),
+          addressCount: checkedAddresses?.length || 1,
+        });
+      },
+
+      onSplit: (result) => {
+        const { previousCount, newCount, transactionId } = result;
+        logEvent(`💓 UTXO split: ${previousCount} → ${newCount} UTXOs`, "success");
+        logger.info("KKTP: Heartbeat split completed", {
+          previousCount,
+          newCount,
+          txid: transactionId?.slice(0, 16),
+        });
+      },
+
+      onConsolidate: (result) => {
+        const { previousCount, newCount, transactionId, emergency } = result;
+        const prefix = emergency ? "🚨" : "🧹";
+        logEvent(`${prefix} UTXO consolidate: ${previousCount} → ${newCount}`, "success");
+        logger.info("KKTP: Heartbeat consolidation completed", {
+          previousCount,
+          newCount,
+          emergency,
+          txid: transactionId?.slice(0, 16),
+        });
+      },
+
+      onError: (errInfo) => {
+        const { type, error, emergency } = errInfo;
+        const prefix = emergency ? "🚨" : "❌";
+        logger.warn("KKTP: Heartbeat error", { type, error: error?.message, emergency });
+        logEvent(`${prefix} Heartbeat ${type}: ${error?.message || error}`, "error");
+        updateUtxoStatus(0, 0, 0, true);
+      },
+    });
+
+    heartbeatMonitor = true;
+    logEvent(`💓 Heartbeat started: monitoring ${addresses.length} address(es)`, "success");
+    logger.info("KKTP: Heartbeat monitor started", {
+      intervalMs: UTXO_CONFIG.heartbeatIntervalMs,
+      targetCount: UTXO_CONFIG.targetUtxoCount,
+      thresholdKas: UTXO_CONFIG.usableThresholdKas,
+      addressCount: addresses.length,
+    });
+  } catch (err) {
+    logger.error("KKTP: Failed to start heartbeat", { error: err.message });
+    logEvent(`Heartbeat failed: ${err.message}`, "error");
+  }
+}
+
+/**
+ * Stop the UTXO heartbeat monitor.
+ */
+function stopUtxoHeartbeat() {
+  if (heartbeatMonitor) {
+    kaspaPortal.stopHeartbeat();
+    heartbeatMonitor = null;
+    logEvent("UTXO heartbeat stopped", "info");
+    logger.info("KKTP: Heartbeat stopped");
   }
 }
 
@@ -229,6 +432,13 @@ function initLobbyManager() {
 
 /**
  * Initialize the dashboard
+ *
+ * NEW STRATEGY (Scanner-First):
+ * 1. Connect to network
+ * 2. Open wallet
+ * 3. Start scanner IMMEDIATELY (UI unlocked)
+ * 4. Restore session snapshots (fast, no DAG walk)
+ * 5. Background sync triggers automatically when first live block is seen
  */
 async function init() {
   logEvent("Initializing KKTP Dashboard...", "info");
@@ -286,10 +496,22 @@ async function init() {
       throttleMs: 250,
     });
 
-    updateBroadcastStatus("Syncing history...", "pending");
-    elements.btnBroadcast.disabled = true;
+    // ─────────────────────────────────────────────────────────────
+    // NEW: Scanner-First Approach - UI unlocked immediately
+    // ─────────────────────────────────────────────────────────────
 
-    logEvent("Recovering sessions on load...", "info");
+    // Step 1: Start scanner FIRST - so we can see live messages immediately
+    logEvent("Starting scanner (instant UI unlock)...", "info");
+    resetFirstBlockCapture(); // Clear any stale state
+    await startScanning();
+    logEvent("Scanner started - UI unlocked!", "success");
+
+    // Enable broadcast immediately - don't wait for sync
+    elements.btnBroadcast.disabled = false;
+    updateBroadcastStatus("Ready to broadcast", "idle");
+
+    // Step 2: Restore session snapshots (fast, no DAG walk)
+    logEvent("Restoring session snapshots...", "info");
     await recoverSessionsOnLoad({
       storageKeyPrefix: resumePrefix,
       networkId: NETWORK_ID,
@@ -299,16 +521,16 @@ async function init() {
       refreshSessionList,
       scheduleSessionSave,
     });
-    logEvent("Recover sessions complete", "success");
+    logEvent("Session restore complete", "success");
     refreshSessionList();
 
-    // Start scanning
-    logEvent("Starting scanner pipeline...", "info");
-    await startScanning();
+    // Step 3: Background sync will start automatically when first live block is seen
+    // (triggered by captureFirstLiveBlock in startScanning's onNewBlock handler)
 
-    // Enable UI
-    elements.btnBroadcast.disabled = false;
-    updateBroadcastStatus("Ready to broadcast", "idle");
+    // Start UTXO heartbeat for reliable transaction sending
+    logEvent("Starting UTXO heartbeat...", "info");
+    await startUtxoHeartbeat();
+
     logEvent("Dashboard ready!", "success");
   } catch (err) {
     logEvent(`Initialization failed: ${err.message}`, "error");
@@ -346,26 +568,12 @@ function setupEventListeners() {
     dashboardState.uptimeSeconds = parseInt(e.target.value) || 3600;
   });
 
-  // Fetch missed messages
-  elements.btnFetchMissed?.addEventListener("click", () => {
-    updateDagWalkButtons(true);
-    handleFetchMissed({
+  // Join via block hash - search a single block for KKTP payloads
+  elements.btnJoinViaHash?.addEventListener("click", () => {
+    handleJoinViaBlockHash({
       handleIncomingEvent: (event) =>
         handleIncomingEvent(event, getEventDeps()),
-      scheduleSessionSave,
-      onProgress: (progress) => {
-        updateDagWalkProgress(progress);
-      },
-    }).finally(() => {
-      updateDagWalkButtons(false);
     });
-  });
-
-  // Stop DAG walk button
-  elements.btnStopDagWalk?.addEventListener("click", () => {
-    if (stopDagWalk()) {
-      logEvent("DAG walk stop requested", "info");
-    }
   });
 
   // Copy discovery block hash
@@ -415,6 +623,12 @@ function setupEventListeners() {
     if (document.visibilityState === "hidden") {
       flushLocalState();
     }
+  });
+
+  // Clean up heartbeat on page unload
+  window.addEventListener("beforeunload", () => {
+    stopUtxoHeartbeat();
+    flushLocalState();
   });
 }
 
@@ -481,42 +695,6 @@ async function handleCopyDiscoveryHash() {
 }
 
 /**
- * Update DAG walk button visibility based on walk state
- * @param {boolean} isWalking - Whether a DAG walk is in progress
- */
-function updateDagWalkButtons(isWalking) {
-  const btnFetch = elements.btnFetchMissed;
-  const btnStop = elements.btnStopDagWalk;
-  const progress = elements.dagWalkProgress;
-
-  if (btnFetch) {
-    btnFetch.disabled = isWalking;
-  }
-  if (btnStop) {
-    btnStop.style.display = isWalking ? "inline-block" : "none";
-  }
-  if (progress) {
-    progress.style.display = isWalking ? "block" : "none";
-    if (!isWalking) {
-      progress.textContent = "";
-    }
-  }
-}
-
-/**
- * Update DAG walk progress display
- * @param {{ blocksProcessed: number, elapsedMs: number, lastBlockHash: string }} progress
- */
-function updateDagWalkProgress(progress) {
-  const el = elements.dagWalkProgress;
-  if (!el) return;
-
-  const elapsed = Math.round(progress.elapsedMs / 1000);
-  const hashShort = progress.lastBlockHash ? progress.lastBlockHash.slice(0, 8) + "..." : "—";
-  el.textContent = `Blocks: ${progress.blocksProcessed} | Time: ${elapsed}s | Last: ${hashShort}`;
-}
-
-/**
  * Show discovery block hash section for hosts to share with peers
  * @param {string} blockHash - The discovery block hash to display
  */
@@ -577,6 +755,8 @@ async function waitForDiscoveryBlockHash() {
 
 /**
  * Start scanning for KKTP messages
+ *
+ * NEW: Captures first live block to trigger background sync
  */
 async function startScanning() {
   logEvent("Starting DAG scanner...", "info");
@@ -595,7 +775,17 @@ async function startScanning() {
     handleIncomingMatch(match, eventDeps),
   );
 
-  logEvent("Scanner subscribed to match events", "info");
+  // NEW: Subscribe to block events to capture first live block
+  // This triggers background sync automatically
+  kaspaPortal.onNewBlock((block) => {
+    const blockHash = block?.hash || block?.verboseData?.hash;
+    if (blockHash) {
+      // captureFirstLiveBlock only captures once, ignores subsequent calls
+      captureFirstLiveBlock(blockHash);
+    }
+  });
+
+  logEvent("Scanner subscribed to block & match events", "info");
 
   await kaspaPortal.startScanner();
   updateScannerStatus("ready");
@@ -657,11 +847,11 @@ async function handleBroadcastDiscovery() {
       logEvent(`Lobby hosted: ${lobbyId.substring(0, 8)}...`, "success");
 
       // Show discovery hash section - wait briefly for mining, then show stored hash
-      setMissedStatus("Waiting for discovery to be mined...");
+      setJoinStatus("Waiting for discovery to be mined...");
       waitForDiscoveryBlockHash().then((hash) => {
         if (hash) {
           showDiscoveryBlockHash(hash);
-          setMissedStatus(`Discovery mined @ ${hash.slice(0, 8)}... - share with peers!`);
+          setJoinStatus(`Discovery mined @ ${hash.slice(0, 8)}... - share with peers!`);
         }
       });
     } else {
@@ -687,7 +877,7 @@ async function handleBroadcastDiscovery() {
       );
 
       // For regular discoveries, just show waiting message
-      setMissedStatus("Waiting for discovery to be mined...");
+      setJoinStatus("Waiting for discovery to be mined...");
     }
 
     scheduleSessionSave();
@@ -776,9 +966,9 @@ async function handleCloseSession() {
     const address =
       dashboardState.walletAddress || kaspaPortal.identity.address;
 
-    await kaspaPortal.send({
+    await sendKKTPTransaction({
       toAddress: address,
-      amount: "1",
+      amount: UTXO_CONFIG.sendAmountKas,
       payload,
     });
 

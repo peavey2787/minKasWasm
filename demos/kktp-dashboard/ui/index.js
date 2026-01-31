@@ -3,9 +3,10 @@ export { logEvent, clearEventLog } from "./logPanel.js";
 export {
   updateConnectionStatus,
   updateScannerStatus,
+  updateUtxoStatus,
   updateIdentityDisplay,
   updateBroadcastStatus,
-  setMissedStatus,
+  setJoinStatus,
 } from "./statusDisplay.js";
 export {
   updateWalletAddress,

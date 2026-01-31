@@ -201,11 +201,21 @@ export async function consolidateUtxos({
 
   const initialCount = entries.length;
 
+  // If we already have fewer UTXOs than target, nothing to consolidate
+  // Return early with a no-op result (not an error)
   if (initialCount <= targetCount) {
-    throw new Error(
-      `Already have ${initialCount} UTXOs, which is <= target ${targetCount}. ` +
-      `Use Split instead to increase UTXO count.`
+    console.log(
+      `[consolidateUtxos] Already have ${initialCount} UTXOs (<= target ${targetCount}). No consolidation needed.`
     );
+    return {
+      transactionIds: [],
+      rounds: 0,
+      totalConsolidated: 0,
+      previousUtxoCount: initialCount,
+      finalUtxoCount: initialCount,
+      spentKeys: [],
+      noOpReason: "already_at_or_below_target",
+    };
   }
 
   const txids = [];

@@ -5,6 +5,7 @@ export const elements = {
   // Status
   get connectionStatus() { return $("connectionStatus"); },
   get scannerStatus() { return $("scannerStatus"); },
+  get utxoStatus() { return $("utxoStatus"); },
   get identityDisplay() { return $("identityDisplay"); },
 
   // Identity Hub
@@ -15,14 +16,12 @@ export const elements = {
   get walletAddress() { return $("walletAddress"); },
   get btnCopyAddress() { return $("btnCopyAddress"); },
   get walletBalance() { return $("walletBalance"); },
-  get missedStartHashInput() { return $("missedStartHashInput"); },
-  get btnFetchMissed() { return $("btnFetchMissed"); },
-  get missedStatus() { return $("missedStatus"); },
-  get btnStopDagWalk() { return $("btnStopDagWalk"); },
+  get joinBlockHashInput() { return $("joinBlockHashInput"); },
+  get btnJoinViaHash() { return $("btnJoinViaHash"); },
+  get joinStatus() { return $("joinStatus"); },
   get discoveryBlockHashSection() { return $("discoveryBlockHashSection"); },
   get discoveryBlockHashDisplay() { return $("discoveryBlockHashDisplay"); },
   get btnCopyDiscoveryHash() { return $("btnCopyDiscoveryHash"); },
-  get dagWalkProgress() { return $("dagWalkProgress"); },
 
   // Lobby Controls
   get lobbyModeCheckbox() { return $("lobbyModeCheckbox"); },

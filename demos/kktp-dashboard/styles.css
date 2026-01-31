@@ -118,8 +118,8 @@ body {
   --bs-btn-color: #0d0d0d;
 }
 
-/* DAG Walk Progress */
-#dagWalkProgress {
+/* Join Status */
+#joinStatus {
   font-family: monospace;
   font-size: 0.75rem;
   color: var(--kktp-accent-dim);
@@ -140,16 +140,37 @@ body {
   background-color: rgba(0, 0, 0, 0.3);
 }
 
-/* Stop button styling */
-#btnStopDagWalk {
-  min-width: 60px;
-}
-
 @media (min-width: 992px) {
   .offcanvas-lg {
     position: static;
     visibility: visible !important;
     transform: none !important;
     border: 0;
+  }
+}
+
+/* UTXO Status Badge */
+.utxo-badge {
+  cursor: help;
+  transition: all 0.2s ease;
+}
+
+.utxo-badge:hover {
+  transform: scale(1.05);
+}
+
+/* Critical UTXO state - pulsing animation */
+.utxo-critical {
+  animation: utxo-pulse 1s ease-in-out infinite;
+}
+
+@keyframes utxo-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
   }
 }

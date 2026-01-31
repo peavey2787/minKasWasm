@@ -762,9 +762,42 @@ export async function scanDagBackward({
       }
 
       // 3. Add parents to queue
-      const parents = block.header?.parentHashes || block.parentHashes || [];
-      for (const parent of parents) {
-        if (!visited.has(parent)) queue.push(parent);
+      // WASM block uses header.parentsByLevel (array of arrays)
+      // REST API uses header.parents (array of { parentHashes[] })
+      // Also support flat parentHashes for dehydrated blocks
+      let allParentHashes = [];
+
+      // Try WASM format: parentsByLevel is array of arrays
+      const parentsByLevel = block.header?.parentsByLevel;
+      if (Array.isArray(parentsByLevel)) {
+        for (const level of parentsByLevel) {
+          if (Array.isArray(level)) {
+            allParentHashes.push(...level);
+          }
+        }
+      }
+
+      // Try REST API format: parents is array of { parentHashes[] }
+      const parentsArray = block.header?.parents;
+      if (Array.isArray(parentsArray)) {
+        for (const group of parentsArray) {
+          if (Array.isArray(group?.parentHashes)) {
+            allParentHashes.push(...group.parentHashes);
+          }
+        }
+      }
+
+      // Fallback: flat parentHashes array (dehydrated or older format)
+      const flatParents = block.header?.parentHashes || block.parentHashes;
+      if (Array.isArray(flatParents)) {
+        allParentHashes.push(...flatParents);
+      }
+
+      // Add unique parents to queue
+      for (const parent of allParentHashes) {
+        if (parent && typeof parent === "string" && !visited.has(parent)) {
+          queue.push(parent);
+        }
       }
     } finally {
       // SWEEP: This runs even after the 'return' statements above.

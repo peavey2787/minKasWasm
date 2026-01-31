@@ -285,22 +285,77 @@ export class KaspaPortal {
   // ─────────────────────────────────────────────────────────────
 
   /**
+   * Get the wallet's change address.
+   * @returns {Promise<string|null>}
+   */
+  async getChangeAddress() {
+    try {
+      const account = await this.identity?.getActiveAccount();
+      return account?.changeAddress || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get both receive and change addresses for UTXO monitoring.
+   * @returns {Promise<{ receiveAddress: string|null, changeAddress: string|null }>}
+   */
+  async getWalletAddresses() {
+    try {
+      const account = await this.identity?.getActiveAccount();
+      return {
+        receiveAddress: account?.receiveAddress || this.identity?.address || null,
+        changeAddress: account?.changeAddress || null,
+      };
+    } catch {
+      return {
+        receiveAddress: this.identity?.address || null,
+        changeAddress: null,
+      };
+    }
+  }
+
+  /**
    * Start the heartbeat monitor for automatic UTXO replenishment.
    * Checks UTXO count periodically and triggers splits if running low.
+   * Enhanced to auto-detect and monitor both receive and change addresses.
    *
    * @param {Object} options
-   * @param {string} options.address - Address to monitor
+   * @param {string} [options.address] - Address to monitor (auto-detected if not provided)
+   * @param {string} [options.changeAddress] - Change address to monitor (auto-detected if not provided)
+   * @param {string[]} [options.addresses] - All addresses to monitor (alternative to address+changeAddress)
+   * @param {boolean} [options.includeChangeAddress=true] - Whether to include change address
    * @param {Array} options.privateKeys - Private keys for splitting
    * @param {number} [options.intervalMs=30000] - Check interval (default 30s)
    * @param {number} [options.targetUtxoCount=10] - Minimum UTXO count threshold
    * @param {number} [options.splitCount=5] - Number of UTXOs to create when splitting
    * @param {bigint} [options.priorityFee=0n] - Priority fee for split transactions
-   * @param {function} [options.onCheck] - Callback on each check ({ utxoCount, targetUtxoCount, totalBalance, entries })
+   * @param {function} [options.onCheck] - Callback on each check ({ utxoCount, targetUtxoCount, totalBalance, entries, addresses })
    * @param {function} [options.onSplit] - Callback when split is triggered ({ previousCount, newCount, transactionId, result })
    * @param {function} [options.onError] - Callback on error ({ type: 'check'|'split', error })
    */
-  startHeartbeat(options) {
-    return this.transport.startHeartbeat(options);
+  async startHeartbeat(options = {}) {
+    const { includeChangeAddress = true, ...restOptions } = options;
+
+    // Auto-detect addresses from wallet if not provided
+    if (!restOptions.addresses && (!restOptions.address || (includeChangeAddress && !restOptions.changeAddress))) {
+      try {
+        const walletAddresses = await this.getWalletAddresses();
+
+        if (!restOptions.address && walletAddresses.receiveAddress) {
+          restOptions.address = walletAddresses.receiveAddress;
+        }
+
+        if (includeChangeAddress && !restOptions.changeAddress && walletAddresses.changeAddress) {
+          restOptions.changeAddress = walletAddresses.changeAddress;
+        }
+      } catch (err) {
+        console.warn("[KaspaPortal] Failed to auto-detect wallet addresses for heartbeat:", err.message);
+      }
+    }
+
+    return this.transport.startHeartbeat(restOptions);
   }
 
   /**

@@ -1,86 +1,234 @@
 // sync.js - Blockchain intelligence layer (DAG sync + catch-up)
+//
+// OPTIMIZED STRATEGY (2026):
+// 1. Start scanner immediately → UI is unlocked, can see live messages
+// 2. Capture first live block hash from scanner
+// 3. Background walk BACKWARD with PARALLEL RPC requests (50+ concurrent)
+// 4. Save progress to IndexedDB so refresh doesn't lose work
+// 5. Target: 100+ blocks/second with parallel fetching
+//
 import { kaspaPortal } from "../../wrapper/kaspaPortal.js";
 import { hexToString } from "../../wrapper/utilities/utilities.js";
 import { dashboardState } from "./state.js";
 import { elements } from "./dom.js";
-import { logEvent, setMissedStatus, updateScannerStatus } from "./ui.js";
+import { logEvent, setJoinStatus } from "./ui.js";
+import { logger } from "./logger.js";
 import {
   getStoredDiscoveryBlockHash,
-  setStoredDiscoveryBlockHash,
-  getStoredLastSeenBlockHash,
   setStoredLastSeenBlockHash,
   loadSessionSnapshot,
 } from "./storage.js";
 
 const KKTP_PREFIX = "KKTP:";
-const DAG_WALK_UNLIMITED_SECONDS = 86400; // 24hrs
 
 // ─────────────────────────────────────────────────────────────
-// DAG Walk State Management
+// Parallel Fetch Configuration
 // ─────────────────────────────────────────────────────────────
 
-/**
- * Active DAG walk state - tracks current walk progress and allows stopping
- */
-const activeDagWalk = {
+// Number of concurrent RPC requests - tune based on node capacity
+const PARALLEL_FETCH_COUNT = 50;
+
+// Batch size for progress saves (save every N blocks)
+const PROGRESS_SAVE_INTERVAL = 500;
+
+// IndexedDB configuration for sync progress
+const SYNC_DB_NAME = "kktp-sync-progress";
+const SYNC_DB_VERSION = 1;
+const SYNC_STORE_NAME = "progress";
+
+// Progress expiry (1 hour - after this, start fresh)
+const PROGRESS_MAX_AGE_MS = 60 * 60 * 1000;
+
+// ─────────────────────────────────────────────────────────────
+// Background Sync State Management
+// ─────────────────────────────────────────────────────────────
+
+const backgroundSync = {
   isActive: false,
   stopped: false,
   blocksProcessed: 0,
   startedAt: 0,
-  lastBlockHash: "",
-  startHash: "",
+  fromHash: "",
+  targetHash: "",
+  currentHash: "",
+  handleIncomingEvent: null,
+  scheduleSessionSave: null,
 };
 
-// Update last seen block hash every N blocks to avoid excessive writes
-const BLOCK_HASH_UPDATE_INTERVAL = 100;
+let firstLiveBlockHash = null;
+let firstLiveBlockCaptured = false;
+
+// ─────────────────────────────────────────────────────────────
+// IndexedDB Progress Persistence
+// ─────────────────────────────────────────────────────────────
+
+let syncDbPromise = null;
 
 /**
- * Stop the current DAG walk if one is in progress
- * @returns {boolean} True if a walk was stopped, false if none was active
+ * Open (or create) the sync progress IndexedDB database
+ * @returns {Promise<IDBDatabase>}
  */
-export function stopDagWalk() {
-  if (!activeDagWalk.isActive) {
-    return false;
+function openSyncDb() {
+  if (syncDbPromise) return syncDbPromise;
+
+  syncDbPromise = new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") {
+      reject(new Error("IndexedDB not available"));
+      return;
+    }
+
+    const request = indexedDB.open(SYNC_DB_NAME, SYNC_DB_VERSION);
+
+    request.onerror = () => {
+      syncDbPromise = null;
+      reject(request.error);
+    };
+
+    request.onsuccess = () => {
+      resolve(request.result);
+    };
+
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(SYNC_STORE_NAME)) {
+        db.createObjectStore(SYNC_STORE_NAME, { keyPath: "id" });
+      }
+    };
+  });
+
+  return syncDbPromise;
+}
+
+/**
+ * Save sync progress to IndexedDB
+ * @param {Set<string>} visited - Set of visited block hashes
+ * @param {string} currentHash - Current position in the walk
+ * @param {string} targetHash - Target hash we're walking toward
+ * @param {number} blocksProcessed - Number of blocks processed so far
+ */
+async function saveSyncProgress(visited, currentHash, targetHash, blocksProcessed) {
+  try {
+    const db = await openSyncDb();
+
+    // Only save the most recently visited hashes (last 50K) to avoid huge storage
+    const visitedArray = Array.from(visited);
+    const recentHashes = visitedArray.length > 50000
+      ? visitedArray.slice(-50000)
+      : visitedArray;
+
+    const progress = {
+      id: "current",
+      visitedHashes: recentHashes,
+      currentHash,
+      targetHash,
+      blocksProcessed,
+      savedAt: Date.now(),
+    };
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(SYNC_STORE_NAME, "readwrite");
+      const store = tx.objectStore(SYNC_STORE_NAME);
+      const request = store.put(progress);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    logger.warn("KKTP Sync: Failed to save progress to IndexedDB", { error: err.message });
   }
-  activeDagWalk.stopped = true;
-  logEvent("DAG walk stop requested...", "info");
+}
+
+/**
+ * Load saved sync progress from IndexedDB
+ * @returns {Promise<Object|null>}
+ */
+async function loadSyncProgress() {
+  try {
+    const db = await openSyncDb();
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(SYNC_STORE_NAME, "readonly");
+      const store = tx.objectStore(SYNC_STORE_NAME);
+      const request = store.get("current");
+
+      request.onsuccess = () => {
+        const progress = request.result;
+
+        if (!progress) {
+          resolve(null);
+          return;
+        }
+
+        // Check if progress is still valid (not too old)
+        const ageMs = Date.now() - (progress.savedAt || 0);
+        if (ageMs > PROGRESS_MAX_AGE_MS) {
+          clearSyncProgress().catch(() => {});
+          resolve(null);
+          return;
+        }
+
+        resolve(progress);
+      };
+
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    logger.warn("KKTP Sync: Failed to load progress from IndexedDB", { error: err.message });
+    return null;
+  }
+}
+
+/**
+ * Clear saved sync progress from IndexedDB
+ */
+async function clearSyncProgress() {
+  try {
+    const db = await openSyncDb();
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(SYNC_STORE_NAME, "readwrite");
+      const store = tx.objectStore(SYNC_STORE_NAME);
+      const request = store.delete("current");
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    logger.debug("KKTP Sync: Failed to clear progress", { error: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Public API
+// ─────────────────────────────────────────────────────────────
+
+export function stopBackgroundSync() {
+  if (!backgroundSync.isActive) return false;
+  backgroundSync.stopped = true;
+  logEvent("Background sync stop requested...", "info");
   return true;
 }
 
-/**
- * Check if a DAG walk is currently in progress
- * @returns {boolean}
- */
-export function isDagWalkActive() {
-  return activeDagWalk.isActive;
+export function isBackgroundSyncActive() {
+  return backgroundSync.isActive;
 }
 
-/**
- * Get current DAG walk progress info
- * @returns {{ blocksProcessed: number, elapsedMs: number, lastBlockHash: string } | null}
- */
-export function getDagWalkProgress() {
-  if (!activeDagWalk.isActive) return null;
+export function getBackgroundSyncProgress() {
+  if (!backgroundSync.isActive) return null;
   return {
-    blocksProcessed: activeDagWalk.blocksProcessed,
-    elapsedMs: Date.now() - activeDagWalk.startedAt,
-    lastBlockHash: activeDagWalk.lastBlockHash,
+    blocksProcessed: backgroundSync.blocksProcessed,
+    elapsedMs: Date.now() - backgroundSync.startedAt,
+    currentHash: backgroundSync.currentHash,
   };
 }
 
-/**
- * Get the best starting block hash for DAG walks
- * Priority: manual input > lastSeenBlockHash > discoveryBlockHash
- * @param {string} [manualHash] - Optional manually provided hash
- * @returns {{ hash: string, source: "manual" | "lastSeen" | "discovery" | "none" }}
- */
 export function getBestStartHash(manualHash = "") {
   const manual = manualHash?.trim() || "";
   if (manual && manual.length === 64) {
     return { hash: manual, source: "manual" };
   }
 
-  const lastSeen = getStoredLastSeenBlockHash();
+  const lastSeen = localStorage.getItem("kktp:lastSeenBlockHash") || "";
   if (lastSeen && lastSeen.length === 64) {
     return { hash: lastSeen, source: "lastSeen" };
   }
@@ -102,149 +250,435 @@ export function decodeHexPayload(payloadHex) {
   }
 }
 
-async function restoreSavedSessions({
-  networkId,
-  walletAddress,
-  scheduleSessionSave,
-} = {}) {
+// ─────────────────────────────────────────────────────────────
+// First Block Capture - Scanner Integration
+// ─────────────────────────────────────────────────────────────
+
+export function captureFirstLiveBlock(blockHash) {
+  if (firstLiveBlockCaptured || !blockHash) return;
+
+  firstLiveBlockHash = blockHash;
+  firstLiveBlockCaptured = true;
+
+  setStoredLastSeenBlockHash(blockHash);
+
+  logger.info("KKTP Sync: First live block captured", { blockHash: blockHash.slice(0, 16) });
+  logEvent(`Live block: ${blockHash.slice(0, 8)}...`, "info");
+
+  const targetHash = getStoredDiscoveryBlockHash();
+
+  if (targetHash && targetHash !== blockHash) {
+    logEvent(`Background sync queued: ${blockHash.slice(0, 8)}... → ${targetHash.slice(0, 8)}...`, "info");
+    setJoinStatus("Background sync queued...");
+
+    setTimeout(() => {
+      startBackgroundSync(blockHash, targetHash, {
+        handleIncomingEvent: backgroundSync.handleIncomingEvent,
+        scheduleSessionSave: backgroundSync.scheduleSessionSave,
+      });
+    }, 3000);
+  } else if (!targetHash) {
+    logEvent("No saved hash - fresh start, no background sync needed", "info");
+  }
+}
+
+export function resetFirstBlockCapture() {
+  firstLiveBlockHash = null;
+  firstLiveBlockCaptured = false;
+}
+
+export function getFirstLiveBlockHash() {
+  return firstLiveBlockHash;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Session Restoration
+// ─────────────────────────────────────────────────────────────
+
+async function restoreSavedSessions({ networkId, walletAddress, scheduleSessionSave } = {}) {
   const snap = await loadSessionSnapshot({ networkId, walletAddress });
   if (!snap) {
-    console.info("KKTP: restoreSavedSessions no snapshot");
+    logger.info("KKTP Sync: No saved snapshot found");
     return;
   }
-  console.info(
-    "KKTP: restoreSavedSessions",
-    JSON.stringify({
-      sessionCount: Array.isArray(snap?.sessions) ? snap.sessions.length : 0,
-    }),
-  );
+
+  logger.info("KKTP Sync: Restoring snapshot", {
+    sessionCount: Array.isArray(snap?.sessions) ? snap.sessions.length : 0,
+  });
+
   await kaspaPortal.restoreSessions(snap, { skipExpired: true });
   kaspaPortal.pruneExpiredSessions();
   scheduleSessionSave?.();
 }
 
-export async function syncFromStartHash(
-  startHash,
+// ─────────────────────────────────────────────────────────────
+// Parallel Block Fetching
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Fetch multiple blocks in parallel for dramatically faster sync.
+ * @param {Object} client - RPC client
+ * @param {string[]} hashes - Block hashes to fetch
+ * @returns {Promise<Array<{ hash: string, block: Object|null, error: Error|null }>>}
+ */
+async function fetchBlocksParallel(client, hashes) {
+  const results = await Promise.allSettled(
+    hashes.map(async (hash) => {
+      try {
+        const resp = await client.getBlock({ hash, includeTransactions: true });
+        return { hash, block: resp?.block || null, error: null };
+      } catch (err) {
+        return { hash, block: null, error: err };
+      }
+    })
+  );
+
+  return results.map((r, i) => {
+    if (r.status === "fulfilled") {
+      return r.value;
+    }
+    return { hash: hashes[i], block: null, error: r.reason };
+  });
+}
+
+/**
+ * Extract all parent hashes from a block (handles WASM, REST, and dehydrated formats)
+ * @param {Object} block - Block object
+ * @returns {string[]} Array of parent hash strings
+ */
+function extractParentHashes(block) {
+  const parents = new Set();
+
+  // WASM format: parentsByLevel is array of arrays
+  const parentsByLevel = block.header?.parentsByLevel;
+  if (Array.isArray(parentsByLevel)) {
+    for (const level of parentsByLevel) {
+      if (Array.isArray(level)) {
+        for (const hash of level) {
+          if (typeof hash === "string" && hash.length === 64) {
+            parents.add(hash);
+          }
+        }
+      }
+    }
+  }
+
+  // REST API format: parents is array of { parentHashes[] }
+  const parentsArray = block.header?.parents;
+  if (Array.isArray(parentsArray)) {
+    for (const group of parentsArray) {
+      if (Array.isArray(group?.parentHashes)) {
+        for (const hash of group.parentHashes) {
+          if (typeof hash === "string" && hash.length === 64) {
+            parents.add(hash);
+          }
+        }
+      }
+    }
+  }
+
+  // Fallback: flat parentHashes array
+  const flatParents = block.header?.parentHashes || block.parentHashes;
+  if (Array.isArray(flatParents)) {
+    for (const hash of flatParents) {
+      if (typeof hash === "string" && hash.length === 64) {
+        parents.add(hash);
+      }
+    }
+  }
+
+  return Array.from(parents);
+}
+// ─────────────────────────────────────────────────────────────
+// Background Backward Sync (OPTIMIZED with Parallel Fetching)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Start background backward sync with PARALLEL RPC requests.
+ *
+ * Key optimizations:
+ * 1. Fetches PARALLEL_FETCH_COUNT (50) blocks simultaneously
+ * 2. Saves progress to IndexedDB periodically to resume after refresh
+ * 3. Uses Set for O(1) visited checks
+ * 4. Batches parent hash extraction
+ *
+ * Target: 100-200+ blocks/second (vs 5 blocks/second sequential)
+ */
+async function startBackgroundSync(
+  fromHash,
+  targetHash,
   {
-    handleIncomingEvent,
-    logPrefix = "DAG",
+    handleIncomingEvent = null,
+    scheduleSessionSave = null,
     onProgress = null,
-    maxSeconds = DAG_WALK_UNLIMITED_SECONDS,
   } = {},
 ) {
-  if (!startHash) return 0;
+  if (backgroundSync.isActive) {
+    logger.warn("KKTP Sync: Background sync already active");
+    return;
+  }
 
-  // Initialize walk state
-  activeDagWalk.isActive = true;
-  activeDagWalk.stopped = false;
-  activeDagWalk.blocksProcessed = 0;
-  activeDagWalk.startedAt = Date.now();
-  activeDagWalk.lastBlockHash = startHash;
-  activeDagWalk.startHash = startHash;
+  if (!fromHash || !targetHash) {
+    logger.warn("KKTP Sync: Missing hashes for background sync");
+    return;
+  }
 
-  updateScannerStatus("syncing");
-  logEvent(`[${logPrefix}] Sync start @ ${startHash.slice(0, 8)}... (unlimited)`, "info");
+  if (fromHash === targetHash) {
+    logEvent("Already synced to target hash", "success");
+    return;
+  }
+
+  // Check for saved progress we can resume from
+  const savedProgress = await loadSyncProgress();
+  let visited = new Set();
+  let resuming = false;
+  let initialBlocksProcessed = 0;
+
+  if (savedProgress && savedProgress.targetHash === targetHash) {
+    // Resume from saved progress
+    visited = new Set(savedProgress.visitedHashes || []);
+    initialBlocksProcessed = savedProgress.blocksProcessed || 0;
+    resuming = true;
+    console.log(`🔄 RESUMING SYNC from ${visited.size} previously visited blocks (${initialBlocksProcessed} processed)`);
+  } else {
+    // Fresh start - clear any old progress
+    await clearSyncProgress();
+  }
+
+  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  console.log("🚀 PARALLEL BACKGROUND SYNC STARTING");
+  console.log(`   From: ${fromHash}`);
+  console.log(`   To:   ${targetHash}`);
+  console.log(`   Parallel requests: ${PARALLEL_FETCH_COUNT}`);
+  console.log(`   Resuming: ${resuming} (${visited.size} blocks already visited)`);
+  console.log("   Target: 100-200+ blocks/second");
+  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+  logEvent(`Background sync: ${fromHash.slice(0, 8)}... → ${targetHash.slice(0, 8)}...`, "info");
+  setJoinStatus(resuming ? "Resuming parallel sync..." : "Starting parallel sync...");
+
+  // Initialize state
+  backgroundSync.isActive = true;
+  backgroundSync.stopped = false;
+  backgroundSync.blocksProcessed = initialBlocksProcessed;
+  backgroundSync.startedAt = Date.now();
+  backgroundSync.fromHash = fromHash;
+  backgroundSync.targetHash = targetHash;
+  backgroundSync.currentHash = fromHash;
 
   const pendingPayloads = [];
   const seen = dashboardState.processedTxIds;
-  let lastHashUpdateAt = 0;
+  let reachedTarget = false;
+  let noMoreData = false;
+  let lastProgressSave = Date.now();
+  let blocksThisSession = 0;
+
+  // Queue of hashes to process
+  let queue = [fromHash];
 
   try {
-    await kaspaPortal.syncFrom(
-      startHash,
-      (line) => logEvent(`[${logPrefix}] ${line}`, "info"),
-      {
-        prefixes: [KKTP_PREFIX],
-        maxSeconds: DAG_WALK_UNLIMITED_SECONDS,
-        onTransactionMatch: [
-          ({ block, tx }) => {
-            // Check if walk was stopped
-            if (activeDagWalk.stopped) {
-              return true; // Signal to stop
-            }
+    const client = kaspaPortal.client;
+    if (!client) {
+      throw new Error("RPC client not available");
+    }
 
-            activeDagWalk.blocksProcessed++;
+    console.log("📡 RPC client ready, starting parallel backward DAG walk...");
 
-            // Track latest block hash for progress
-            const blockHash = block?.hash || tx?.blockHash || "";
-            if (blockHash) {
-              activeDagWalk.lastBlockHash = blockHash;
+    while (queue.length > 0) {
+      // Check if user manually stopped
+      if (backgroundSync.stopped) {
+        console.log("🛑 Stopped by user - saving progress...");
+        await saveSyncProgress(visited, backgroundSync.currentHash, targetHash, backgroundSync.blocksProcessed);
+        break;
+      }
 
-              // Update stored last seen hash periodically
-              if (activeDagWalk.blocksProcessed - lastHashUpdateAt >= BLOCK_HASH_UPDATE_INTERVAL) {
-                setStoredLastSeenBlockHash(blockHash);
-                lastHashUpdateAt = activeDagWalk.blocksProcessed;
-              }
-            }
+      // Take up to PARALLEL_FETCH_COUNT hashes from queue (skip already visited)
+      const batchHashes = [];
+      while (batchHashes.length < PARALLEL_FETCH_COUNT && queue.length > 0) {
+        const hash = queue.shift();
+        if (!visited.has(hash)) {
+          batchHashes.push(hash);
+          visited.add(hash);
+        }
+      }
 
-            // Report progress
-            if (typeof onProgress === "function") {
-              onProgress({
-                blocksProcessed: activeDagWalk.blocksProcessed,
-                elapsedMs: Date.now() - activeDagWalk.startedAt,
-                lastBlockHash: blockHash,
-              });
-            }
+      if (batchHashes.length === 0) {
+        continue;
+      }
 
-            const txId = tx?.txid || "";
-            if (txId && seen.has(txId)) return false;
+      // Check if target is in this batch
+      if (batchHashes.includes(targetHash)) {
+        reachedTarget = true;
+        console.log("🎯 TARGET HASH IN BATCH - completing sync!");
+      }
+
+      // Fetch all blocks in parallel
+      const results = await fetchBlocksParallel(client, batchHashes);
+
+      // Process results
+      for (const { hash, block, error } of results) {
+        if (error) {
+          const errMsg = error?.message || String(error);
+          if (errMsg.includes("not found") || errMsg.includes("pruned") || errMsg.includes("doesn't exist")) {
+            continue;
+          }
+          logger.debug("KKTP Sync: Block fetch error", { hash: hash.slice(0, 16), error: errMsg });
+          continue;
+        }
+
+        if (!block) continue;
+
+        backgroundSync.blocksProcessed++;
+        blocksThisSession++;
+        backgroundSync.currentHash = hash;
+
+        // Check for KKTP payloads in transactions
+        if (Array.isArray(block.transactions)) {
+          for (const tx of block.transactions) {
+            const txId = tx?.verboseData?.transactionId || tx?.id || "";
+            if (txId && seen.has(txId)) continue;
             if (txId) seen.add(txId);
 
             const payloadHex = tx?.payload || "";
+            if (!payloadHex) continue;
+
             const payload = decodeHexPayload(payloadHex);
             if (payload && payload.startsWith(KKTP_PREFIX)) {
+              console.log(`📬 Found KKTP payload in block ${hash.slice(0, 8)}...`);
               pendingPayloads.push({
                 payload,
-                blockHash,
+                blockHash: hash,
                 txId,
-                receivedAt:
-                  block?.timestamp ||
-                  tx?.timestamp ||
-                  tx?.verboseData?.timestamp ||
-                  Date.now(),
+                timestamp: Number(block.header?.timestamp || Date.now()),
               });
-
-              // Store last seen for every KKTP match immediately
-              if (blockHash) {
-                setStoredLastSeenBlockHash(blockHash);
-              }
             }
-            return false;
-          },
-        ],
-      },
-    );
+          }
 
-    // Process all collected payloads
-    for (const item of pendingPayloads) {
-      const event = await kaspaPortal.processIncomingPayload(item.payload);
-      if (event && typeof handleIncomingEvent === "function") {
-        event._receivedAt = item.receivedAt;
-        event._blockHash = item.blockHash;
-        handleIncomingEvent(event);
+          // Free WASM resources
+          for (const tx of block.transactions) {
+            if (typeof tx.free === "function") {
+              try { tx.free(); } catch { /* ignore */ }
+            }
+          }
+        }
+
+        // Add parents to queue (going backward)
+        const parentHashes = extractParentHashes(block);
+        for (const parentHash of parentHashes) {
+          if (!visited.has(parentHash)) {
+            queue.push(parentHash);
+          }
+        }
+      }
+
+      // Stop if we reached target
+      if (reachedTarget) {
+        break;
+      }
+
+      // Progress logging every 500 blocks
+      if (blocksThisSession % 500 === 0 && blocksThisSession > 0) {
+        const elapsed = (Date.now() - backgroundSync.startedAt) / 1000;
+        const rate = Math.round(blocksThisSession / elapsed);
+        console.log(`📊 Progress: ${backgroundSync.blocksProcessed} blocks | ${Math.round(elapsed)}s | ${rate} blk/s | queue: ${queue.length} | payloads: ${pendingPayloads.length}`);
+        setJoinStatus(`Syncing: ${backgroundSync.blocksProcessed} blocks (${rate}/s)...`);
+
+        if (typeof onProgress === "function") {
+          onProgress({
+            blocksProcessed: backgroundSync.blocksProcessed,
+            elapsedMs: Date.now() - backgroundSync.startedAt,
+            currentHash: backgroundSync.currentHash,
+            rate,
+          });
+        }
+      }
+
+      // Save progress to IndexedDB periodically
+      const now = Date.now();
+      if (blocksThisSession % PROGRESS_SAVE_INTERVAL === 0 || now - lastProgressSave > 30000) {
+        await saveSyncProgress(visited, backgroundSync.currentHash, targetHash, backgroundSync.blocksProcessed);
+        lastProgressSave = now;
       }
     }
 
-    // Final update of last seen block hash
-    if (activeDagWalk.lastBlockHash) {
-      setStoredLastSeenBlockHash(activeDagWalk.lastBlockHash);
+    // Check if we exhausted the queue without finding target
+    if (!reachedTarget && !backgroundSync.stopped && queue.length === 0) {
+      noMoreData = true;
+      console.log("📭 Queue empty - no more blocks to process (hit genesis or pruned data)");
     }
 
-    const status = activeDagWalk.stopped ? "stopped" : "done";
-    const elapsed = Math.round((Date.now() - activeDagWalk.startedAt) / 1000);
-    logEvent(
-      `[${logPrefix}] Sync ${status}. Blocks=${activeDagWalk.blocksProcessed}, Payloads=${pendingPayloads.length}, Time=${elapsed}s`,
-      "info",
-    );
-    updateScannerStatus("ready");
+    // Process collected payloads (REVERSE order - oldest first)
+    pendingPayloads.reverse();
 
-    return pendingPayloads.length;
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    console.log("📨 PROCESSING COLLECTED PAYLOADS");
+    console.log(`   Total payloads: ${pendingPayloads.length}`);
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+    for (const item of pendingPayloads) {
+      try {
+        const event = await kaspaPortal.processIncomingPayload(item.payload);
+        if (event && typeof handleIncomingEvent === "function") {
+          event._receivedAt = item.timestamp;
+          event._blockHash = item.blockHash;
+          event._isBackgroundSync = true;
+          handleIncomingEvent(event);
+        }
+      } catch (err) {
+        logger.warn("KKTP Sync: Payload processing error", { error: err.message });
+      }
+    }
+
+    // Clear progress on successful completion
+    if (reachedTarget || noMoreData) {
+      await clearSyncProgress();
+    }
+
+    // Report final status
+    const elapsed = Math.round((Date.now() - backgroundSync.startedAt) / 1000);
+    const rate = elapsed > 0 ? Math.round(blocksThisSession / elapsed) : 0;
+    const status = backgroundSync.stopped
+      ? "stopped"
+      : reachedTarget
+        ? "complete"
+        : noMoreData
+          ? "exhausted"
+          : "unknown";
+
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    console.log(`✅ PARALLEL SYNC ${status.toUpperCase()}`);
+    console.log(`   Blocks processed (total): ${backgroundSync.blocksProcessed}`);
+    console.log(`   Blocks this session: ${blocksThisSession}`);
+    console.log(`   Payloads found: ${pendingPayloads.length}`);
+    console.log(`   Time elapsed: ${elapsed}s`);
+    console.log(`   Average rate: ${rate} blocks/second`);
+    console.log(`   Reached target: ${reachedTarget}`);
+    console.log(`   No more data: ${noMoreData}`);
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+    const statusEmoji = status === "complete" ? "✅" : status === "exhausted" ? "📭" : status === "stopped" ? "⏹️" : "ℹ️";
+    const statusMsg = `Sync ${status}: ${backgroundSync.blocksProcessed} blocks, ${pendingPayloads.length} payloads, ${rate} blk/s`;
+
+    logEvent(statusMsg, reachedTarget ? "success" : "info");
+    setJoinStatus(`${statusEmoji} ${statusMsg}`);
+
+    scheduleSessionSave?.();
+
+  } catch (err) {
+    // Save progress on error so we can resume
+    await saveSyncProgress(visited, backgroundSync.currentHash, targetHash, backgroundSync.blocksProcessed);
+    logger.error("KKTP Sync: Background sync error", { error: err.message });
+    logEvent(`Background sync error: ${err.message}`, "error");
+    setJoinStatus(`Sync error: ${err.message}`);
   } finally {
-    // Always clean up walk state
-    activeDagWalk.isActive = false;
-    activeDagWalk.stopped = false;
+    backgroundSync.isActive = false;
+    backgroundSync.stopped = false;
   }
 }
+
+// ─────────────────────────────────────────────────────────────
+// Session Recovery on Load
+// ─────────────────────────────────────────────────────────────
 
 export async function recoverSessionsOnLoad({
   storageKeyPrefix,
@@ -254,288 +688,148 @@ export async function recoverSessionsOnLoad({
   refreshSessionList,
   scheduleSessionSave,
 } = {}) {
-  const { hash: startHash, source: hashSource } = getBestStartHash();
+  backgroundSync.handleIncomingEvent = handleIncomingEvent;
+  backgroundSync.scheduleSessionSave = scheduleSessionSave;
 
-  // Step 0: Restore snapshots first (needed to re-register pending discoveries)
-  logEvent("Restore step: snapshot", "info");
-  await restoreSavedSessions({
-    networkId,
-    walletAddress,
-    scheduleSessionSave,
-  });
+  logEvent("Restoring saved sessions...", "info");
+  await restoreSavedSessions({ networkId, walletAddress, scheduleSessionSave });
 
-  // Step 1: DAG sync is PRIMARY - must catch peer's session change requests first
-  let dagRecoveredSessions = 0;
-  if (startHash) {
-    try {
-      logEvent(`Restore step: DAG sync (from ${hashSource})`, "info");
-      const processed = await syncFromStartHash(startHash, {
-        handleIncomingEvent,
-        logPrefix: "SYNC",
-      });
-      if (processed > 0) {
-        logEvent(`Startup sync processed ${processed} payload(s).`, "info");
-      }
-      dagRecoveredSessions = kaspaPortal.getSessions().length;
-      if (dagRecoveredSessions > 0) {
-        logEvent(
-          `Recovered ${dagRecoveredSessions} session(s) from DAG`,
-          "success",
-        );
-      }
-    } catch (err) {
-      logEvent(`DAG sync failed: ${err.message}`, "error");
-    }
+  const sessionCount = kaspaPortal.getSessions().length;
+  if (sessionCount > 0) {
+    logEvent(`Restored ${sessionCount} session(s) from snapshot`, "success");
   }
-
-  if (!startHash) {
-    logEvent("Restore step: DAG sync skipped (no start hash)", "info");
-  }
-
-  // Step 2: If DAG sync didn't recover sessions, try resume blob as FALLBACK
-  if (dagRecoveredSessions === 0 && startHash) {
-    try {
-      logEvent("Restore step: resume blob fallback", "info");
-      const result = await kaspaPortal.resumeSession({
-        startHash,
-        storageKeyPrefix,
-        logFn: null, // silent - fallback only
-      });
-
-      if (result?.status === "handover_complete") {
-        logEvent("Session resumed from blob", "success");
-      } else if (
-        result?.status &&
-        result.status !== "no_resume_blob" &&
-        result.status !== "invalid_resume_blob"
-      ) {
-        logEvent(`Resume status: ${result.status}`, "info");
-      }
-    } catch (err) {
-      logEvent(`Resume fallback error: ${err.message}`, "error");
-    }
-  }
-
-  // Step 3: Post-sync rotation handover - handle race conditions
-  // If sessions are FAULTED, peer may have rotated keys during our refresh
-  logEvent("Restore step: post-sync handover", "info");
-  await handlePostSyncRotationHandover({
-    handleIncomingEvent,
-    scheduleSessionSave,
-  });
 
   refreshSessionList?.();
+
+  const { hash: targetHash, source: hashSource } = getBestStartHash();
+  if (targetHash) {
+    // Check if we have saved progress to resume
+    const savedProgress = await loadSyncProgress();
+    if (savedProgress && savedProgress.targetHash === targetHash) {
+      logEvent(`Resume available: ${savedProgress.blocksProcessed} blocks already processed`, "info");
+      setJoinStatus(`Resume available (${savedProgress.blocksProcessed} blocks processed)`);
+    } else {
+      logEvent(`Ready for background sync (target: ${hashSource})`, "info");
+      setJoinStatus("Waiting for live block to start background sync...");
+    }
+  } else {
+    logEvent("Fresh start - no background sync needed", "info");
+    setJoinStatus("Ready");
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Join via Block Hash - Search single block for KKTP payloads
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Search a single block for KKTP payloads (peer/lobby discoveries).
+ * Used when a user pastes a block hash shared by someone else.
+ * 
+ * @param {string} blockHash - 64-char hex block hash
+ * @param {Object} options - Optional callbacks
+ * @param {Function} options.handleIncomingEvent - Handler for discovered payloads
+ * @returns {Promise<{found: number, payloads: string[]}>}
+ */
+export async function searchBlockForKKTP(blockHash, { handleIncomingEvent } = {}) {
+  if (!blockHash || blockHash.length !== 64) {
+    throw new Error("Invalid block hash - must be 64 hex characters");
+  }
+
+  const blockData = await kaspaPortal.fetchBlockByHash(blockHash);
+  if (!blockData) {
+    throw new Error("Block not found");
+  }
+
+  const payloads = [];
+
+  // Extract KKTP payloads from all transactions in the block
+  const txs = blockData.transactions || blockData.block?.transactions || [];
+  for (const tx of txs) {
+    const outputs = tx.outputs || [];
+    for (const output of outputs) {
+      const script = output.script_public_key?.script_public_key || output.scriptPublicKey || "";
+      if (script.startsWith("6a")) {
+        // OP_RETURN
+        const hexPayload = script.slice(4); // Skip 6a + length byte
+        try {
+          const decoded = hexToString(hexPayload);
+          if (decoded.startsWith(KKTP_PREFIX)) {
+            payloads.push(decoded);
+          }
+        } catch {
+          // Not valid UTF-8 or not KKTP
+        }
+      }
+    }
+  }
+
+  // Process discovered payloads
+  for (const payload of payloads) {
+    try {
+      const jsonPart = payload.slice(KKTP_PREFIX.length);
+      const parsed = JSON.parse(jsonPart);
+      
+      if (typeof handleIncomingEvent === "function") {
+        handleIncomingEvent({ payload: parsed, raw: payload, blockHash });
+      } else {
+        // Fallback: use kaspaPortal's processIncomingPayload if available
+        kaspaPortal.processIncomingPayload?.(parsed);
+      }
+    } catch (err) {
+      logger.warn("KKTP Sync: Failed to parse payload", { payload, error: err.message });
+    }
+  }
+
+  return { found: payloads.length, payloads };
 }
 
 /**
- * Post-Sync Rotation Handover
- * Handles race conditions where peer may have rotated keys during our refresh.
- * Checks for FAULTED sessions and attempts to re-establish using the peer registry.
+ * Handle the "Join via Block Hash" button click.
+ * Reads hash from input, searches block, reports results.
+ * 
+ * @param {Object} options - Callbacks
+ * @param {Function} options.handleIncomingEvent - Handler for discovered payloads
  */
-async function handlePostSyncRotationHandover({
-  handleIncomingEvent,
-  scheduleSessionSave,
-} = {}) {
-  const sessions = kaspaPortal.getSessions();
-  const faultedSessions = sessions.filter(
-    (s) => s.sm?.state === "FAULTED" || s.state === "FAULTED",
-  );
-
-  if (faultedSessions.length === 0) return;
-
-  logEvent(
-    `Post-sync handover: ${faultedSessions.length} faulted session(s) detected`,
-    "info",
-  );
-
-  for (const session of faultedSessions) {
-    const peerPubSig = session.peerPubSig || session.discovery?.pub_sig;
-    if (!peerPubSig) {
-      logEvent("Faulted session has no peer identity - skipping", "error");
-      continue;
-    }
-
-    try {
-      // Option A: Check if peer sent a new discovery on-chain during our downtime
-      // This would be caught by syncFromStartHash, but we can re-process
-      const pendingDiscoveries = kaspaPortal._sessionManager?._kktpPendingDiscoveries;
-      const orphanResponses = kaspaPortal._sessionManager?._kktpOrphanResponses;
-
-      // Check if there's an orphan response we can use to re-establish
-      if (orphanResponses?.size > 0) {
-        for (const [sid, orphanResponse] of orphanResponses.entries()) {
-          if (orphanResponse.pub_sig_resp === peerPubSig) {
-            logEvent(
-              `Found orphan response for faulted peer ${peerPubSig.slice(0, 8)}...`,
-              "info",
-            );
-            // Attempt to re-process the orphan
-            const event = await kaspaPortal.processIncomingPayload(
-              `KKTP:ANCHOR:${JSON.stringify(orphanResponse)}`,
-            );
-            if (event && handleIncomingEvent) {
-              handleIncomingEvent(event);
-              scheduleSessionSave?.();
-            }
-            break;
-          }
-        }
-      }
-
-      // Option B: If we still have a faulted session, mark it for re-keying
-      // The next message exchange will use fresh keys from the peer registry
-      const stillFaulted =
-        session.sm?.state === "FAULTED" || session.state === "FAULTED";
-      if (stillFaulted) {
-        logEvent(
-          `Session with ${peerPubSig.slice(0, 8)}... remains faulted - awaiting peer re-discovery`,
-          "info",
-        );
-        // Clean up the faulted session so peer can re-initiate
-        const mailboxId = session.mailboxId || session.sm?.kktp?.mailboxId;
-        if (mailboxId) {
-          kaspaPortal.closeSession(mailboxId);
-          logEvent(
-            `Closed faulted session ${mailboxId.slice(0, 8)}... - peer can re-initiate`,
-            "info",
-          );
-        }
-      }
-    } catch (err) {
-      logEvent(
-        `Handover failed for ${peerPubSig.slice(0, 8)}...: ${err.message}`,
-        "error",
-      );
-    }
-  }
-}
-
-export async function handleFetchMissed({
-  handleIncomingEvent,
-  scheduleSessionSave,
-  onProgress = null,
-} = {}) {
+export async function handleJoinViaBlockHash({ handleIncomingEvent } = {}) {
   if (!kaspaPortal.isReady) {
     logEvent("Not connected. Connect first.", "error");
+    setJoinStatus("Not connected");
     return;
   }
 
-  // Check if a walk is already active
-  if (isDagWalkActive()) {
-    logEvent("DAG walk already in progress. Stop it first or wait.", "error");
-    setMissedStatus("Walk already active - use Stop button");
+  const blockHash = elements.joinBlockHashInput?.value?.trim() || "";
+  
+  if (!blockHash) {
+    setJoinStatus("Enter a block hash to search");
     return;
   }
 
-  const manual = elements.missedStartHashInput?.value?.trim() || "";
-  const { hash: startHash, source: hashSource } = getBestStartHash(manual);
-
-  if (!startHash) {
-    setMissedStatus("No start hash. Provide one or send a discovery first.");
+  if (blockHash.length !== 64 || !/^[a-fA-F0-9]+$/.test(blockHash)) {
+    setJoinStatus("Invalid hash - must be 64 hex characters");
+    logEvent("Invalid block hash format", "error");
     return;
   }
 
-  setMissedStatus(`Scanning from ${hashSource} hash (unlimited)...`);
-  if (elements.btnFetchMissed) elements.btnFetchMissed.disabled = true;
-
-  // Initialize walk state
-  activeDagWalk.isActive = true;
-  activeDagWalk.stopped = false;
-  activeDagWalk.blocksProcessed = 0;
-  activeDagWalk.startedAt = Date.now();
-  activeDagWalk.lastBlockHash = startHash;
-  activeDagWalk.startHash = startHash;
-
-  const pendingPayloads = [];
-  const seen = dashboardState.processedTxIds;
+  // Disable button during search
+  if (elements.btnJoinViaHash) elements.btnJoinViaHash.disabled = true;
+  setJoinStatus("Searching block...");
 
   try {
-    await kaspaPortal.syncFrom(
-      startHash,
-      (line) => logEvent(`[DAG] ${line}`, "info"),
-      {
-        prefixes: [KKTP_PREFIX],
-        maxSeconds: DAG_WALK_UNLIMITED_SECONDS,
-        onTransactionMatch: [
-          ({ block, tx }) => {
-            // Check if walk was stopped
-            if (activeDagWalk.stopped) {
-              return true; // Signal to stop
-            }
-
-            activeDagWalk.blocksProcessed++;
-            const blockHash = block?.hash || tx?.blockHash || "";
-
-            if (blockHash) {
-              activeDagWalk.lastBlockHash = blockHash;
-            }
-
-            // Report progress
-            if (typeof onProgress === "function") {
-              onProgress({
-                blocksProcessed: activeDagWalk.blocksProcessed,
-                elapsedMs: Date.now() - activeDagWalk.startedAt,
-                lastBlockHash: blockHash,
-              });
-            }
-
-            const txId = tx?.txid || "";
-            if (txId && seen.has(txId)) return false;
-            if (txId) seen.add(txId);
-
-            const payloadHex = tx?.payload || "";
-            const payload = decodeHexPayload(payloadHex);
-            if (payload && payload.startsWith(KKTP_PREFIX)) {
-              pendingPayloads.push({
-                payload,
-                blockHash,
-                txId,
-                receivedAt:
-                  block?.timestamp ||
-                  tx?.timestamp ||
-                  tx?.verboseData?.timestamp ||
-                  Date.now(),
-              });
-
-              // Update last seen for every KKTP match
-              if (blockHash) {
-                setStoredLastSeenBlockHash(blockHash);
-              }
-            }
-            return false;
-          },
-        ],
-      },
-    );
-
-    for (const item of pendingPayloads) {
-      const event = await kaspaPortal.processIncomingPayload(item.payload);
-      if (event && typeof handleIncomingEvent === "function") {
-        event._receivedAt = item.receivedAt;
-        event._blockHash = item.blockHash;
-        handleIncomingEvent(event);
-        if (event.type === "discovery" && item.blockHash) {
-          setStoredDiscoveryBlockHash(item.blockHash);
-        }
-        scheduleSessionSave?.();
-      }
+    const result = await searchBlockForKKTP(blockHash, { handleIncomingEvent });
+    
+    if (result.found > 0) {
+      logEvent(`Found ${result.found} KKTP payload(s) in block ${blockHash.slice(0, 8)}...`, "success");
+      setJoinStatus(`✅ Found ${result.found} payload(s)`);
+    } else {
+      logEvent(`No KKTP payloads in block ${blockHash.slice(0, 8)}...`, "info");
+      setJoinStatus("No KKTP payloads found in this block");
     }
-
-    // Final update of last seen hash
-    if (activeDagWalk.lastBlockHash) {
-      setStoredLastSeenBlockHash(activeDagWalk.lastBlockHash);
-    }
-
-    const status = activeDagWalk.stopped ? "stopped by user" : "caught up";
-    setMissedStatus(
-      `Scan ${status}. Found ${pendingPayloads.length} KKTP payload(s).`,
-    );
   } catch (err) {
-    logEvent(`Missed scan failed: ${err.message}`, "error");
-    setMissedStatus(`Scan failed: ${err.message}`);
+    logger.error("KKTP Sync: Join via block hash failed", { error: err.message });
+    logEvent(`Search failed: ${err.message}`, "error");
+    setJoinStatus(`❌ ${err.message}`);
   } finally {
-    if (elements.btnFetchMissed) elements.btnFetchMissed.disabled = false;
-    activeDagWalk.isActive = false;
-    activeDagWalk.stopped = false;
+    if (elements.btnJoinViaHash) elements.btnJoinViaHash.disabled = false;
   }
 }

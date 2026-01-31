@@ -8,6 +8,10 @@
  * Two-priority system:
  * 1. CONSOLIDATE if too many small UTXOs (prevents fragmentation)
  * 2. SPLIT if not enough usable UTXOs (ensures parallel engine availability)
+ *
+ * MULTI-ADDRESS SUPPORT:
+ * Monitors both receive and change addresses since funds often end up in change
+ * outputs after transactions. Pass `addresses` array or `address` + `changeAddress`.
  */
 
 import * as utxoManager from "./utxo_manager.js";
@@ -35,7 +39,9 @@ export class HeartbeatMonitor {
    * Start the heartbeat monitor.
    *
    * @param {Object} options
-   * @param {string} options.address - Address to monitor
+   * @param {string} [options.address] - Primary address to monitor (receive address)
+   * @param {string} [options.changeAddress] - Change address to also monitor
+   * @param {string[]} [options.addresses] - Alternative: array of all addresses to monitor
    * @param {Array} options.privateKeys - Private keys for splitting/consolidating
    * @param {number} [options.intervalMs=15000] - Check interval (default 15s for fast response)
    * @param {number} [options.targetUtxoCount=10] - Minimum USABLE UTXO count threshold
@@ -51,6 +57,8 @@ export class HeartbeatMonitor {
    */
   start({
     address,
+    changeAddress,
+    addresses,
     privateKeys,
     intervalMs = 15000,
     targetUtxoCount = 10,
@@ -64,14 +72,32 @@ export class HeartbeatMonitor {
     onConsolidate,
     onError,
   } = {}) {
-    if (!address) throw new Error("HeartbeatMonitor: address required.");
-    if (!privateKeys?.length) throw new Error("HeartbeatMonitor: privateKeys required.");
+    // Build addresses array from various input options
+    let allAddresses = [];
+    if (Array.isArray(addresses) && addresses.length > 0) {
+      allAddresses = addresses
+        .filter(a => a != null && a !== '')
+        .map(a => String(a));
+    } else {
+      if (address) allAddresses.push(String(address));
+      if (changeAddress && String(changeAddress) !== String(address)) {
+        allAddresses.push(String(changeAddress));
+      }
+    }
+
+    if (allAddresses.length === 0) {
+      throw new Error("HeartbeatMonitor: at least one address required.");
+    }
+    if (!privateKeys?.length) {
+      throw new Error("HeartbeatMonitor: privateKeys required.");
+    }
 
     // Stop any existing heartbeat first
     this.stop();
 
     this._config = {
-      address,
+      addresses: allAddresses,
+      address: allAddresses[0], // Primary address for operations
       privateKeys,
       intervalMs,
       targetUtxoCount,
@@ -87,8 +113,13 @@ export class HeartbeatMonitor {
     };
 
     const usableKas = utxoManager.sompiToKas(usableThreshold);
+    const addrDisplay = allAddresses.length > 1
+      ? `${allAddresses.length} addresses (${allAddresses[0].slice(0, 16)}... + ${allAddresses.length - 1} more)`
+      : allAddresses[0].slice(0, 24) + '...';
+
     console.log(
       `[Heartbeat] Starting: check every ${intervalMs / 1000}s, ` +
+      `monitoring ${addrDisplay}, ` +
       `threshold=${targetUtxoCount} USABLE UTXOs (>= ${usableKas} KAS), ` +
       `split into ${splitCount}, autoConsolidate=${autoConsolidate} (max ${maxSmallUtxos} small)`
     );
@@ -155,7 +186,8 @@ export class HeartbeatMonitor {
     }
 
     const {
-      address,
+      addresses,
+      address, // Primary address for operations
       privateKeys,
       targetUtxoCount,
       splitCount,
@@ -172,11 +204,19 @@ export class HeartbeatMonitor {
     this._checkInProgress = true;
 
     try {
-      // Fetch fresh UTXO data (exclude spent from cache)
-      const entries = await this._facade.getUtxos(address, {
-        useCache: false,
-        excludeSpent: true,
-      });
+      // Fetch fresh UTXO data for ALL addresses (exclude spent from cache)
+      let entries;
+      if (addresses.length > 1) {
+        entries = await this._facade.getUtxosForAddresses(addresses, {
+          useCache: false,
+          excludeSpent: true,
+        });
+      } else {
+        entries = await this._facade.getUtxos(addresses[0], {
+          useCache: false,
+          excludeSpent: true,
+        });
+      }
 
       const totalCount = entries.length;
       const totalBalance = this._facade.calculateTotalBalance(entries);
@@ -198,9 +238,10 @@ export class HeartbeatMonitor {
         }
       }
 
+      const addrInfo = addresses.length > 1 ? ` (across ${addresses.length} addresses)` : '';
       console.log(
         `[Heartbeat] Check: ${usableCount} usable (>= ${utxoManager.sompiToKas(usableThreshold)} KAS), ` +
-        `${smallCount} small, total: ${utxoManager.sompiToKas(totalBalance)} KAS`
+        `${smallCount} small, total: ${utxoManager.sompiToKas(totalBalance)} KAS${addrInfo}`
       );
 
       // Invoke onCheck callback with detailed info
@@ -215,6 +256,7 @@ export class HeartbeatMonitor {
             usableBalance,
             smallBalance,
             entries,
+            addresses,
           });
         } catch (cbErr) {
           console.warn("[Heartbeat] onCheck callback error:", cbErr);
@@ -222,25 +264,38 @@ export class HeartbeatMonitor {
       }
 
       // ─────────────────────────────────────────────────────────────
-      // PRIORITY 1: Emergency consolidation when NO usable UTXOs
-      // This is critical - wallet is effectively unusable
+      // PRIORITY 1: Emergency - NO usable UTXOs
+      // This is critical - wallet is effectively unusable for sends
       // ─────────────────────────────────────────────────────────────
       if (usableCount === 0 && totalCount > 0) {
         console.warn(
           `[Heartbeat] 🚨 CRITICAL: No usable UTXOs! Have ${totalCount} small UTXOs ` +
-          `(${utxoManager.sompiToKas(totalBalance)} KAS). Emergency consolidation...`
+          `(${utxoManager.sompiToKas(totalBalance)} KAS). Checking options...`
         );
 
-        if (autoConsolidate) {
+        // Can we consolidate? Need at least 2 UTXOs to merge
+        if (totalCount >= 2 && autoConsolidate) {
+          console.log(`[Heartbeat] 🔧 Attempting emergency consolidation: ${totalCount} UTXOs → 1`);
           await this._doConsolidate({
             address,
+            addresses, // Multi-address support
             privateKeys,
-            targetCount: splitCount,
+            targetCount: 1, // Merge ALL into 1 to maximize the single output
             priorityFee,
             onConsolidate,
             onError,
             emergency: true,
           });
+        } else if (totalCount === 1) {
+          // Only 1 UTXO and it's too small - nothing we can do
+          console.warn(
+            `[Heartbeat] ⚠️ Only 1 small UTXO (${utxoManager.sompiToKas(totalBalance)} KAS). ` +
+            `Cannot consolidate or split. Need more funds or wait for confirmations.`
+          );
+          // Notify via error callback so UI can show status
+          this._invokeErrorCallback(onError, "insufficient_utxos", new Error(
+            `Only 1 small UTXO (${utxoManager.sompiToKas(totalBalance)} KAS). Need more funds.`
+          ), true);
         }
 
         // Exit early - don't also try to split in same cycle
@@ -260,6 +315,7 @@ export class HeartbeatMonitor {
 
         await this._doConsolidate({
           address,
+          addresses, // Multi-address support
           privateKeys,
           targetCount: splitCount,
           priorityFee,
@@ -275,7 +331,7 @@ export class HeartbeatMonitor {
 
       // ─────────────────────────────────────────────────────────────
       // PRIORITY 3: Split if not enough USABLE UTXOs for parallel engines
-      // 
+      //
       // SAFEGUARDS:
       // 1. Only split if usableCount < targetUtxoCount (we need more)
       // 2. Only split if we can create MORE UTXOs than we currently have
@@ -288,23 +344,23 @@ export class HeartbeatMonitor {
         const feePerOutput = 1000000n; // 0.01 KAS conservative estimate
         const totalFees = feePerOutput * BigInt(targetUtxoCount);
         const availableForSplit = usableBalance - totalFees;
-        
+
         // Maximum outputs we can create while keeping each >= usableThreshold
-        const maxPossibleOutputs = availableForSplit > 0n 
+        const maxPossibleOutputs = availableForSplit > 0n
           ? Number(availableForSplit / usableThreshold)
           : 0;
-        
+
         // Target: create enough UTXOs to reach targetUtxoCount, but not more than we can afford
         const desiredOutputs = Math.min(targetUtxoCount, maxPossibleOutputs);
-        
+
         // Check if splitting would actually increase our usable UTXO count
         const wouldIncreaseCount = desiredOutputs > usableCount;
-        
+
         // Calculate what each output would be worth
-        const amountPerOutput = desiredOutputs > 0 
+        const amountPerOutput = desiredOutputs > 0
           ? (usableBalance - totalFees) / BigInt(desiredOutputs)
           : 0n;
-        
+
         // Final check: outputs must be >= usableThreshold to be worth creating
         const outputsWillBeUsable = amountPerOutput >= usableThreshold;
 
@@ -316,9 +372,11 @@ export class HeartbeatMonitor {
 
           await this._doSplit({
             address,
+            addresses, // Multi-address support
             privateKeys,
             splitCount: desiredOutputs, // Use calculated count, not config splitCount
             priorityFee,
+            minUtxoAmount: usableThreshold, // Only split usable UTXOs
             previousCount: usableCount,
             onSplit,
             onError,
@@ -358,6 +416,7 @@ export class HeartbeatMonitor {
    */
   async _doConsolidate({
     address,
+    addresses,
     privateKeys,
     targetCount,
     priorityFee,
@@ -370,10 +429,31 @@ export class HeartbeatMonitor {
     try {
       const result = await this._facade.consolidateUtxos({
         address,
+        addresses, // Pass addresses array for multi-address fetching
         privateKeys,
         targetCount,
         priorityFee,
       });
+
+      // Handle no-op result (already at or below target)
+      if (result.noOpReason) {
+        console.log(`[Heartbeat] ${prefix} Consolidation skipped: ${result.noOpReason}`);
+        if (typeof onConsolidate === "function") {
+          try {
+            onConsolidate({
+              previousCount: result.previousUtxoCount,
+              newCount: result.finalUtxoCount,
+              transactionId: null,
+              result,
+              emergency,
+              noOpReason: result.noOpReason,
+            });
+          } catch (cbErr) {
+            console.warn("[Heartbeat] onConsolidate callback error:", cbErr);
+          }
+        }
+        return;
+      }
 
       console.log(
         `[Heartbeat] ${prefix} Consolidation complete: ` +
@@ -406,9 +486,11 @@ export class HeartbeatMonitor {
    */
   async _doSplit({
     address,
+    addresses,
     privateKeys,
     splitCount,
     priorityFee,
+    minUtxoAmount,
     previousCount,
     onSplit,
     onError,
@@ -416,9 +498,11 @@ export class HeartbeatMonitor {
     try {
       const result = await this._facade.splitUtxos({
         address,
+        addresses, // Pass addresses array for multi-address fetching
         splitCount,
         privateKeys,
         priorityFee,
+        minUtxoAmount, // Filter to only usable UTXOs
       });
 
       console.log(

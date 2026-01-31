@@ -16,7 +16,7 @@ import {
   renderLobbyMembers,
   updateLobbyStatus,
   setChatEnabled,
-  setMissedStatus,
+  setJoinStatus,
 } from "./ui.js";
 import { decodeHexPayload } from "./sync.js";
 import { setStoredDiscoveryBlockHash, setStoredLastSeenBlockHash } from "./storage.js";
@@ -114,7 +114,7 @@ export function maybeStoreOwnDiscoveryBlock(event, matchObj) {
   if (!blockHash) return;
 
   setStoredDiscoveryBlockHash(blockHash);
-  setMissedStatus(`Last discovery seen @ ${blockHash.slice(0, 8)}...`);
+  setJoinStatus(`Last discovery seen @ ${blockHash.slice(0, 8)}...`);
 }
 
 /**

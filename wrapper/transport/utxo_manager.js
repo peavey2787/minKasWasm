@@ -28,24 +28,73 @@ export function normalizeUtxoEntries(utxoResult) {
 
 /**
  * Extract amount in sompi from various UTXO entry formats.
- * Handles nested 'entry' wrapper from RPC responses.
- * @param {Object} entry - UTXO entry object
+ * Handles nested 'entry' wrapper from RPC responses AND WASM UtxoEntryReference objects.
+ *
+ * WASM objects use getter-based property access which may throw if accessed incorrectly.
+ * This function uses try/catch to safely extract amounts from all known formats.
+ *
+ * @param {Object} entry - UTXO entry object (RPC response or WASM UtxoEntryReference)
  * @returns {bigint} Amount in sompi
  */
 export function entryAmountSompi(entry) {
-  // Handle nested 'entry' wrapper from RPC (e.g., { entry: { amount, ... } })
-  const inner = entry?.entry ?? entry;
+  if (!entry) return 0n;
 
-  const v =
-    inner?.amount ??
-    inner?.utxoEntry?.amount ??
-    inner?.utxo?.amount ??
-    inner?.output?.amount ??
-    null;
+  // Try direct access patterns with try/catch for WASM getter safety
+  const tryGetAmount = (obj) => {
+    if (!obj) return null;
+    try {
+      // Direct amount property (most common)
+      if (typeof obj.amount === "bigint") return obj.amount;
+      if (typeof obj.amount === "number") return BigInt(Math.trunc(obj.amount));
+      if (typeof obj.amount === "string" && obj.amount.trim() !== "") return BigInt(obj.amount);
+    } catch { /* WASM getter may throw */ }
+    return null;
+  };
 
-  if (typeof v === "bigint") return v;
-  if (typeof v === "number") return BigInt(Math.trunc(v));
-  if (typeof v === "string" && v.trim() !== "") return BigInt(v);
+  // 1. Try the entry directly (e.g., { amount: 100n })
+  let result = tryGetAmount(entry);
+  if (result !== null) return result;
+
+  // 2. Handle nested 'entry' wrapper from RPC (e.g., { entry: { amount: 100n } })
+  try {
+    if (entry.entry) {
+      result = tryGetAmount(entry.entry);
+      if (result !== null) return result;
+    }
+  } catch { /* WASM getter may throw */ }
+
+  // 3. Handle WASM UtxoEntryReference with .utxoEntry.amount
+  try {
+    if (entry.utxoEntry) {
+      result = tryGetAmount(entry.utxoEntry);
+      if (result !== null) return result;
+    }
+  } catch { /* WASM getter may throw */ }
+
+  // 4. Handle nested entry.utxoEntry (from RPC wrapper)
+  try {
+    if (entry.entry?.utxoEntry) {
+      result = tryGetAmount(entry.entry.utxoEntry);
+      if (result !== null) return result;
+    }
+  } catch { /* WASM getter may throw */ }
+
+  // 5. Handle .utxo.amount pattern
+  try {
+    if (entry.utxo) {
+      result = tryGetAmount(entry.utxo);
+      if (result !== null) return result;
+    }
+  } catch { /* WASM getter may throw */ }
+
+  // 6. Handle .output.amount pattern
+  try {
+    if (entry.output) {
+      result = tryGetAmount(entry.output);
+      if (result !== null) return result;
+    }
+  } catch { /* WASM getter may throw */ }
+
   return 0n;
 }
 
@@ -148,6 +197,47 @@ export async function getUtxosByAddress(client, address) {
 
   const result = await client.getUtxosByAddresses([address]);
   return normalizeUtxoEntries(result);
+}
+
+/**
+ * Fetch UTXOs directly via RPC client for multiple addresses.
+ * Deduplicates entries by outpoint to avoid double-counting.
+ * @param {Object} client - Kaspa RPC client
+ * @param {string[]} addresses - Addresses to fetch UTXOs for
+ * @returns {Promise<Array>} Array of UTXO entries (deduplicated)
+ */
+export async function getUtxosByAddresses(client, addresses) {
+  if (!client?.getUtxosByAddresses) {
+    throw new Error("getUtxosByAddresses: client.getUtxosByAddresses not available.");
+  }
+  if (!Array.isArray(addresses) || addresses.length === 0) {
+    throw new Error("getUtxosByAddresses: addresses array is required.");
+  }
+
+  // Filter out empty/null addresses and convert to strings
+  const validAddresses = addresses
+    .filter(a => a != null && a !== '')
+    .map(a => String(a));
+
+  if (validAddresses.length === 0) {
+    return [];
+  }
+
+  const result = await client.getUtxosByAddresses(validAddresses);
+  const entries = normalizeUtxoEntries(result);
+
+  // Deduplicate by outpoint key (same UTXO shouldn't appear twice)
+  const seen = new Set();
+  const deduplicated = [];
+  for (const entry of entries) {
+    const key = getEntryKey(entry);
+    if (!seen.has(key)) {
+      seen.add(key);
+      deduplicated.push(entry);
+    }
+  }
+
+  return deduplicated;
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -154,6 +154,14 @@ export class IdentityFacade {
   }
 
   /**
+   * Get the active account descriptor with receive and change addresses.
+   * @returns {Promise<{ receiveAddress: string|null, changeAddress: string|null }>}
+   */
+  async getActiveAccount() {
+    return await walletService.getActiveAccountAddresses();
+  }
+
+  /**
    * Access the wallet secret of the active wallet.
    */
   get walletSecret() {

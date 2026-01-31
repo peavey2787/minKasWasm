@@ -50,6 +50,33 @@ export function getReceivingAddress() {
   return currentReceivingAddress;
 }
 
+/**
+ * Get the active account's receive and change addresses.
+ * @returns {Promise<{ receiveAddress: string|null, changeAddress: string|null }>}
+ */
+export async function getActiveAccountAddresses() {
+  if (!walletInitialized || !wallet) {
+    return { receiveAddress: currentReceivingAddress || null, changeAddress: null };
+  }
+
+  try {
+    const accounts = await wallet.accountsEnumerate({});
+    if (!accounts?.accountDescriptors?.length) {
+      return { receiveAddress: currentReceivingAddress || null, changeAddress: null };
+    }
+
+    const activeAccount = accounts.accountDescriptors[currentAccountIndex || 0];
+    return {
+      receiveAddress: activeAccount.receiveAddress ? String(activeAccount.receiveAddress) : null,
+      changeAddress: activeAccount.changeAddress ? String(activeAccount.changeAddress) : null,
+    };
+  } catch (err) {
+    console.warn("[WalletService] getActiveAccountAddresses failed:", err.message);
+    // Fallback to cached receive address
+    return { receiveAddress: currentReceivingAddress || null, changeAddress: null };
+  }
+}
+
 /** Get the current wallet secret (password)
  * @returns {string|null} walletSecret
  */
