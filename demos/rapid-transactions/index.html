@@ -32,8 +32,16 @@
 
       <div class="controls-row mt-2">
         <button id="btnSplit" class="primary" disabled>Split UTXOs (5)</button>
+        <button id="btnConsolidate" class="primary" disabled>Consolidate UTXOs</button>
         <button id="btnAnalyze" class="secondary" disabled>Analyze UTXOs</button>
         <button id="btnClearSpent" class="secondary" disabled>Clear Spent Cache</button>
+        <button id="btnHeartbeat" class="secondary" disabled>Start Heartbeat</button>
+      </div>
+
+      <!-- Heartbeat Status -->
+      <div class="stats-row stats-row-2 mt-2">
+        <div class="stat"><div class="k">💓 Heartbeat</div><div class="v" id="heartbeatStatus">Stopped</div></div>
+        <div class="stat"><div class="k">Auto-manage</div><div class="v">Consolidate if fragmented, Split if low</div></div>
       </div>
 
       <div class="controls-row mt-2">
@@ -75,7 +83,7 @@
 
       <p class="muted mt-2">
         Auto-connects to <span class="mono">testnet-10</span> and opens/creates wallet <span class="mono">rapid_tx_wallet</span> with password <span class="mono">1234</span>.
-        <br><strong>Tip:</strong> Click "Split UTXOs" first to create 5 separate UTXOs for parallel sending.
+        <br><strong>Tip:</strong> Click "Split UTXOs" to create 5 UTXOs for parallel sending. Use "Consolidate UTXOs" to merge dust back into large UTXOs.
       </p>
     </div>
   </div>

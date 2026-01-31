@@ -266,6 +266,75 @@ export class KaspaPortal {
   }
 
   /**
+   * Consolidate all UTXOs into a target number of equal outputs.
+   * This merges many small/medium UTXOs into fewer large ones.
+   *
+   * @param {Object} options
+   * @param {string} options.address - Address for UTXO lookup and outputs
+   * @param {Array} options.privateKeys - Private keys for signing
+   * @param {number} [options.targetCount=5] - Number of outputs to create
+   * @param {bigint} [options.priorityFee=0n] - Priority fee
+   * @returns {Promise<Object>} Consolidation result
+   */
+  async consolidateUtxos(options) {
+    return await this.transport.consolidateUtxos(options);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Heartbeat Methods (Transport Proxy)
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Start the heartbeat monitor for automatic UTXO replenishment.
+   * Checks UTXO count periodically and triggers splits if running low.
+   *
+   * @param {Object} options
+   * @param {string} options.address - Address to monitor
+   * @param {Array} options.privateKeys - Private keys for splitting
+   * @param {number} [options.intervalMs=30000] - Check interval (default 30s)
+   * @param {number} [options.targetUtxoCount=10] - Minimum UTXO count threshold
+   * @param {number} [options.splitCount=5] - Number of UTXOs to create when splitting
+   * @param {bigint} [options.priorityFee=0n] - Priority fee for split transactions
+   * @param {function} [options.onCheck] - Callback on each check ({ utxoCount, targetUtxoCount, totalBalance, entries })
+   * @param {function} [options.onSplit] - Callback when split is triggered ({ previousCount, newCount, transactionId, result })
+   * @param {function} [options.onError] - Callback on error ({ type: 'check'|'split', error })
+   */
+  startHeartbeat(options) {
+    return this.transport.startHeartbeat(options);
+  }
+
+  /**
+   * Stop the heartbeat monitor.
+   */
+  stopHeartbeat() {
+    return this.transport.stopHeartbeat();
+  }
+
+  /**
+   * Check if heartbeat is currently running.
+   * @returns {boolean}
+   */
+  get isHeartbeatRunning() {
+    return this.transport.isHeartbeatRunning;
+  }
+
+  /**
+   * Get current heartbeat configuration (without private keys).
+   * @returns {Object|null}
+   */
+  get heartbeatConfig() {
+    return this.transport.heartbeatConfig;
+  }
+
+  /**
+   * Manually trigger a heartbeat check.
+   * @returns {Promise<void>}
+   */
+  async triggerHeartbeat() {
+    return await this.transport.triggerHeartbeat();
+  }
+
+  /**
    * Analyze UTXOs for an address.
    * Returns count, categories (dust/small/medium/large), and totals.
    *

@@ -6,12 +6,18 @@ const CONFIG = Object.freeze({
   nodeUrl: null,
   walletFilename: "rapid_tx_wallet",
   walletPassword: "1234",
-  sendAmountKas: "1",
+  sendAmountKas: "0.5",
   sendDelayMs: 200,
   payloadPrefix: "RT|",
   maxBacklog: 25,
   defaultEngines: 5,
   splitCount: 5,
+  // Heartbeat settings - monitors USABLE UTXOs (not just total count)
+  heartbeatIntervalMs: 15000, // Check every 15 seconds (fast response to low UTXOs)
+  heartbeatThresholdMultiplier: 5, // threshold = engines × multiplier (need enough for slot distribution)
+  heartbeatSplitMultiplier: 3, // splitCount = engines × multiplier
+  usableThresholdKas: 1, // Minimum KAS for a UTXO to be "usable" (must cover send + fees)
+  maxSmallUtxos: 30, // Trigger consolidation when small UTXO count exceeds this
 });
 
 const state = {
@@ -31,6 +37,8 @@ const state = {
   errors: 0,
   latencies: [],        // last 100 latencies for avg calculation
   startTime: null,      // for TX/sec calculation
+  // Heartbeat state
+  heartbeatEnabled: true,
 };
 
 function isInsufficientFundsError(err) {
@@ -97,6 +105,8 @@ function setLoopUi() {
   const split = $("btnSplit");
   const analyze = $("btnAnalyze");
   const clearSpent = $("btnClearSpent");
+  const consolidate = $("btnConsolidate");
+  const heartbeat = $("btnHeartbeat");
 
   const ready = !!state.address && !!state.privateKeys;
 
@@ -105,8 +115,11 @@ function setLoopUi() {
   if (split) split.disabled = !ready || state.running;
   if (analyze) analyze.disabled = !state.address;
   if (clearSpent) clearSpent.disabled = !state.address;
+  if (consolidate) consolidate.disabled = !ready || state.running;
+  if (heartbeat) heartbeat.disabled = !ready;
 
   setText("loopState", state.running ? "Running" : "Stopped");
+  updateHeartbeatUI();
 }
 
 async function refreshBalance() {
@@ -174,6 +187,141 @@ function clearSpentCache() {
   state.portal.clearSpentUtxos();
   state.portal.invalidateUtxoCache(state.address);
   logLine("Spent UTXO cache cleared.");
+}
+
+// ─────────────────────────────────────────────────────────────
+// Heartbeat - Automatic UTXO Replenishment
+// ─────────────────────────────────────────────────────────────
+
+function startHeartbeat() {
+  if (!state.address || !state.privateKeys) {
+    logLine("Cannot start heartbeat: wallet not ready.");
+    return;
+  }
+
+  const engines = parseInt($("engineCount")?.value || state.totalEngines, 10);
+  const targetUtxoCount = engines * CONFIG.heartbeatThresholdMultiplier;
+
+  // Split into enough UTXOs so each engine has multiple slots
+  const splitCount = engines * (CONFIG.heartbeatSplitMultiplier || 3);
+
+  // Convert usable threshold to sompi
+  const usableThreshold = BigInt(Math.floor((CONFIG.usableThresholdKas || 1) * 100000000));
+
+  state.portal.startHeartbeat({
+    address: state.address,
+    privateKeys: state.privateKeys,
+    intervalMs: CONFIG.heartbeatIntervalMs,
+    targetUtxoCount,
+    splitCount,
+    priorityFee: 0n,
+    usableThreshold,
+    autoConsolidate: true,
+    maxSmallUtxos: CONFIG.maxSmallUtxos || 30,
+    onCheck: ({ usableCount, smallCount, targetUtxoCount }) => {
+      // Show USABLE count and small count - this is the key metric!
+      let status;
+      if (usableCount === 0 && smallCount > 0) {
+        status = `🔴 CRITICAL (0/${targetUtxoCount}, ${smallCount} small)`;
+      } else if (usableCount < targetUtxoCount) {
+        status = `⚡ LOW (${usableCount}/${targetUtxoCount}, ${smallCount} small)`;
+      } else {
+        status = `✓ OK (${usableCount}/${targetUtxoCount})`;
+      }
+      setText("heartbeatStatus", status);
+    },
+    onSplit: async ({ previousCount, newCount, transactionId }) => {
+      logLine(`💓 Heartbeat split: ${previousCount} → ${newCount} usable UTXOs, txid=${transactionId?.slice(0, 12)}…`);
+      // Refresh UTXO display after a short delay for confirmation
+      await sleep(1000);
+      await analyzeUtxos();
+    },
+    onConsolidate: async ({ previousCount, newCount, transactionId, emergency }) => {
+      const prefix = emergency ? "🚨 EMERGENCY" : "🧹";
+      logLine(`${prefix} Heartbeat consolidate: ${previousCount} → ${newCount} UTXOs, txid=${transactionId?.slice(0, 12)}…`);
+      await sleep(1000);
+      await analyzeUtxos();
+    },
+    onError: ({ type, error, emergency }) => {
+      const prefix = emergency ? "🚨" : "💔";
+      logLine(`${prefix} Heartbeat ${type} error: ${error?.message || error}`);
+    },
+  });
+
+  state.heartbeatEnabled = true;
+  updateHeartbeatUI();
+  logLine(
+    `💓 Heartbeat started: every ${CONFIG.heartbeatIntervalMs / 1000}s, ` +
+    `need ${targetUtxoCount} usable UTXOs (>= ${CONFIG.usableThresholdKas} KAS), ` +
+    `auto-consolidate if >${CONFIG.maxSmallUtxos} small`
+  );
+}
+
+function stopHeartbeat() {
+  state.portal.stopHeartbeat();
+  state.heartbeatEnabled = false;
+  updateHeartbeatUI();
+  setText("heartbeatStatus", "Stopped");
+  logLine("💔 Heartbeat stopped.");
+}
+
+function toggleHeartbeat() {
+  if (state.portal.isHeartbeatRunning) {
+    stopHeartbeat();
+  } else {
+    startHeartbeat();
+  }
+}
+
+function updateHeartbeatUI() {
+  const btn = $("btnHeartbeat");
+  if (btn) {
+    btn.textContent = state.portal.isHeartbeatRunning ? "Stop Heartbeat" : "Start Heartbeat";
+    btn.classList.toggle("active", state.portal.isHeartbeatRunning);
+  }
+}
+
+async function consolidateUtxos() {
+  if (!state.address || !state.privateKeys) {
+    logLine("Cannot consolidate: wallet not ready.");
+    return;
+  }
+
+  setStatus("Consolidating UTXOs…", "pending");
+  logLine("Consolidating small/medium UTXOs into large ones…");
+  logLine("(This may take multiple rounds for large UTXO counts)");
+
+  try {
+    const result = await state.portal.consolidateUtxos({
+      address: state.address,
+      privateKeys: state.privateKeys,
+      targetCount: CONFIG.splitCount, // Consolidate into 5 large UTXOs
+      priorityFee: 0n,
+      onProgress: ({ round, estimatedRounds, txid, inputCount, outputCount }) => {
+        logLine(`Round ${round}: Merged ${inputCount} → ${outputCount} UTXO(s), txid=${txid?.slice(0, 12)}…`);
+        setStatus(`Consolidating… Round ${round}`, "pending");
+      },
+    });
+
+    if (result.rounds > 1) {
+      logLine(`Consolidation complete in ${result.rounds} rounds!`);
+    } else {
+      logLine(`Consolidation successful! txid=${result.transactionId?.slice(0, 16)}…`);
+    }
+
+    logLine(`Result: ${result.previousUtxoCount} UTXOs → ${result.finalUtxoCount} UTXOs`);
+    logLine(`Each output: ~${result.amountPerOutput} KAS`);
+
+    // Refresh after consolidation
+    await sleep(1000);
+    await refreshBalance();
+    await analyzeUtxos();
+
+    setStatus("Ready", "connected");
+  } catch (e) {
+    logLine(`Consolidation failed: ${e?.message || String(e)}`);
+    setStatus("Consolidation failed", "disconnected");
+  }
 }
 
 function onScannerBlock(_block, matches) {
@@ -245,6 +393,7 @@ async function sendWithEngine(engineIndex) {
       engineIndex,
       totalEngines: engines,
       optimisticSpend: true,
+      janitorMode: true, // Enable automatic dust consolidation
     });
 
     const txid = result.transactionId;
@@ -263,7 +412,17 @@ async function sendWithEngine(engineIndex) {
       state.backlog = [];
     }
 
-    logLine(`[E${engineIndex}] Sent ${CONFIG.sendAmountKas} KAS → ${txid?.slice(0, 12)}…`);
+    // Build status line with janitor info
+    const statusParts = [];
+
+    // Janitor sweep info
+    if (result.isJanitorRun) {
+      statusParts.push(`🧹${result.consolidatedCount}`);
+    }
+
+    const statusInfo = statusParts.length > 0 ? ` ${statusParts.join(" ")}` : "";
+
+    logLine(`[E${engineIndex}] Sent ${CONFIG.sendAmountKas} KAS → ${txid?.slice(0, 12)}…${statusInfo}`);
     updateStats();
 
   } catch (err) {
@@ -389,6 +548,11 @@ async function boot() {
   await analyzeUtxos();
   await startScanner();
 
+  // Start heartbeat for automatic UTXO replenishment
+  if (state.heartbeatEnabled && state.privateKeys?.length) {
+    startHeartbeat();
+  }
+
   setStatus("Ready", "connected");
   logLine("Ready. Split UTXOs first for parallel sending.");
 
@@ -407,12 +571,22 @@ function wireUi() {
     analyzeUtxos().catch((e) => logLine(`Analyze error: ${e?.message || String(e)}`));
   });
   $("btnClearSpent")?.addEventListener("click", clearSpentCache);
+  $("btnConsolidate")?.addEventListener("click", () => {
+    consolidateUtxos().catch((e) => logLine(`Consolidate error: ${e?.message || String(e)}`));
+  });
+  $("btnHeartbeat")?.addEventListener("click", toggleHeartbeat);
 
   // Update engine count display on button
   $("engineCount")?.addEventListener("change", (e) => {
     const count = e.target.value;
     state.totalEngines = parseInt(count, 10);
     $("btnSplit").textContent = `Split UTXOs (${count})`;
+
+    // Restart heartbeat with new threshold if running
+    if (state.portal.isHeartbeatRunning) {
+      stopHeartbeat();
+      startHeartbeat();
+    }
   });
 }
 
