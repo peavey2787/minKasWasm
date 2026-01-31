@@ -275,22 +275,73 @@ export class HeartbeatMonitor {
 
       // ─────────────────────────────────────────────────────────────
       // PRIORITY 3: Split if not enough USABLE UTXOs for parallel engines
+      // 
+      // SAFEGUARDS:
+      // 1. Only split if usableCount < targetUtxoCount (we need more)
+      // 2. Only split if we can create MORE UTXOs than we currently have
+      // 3. Only split if resulting UTXOs will still be >= usableThreshold
+      // 4. Calculate optimal splitCount to reach targetUtxoCount
       // ─────────────────────────────────────────────────────────────
       if (usableCount > 0 && usableCount < targetUtxoCount) {
-        console.log(
-          `[Heartbeat] ⚡ Low usable UTXO count (${usableCount} < ${targetUtxoCount}). ` +
-          `Splitting for parallel engine availability...`
-        );
+        // Calculate how many UTXOs we can create while keeping each >= usableThreshold
+        // Account for fees: ~0.01 KAS per output
+        const feePerOutput = 1000000n; // 0.01 KAS conservative estimate
+        const totalFees = feePerOutput * BigInt(targetUtxoCount);
+        const availableForSplit = usableBalance - totalFees;
+        
+        // Maximum outputs we can create while keeping each >= usableThreshold
+        const maxPossibleOutputs = availableForSplit > 0n 
+          ? Number(availableForSplit / usableThreshold)
+          : 0;
+        
+        // Target: create enough UTXOs to reach targetUtxoCount, but not more than we can afford
+        const desiredOutputs = Math.min(targetUtxoCount, maxPossibleOutputs);
+        
+        // Check if splitting would actually increase our usable UTXO count
+        const wouldIncreaseCount = desiredOutputs > usableCount;
+        
+        // Calculate what each output would be worth
+        const amountPerOutput = desiredOutputs > 0 
+          ? (usableBalance - totalFees) / BigInt(desiredOutputs)
+          : 0n;
+        
+        // Final check: outputs must be >= usableThreshold to be worth creating
+        const outputsWillBeUsable = amountPerOutput >= usableThreshold;
 
-        await this._doSplit({
-          address,
-          privateKeys,
-          splitCount,
-          priorityFee,
-          previousCount: usableCount,
-          onSplit,
-          onError,
-        });
+        if (wouldIncreaseCount && outputsWillBeUsable && desiredOutputs >= 2) {
+          console.log(
+            `[Heartbeat] ⚡ Low usable UTXO count (${usableCount} < ${targetUtxoCount}). ` +
+            `Splitting ${usableCount} UTXOs into ${desiredOutputs} @ ~${utxoManager.sompiToKas(amountPerOutput)} KAS each...`
+          );
+
+          await this._doSplit({
+            address,
+            privateKeys,
+            splitCount: desiredOutputs, // Use calculated count, not config splitCount
+            priorityFee,
+            previousCount: usableCount,
+            onSplit,
+            onError,
+          });
+        } else if (!wouldIncreaseCount) {
+          // Already have as many UTXOs as we can create - nothing to do
+          console.log(
+            `[Heartbeat] ℹ️ Have ${usableCount} usable UTXOs (target: ${targetUtxoCount}). ` +
+            `Can only create ${maxPossibleOutputs} from current balance - skipping split.`
+          );
+        } else if (!outputsWillBeUsable) {
+          // UTXOs would be too small to be usable
+          console.log(
+            `[Heartbeat] ℹ️ Have ${usableCount} usable UTXOs (target: ${targetUtxoCount}). ` +
+            `Splitting would create outputs of ${utxoManager.sompiToKas(amountPerOutput)} KAS ` +
+            `(below ${utxoManager.sompiToKas(usableThreshold)} KAS threshold) - skipping.`
+          );
+        } else {
+          console.log(
+            `[Heartbeat] ℹ️ Have ${usableCount} usable UTXOs (target: ${targetUtxoCount}). ` +
+            `Insufficient balance to split further.`
+          );
+        }
       }
 
     } catch (err) {
