@@ -569,8 +569,8 @@ function setupEventListeners() {
   });
 
   // Join via block hash - search a single block for KKTP payloads
-  elements.btnJoinViaHash?.addEventListener("click", () => {
-    handleJoinViaBlockHash({
+  elements.btnJoinViaHash?.addEventListener("click", async () => {
+    await handleJoinViaBlockHash({
       handleIncomingEvent: (event) =>
         handleIncomingEvent(event, getEventDeps()),
     });

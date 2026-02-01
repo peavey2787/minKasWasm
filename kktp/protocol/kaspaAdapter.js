@@ -1,128 +1,317 @@
-// kktp-core/network/kaspaAdapter.js
-import { canonicalize, prepareForSigning } from "./integrity/canonical.js";
-import { mailboxMessageValidator } from "./integrity/validator.js";
-import { kaspaPortal } from "../../wrapper/kaspaPortal.js";
+// kktp/protocol/kaspaAdapter.js
+// Network Adapter Interface - Bridges KKTP components to KaspaPortal
+// This abstraction allows swapping the underlying network (e.g., Kaspa → another chain)
 
+/**
+ * KaspaAdapter - Bridge between KKTP protocol components and KaspaPortal.
+ *
+ * All KKTP components should use this adapter instead of importing
+ * kaspaPortal directly. This provides:
+ * - Clean separation of concerns
+ * - Testability (can mock the adapter)
+ * - Single integration point
+ * - Network-agnostic KKTP layer (swap this adapter for another chain)
+ *
+ * @example
+ * ```javascript
+ * // In SessionFacade constructor:
+ * const adapter = new KaspaAdapter(kaspaPortal);
+ *
+ * // Pass to internal services:
+ * const keyDeriver = new KeyDeriver({ adapter, persistence });
+ * ```
+ */
 export class KaspaAdapter {
-  constructor(stateMachine) {
-    this.stateMachine = stateMachine;
+  /**
+   * @param {import('../../wrapper/kaspaPortal.js').KaspaPortal} portal
+   */
+  constructor(portal) {
+    if (!portal) {
+      throw new Error("KaspaAdapter: portal instance is required");
+    }
+    this._portal = portal;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // LIFECYCLE & STATE
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Check if the underlying network is connected and ready.
+   * @returns {boolean}
+   */
+  get isReady() {
+    return this._portal.isReady;
   }
 
   /**
-   * Section 6.4: Embedding in Kaspa Transactions
-   * Wraps the canonical KKTP packet with the required network prefix.
+   * Get the current wallet address (sync getter).
+   * @returns {string|null}
    */
-  async send(plaintext) {
-    // 1. Get the canonical JSON string from the codec (via stateMachine)
-    const canonicalPacket = this.stateMachine.sendMessage(plaintext);
-    const mailboxId = this.stateMachine.kktp.mailboxId;
+  get address() {
+    return this._portal.address;
+  }
 
-    // 2. Apply Prefix: "KKTP:" || mailbox_id_hex || ":" || <canonical JSON>
-    const networkPayload = `KKTP:${mailboxId}:${canonicalPacket}`;
+  /**
+   * Get the current wallet address (async method for consistency).
+   * @returns {Promise<string|null>}
+   */
+  async getAddress() {
+    return this._portal.address;
+  }
 
-    // 3. Check Payload Limits (Section 6.4: ~32 KB)
-    if (new TextEncoder().encode(networkPayload).length > 32000) {
+  /**
+   * Check if the wallet is initialized.
+   * @returns {boolean}
+   */
+  get isWalletInitialized() {
+    return this._portal.wallet?.walletInitialized ?? false;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // IDENTITY & KEY MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Generate signing and DH key pairs for KKTP identity.
+   * @param {number} index - Derivation index
+   * @returns {Promise<{sig: {publicKey: string, privateKey: string}, dh: {publicKey: string, privateKey: string}}>}
+   */
+  async generateIdentityKeys(index) {
+    return await this._portal.generateIdentityKeys(index);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // CRYPTOGRAPHY
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Sign a message with a private key.
+   * @param {string} privateKeyHex - Private key as hex string
+   * @param {string} message - Message to sign
+   * @returns {Promise<string>} Signature
+   */
+  async signMessage(privateKeyHex, message) {
+    return await this._portal.signMessage(privateKeyHex, message);
+  }
+
+  /**
+   * Verify a message signature.
+   * @param {string} publicKey - Public key
+   * @param {string} body - Original message
+   * @param {string} signature - Signature to verify
+   * @returns {Promise<boolean>} True if valid
+   */
+  async verifyMessage(publicKey, body, signature) {
+    return await this._portal.verifyMessage(publicKey, body, signature);
+  }
+
+  /**
+   * Start a Diffie-Hellman session for encrypted communication.
+   * @param {number} keyIndex - Derivation index
+   * @param {string} [privateKey] - Existing private key (optional)
+   * @returns {Promise<Object>} DH session with deriveSharedSecret method
+   */
+  async startSession(keyIndex, privateKey) {
+    return await this._portal.startSession(keyIndex, privateKey);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // VRF & RANDOMNESS
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Generate high-quality randomness from QRNG, Bitcoin, and Kaspa.
+   * @returns {Promise<string>} 64-character hex string
+   */
+  async generateFullRandomness() {
+    return await this._portal.generateFullRandomness();
+  }
+
+  /**
+   * Generate randomness from Bitcoin and Kaspa only (no QRNG).
+   * Use as fallback when QRNG is unavailable.
+   * @returns {Promise<string>} 64-character hex string
+   */
+  async generatePartialRandomness() {
+    return await this._portal.generatePartialRandomness();
+  }
+
+  /**
+   * Generate a verifiable random proof using blockchain entropy.
+   * @param {Object} options - VRF options
+   * @param {string} options.seedInput - Seed value
+   * @returns {Promise<{finalOutput: string, proof: Object}>}
+   */
+  async prove(options) {
+    return await this._portal.prove(options);
+  }
+
+  /**
+   * Verify a VRF proof.
+   * @param {string|Object} valueOrResult - Value or result object to verify
+   * @param {Object} [optionalProof] - Proof if not included in first param
+   * @param {string} [expectedInput] - Expected VRF input for validation
+   * @returns {Promise<boolean>} True if valid
+   */
+  async verify(valueOrResult, optionalProof, expectedInput) {
+    return await this._portal.verify(valueOrResult, optionalProof);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // TRANSACTION & BROADCASTING
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Send a transaction with a payload.
+   * @param {Object} options - Transaction options
+   * @param {string} options.toAddress - Destination address
+   * @param {string} [options.amount='1'] - Amount in KAS
+   * @param {string} [options.payload] - OP_RETURN payload
+   * @returns {Promise<Object>} Transaction result
+   */
+  async send(options) {
+    return await this._portal.send(options);
+  }
+
+  /**
+   * Broadcast a KKTP anchor to the network.
+   * @param {Object} anchor - KKTP anchor object
+   * @param {Object} [options] - Broadcast options
+   * @param {string} [options.toAddress] - Destination address (defaults to self)
+   * @param {string} [options.amount='1'] - Transaction amount
+   * @returns {Promise<Object>} Transaction result
+   */
+  async broadcastAnchor(anchor, options = {}) {
+    const { toAddress, amount = "1" } = options;
+    const payload = `KKTP:ANCHOR:${JSON.stringify(anchor)}`;
+    const address = toAddress ?? this.address;
+
+    return await this.send({
+      toAddress: address,
+      amount,
+      payload,
+    });
+  }
+
+  /**
+   * Broadcast a mailbox message to the network.
+   * @param {string} mailboxId - Session mailbox ID
+   * @param {string} canonicalMessage - Canonical JSON message
+   * @param {Object} [options] - Broadcast options
+   * @param {string} [options.toAddress] - Destination address
+   * @param {string} [options.amount='1'] - Transaction amount
+   * @returns {Promise<Object>} Transaction result
+   */
+  async broadcastMessage(mailboxId, canonicalMessage, options = {}) {
+    const { toAddress, amount = "1" } = options;
+    const payload = `KKTP:${mailboxId}:${canonicalMessage}`;
+    const address = toAddress ?? this.address;
+
+    // Validate payload size (Section 6.4: ~32 KB limit)
+    if (new TextEncoder().encode(payload).length > 32000) {
       throw new Error(
-        "Payload exceeds Kaspa limits. Application-layer chunking required.",
+        "KKTP: Payload exceeds Kaspa limits. Application-layer chunking required.",
       );
     }
 
-    // 4. Broadcast to the DAG
-    return await kaspaPortal.send(networkPayload);
+    return await this.send({
+      toAddress: address,
+      amount,
+      payload,
+    });
   }
 
   /**
-   * Section 6.5: Mailbox Detection and Scanning
-   * Filters incoming transactions before handing them to the State Machine.
+   * Broadcast a group message to the network.
+   * @param {string} groupMailboxId - Group mailbox ID
+   * @param {Object} encrypted - Encrypted message object
+   * @param {Object} [options] - Broadcast options
+   * @returns {Promise<Object>} Transaction result
    */
-  async processIncoming(rawPayload) {
-    // 1. Strict Prefix Check (§6.5)
-    if (!rawPayload.startsWith("KKTP:")) return;
+  async broadcastGroupMessage(groupMailboxId, encrypted, options = {}) {
+    const { toAddress, amount = "1" } = options;
+    const payload = `KKTP:GROUP:${groupMailboxId}:${JSON.stringify(encrypted)}`;
+    const address = toAddress ?? this.address;
 
-    // 2. Route by Sub-Prefix (§6.4)
-    if (rawPayload.startsWith("KKTP:ANCHOR:")) {
-      const jsonStr = rawPayload.substring("KKTP:ANCHOR:".length);
-      return await this._handleAnchorIntake(jsonStr);
-    }
+    return await this.send({
+      toAddress: address,
+      amount,
+      payload,
+    });
+  }
 
-    return this._handleMessageIntake(rawPayload);
+  // ═══════════════════════════════════════════════════════════════
+  // SCANNER & PREFIX MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Add a payload prefix to watch for on the blockchain.
+   * @param {string} prefix - Prefix to match (e.g., 'KKTP:abc123...')
+   */
+  addPrefix(prefix) {
+    this._portal.addPrefix?.(prefix);
   }
 
   /**
-   * Handles Discovery, Response, and SessionEnd Anchors (§6.1, §6.8)
+   * Remove a prefix from the watch list.
+   * @param {string} prefix - Prefix to stop watching
    */
-  async _handleAnchorIntake(jsonStr) {
-    try {
-      const anchor = JSON.parse(jsonStr);
-
-      // 1. Verify it's a valid KKTP object generally
-      this._validateSchema(anchor);
-
-      // 2. CRYPTO CHECK: Does the signature match the public key provided?
-      // We do this here so the Facade doesn't have to know how to verify signatures.
-      const isValid = await this._verifyAnchorSignature(anchor);
-      if (!isValid) throw new Error("Invalid cryptographic signature");
-
-      // 3. Hand off the AUTHENTICATED anchor to the Facade
-      return await kaspaPortal.kktpProtocol.processIncoming(anchor);
-    } catch (e) {
-      console.warn("KaspaAdapter rejected anchor:", e.message);
-    }
+  removePrefix(prefix) {
+    this._portal.removePrefix?.(prefix);
   }
 
   /**
-   * Handles Encrypted Packets (§6.6)
+   * Set a single scanner prefix.
+   * @param {string} prefix - Prefix to match
    */
-  _handleMessageIntake(rawPayload) {
-    // Format: KKTP:[mailbox_id]:{json...}
-    const parts = rawPayload.split(":");
-    if (parts.length < 3) return;
-
-    const incomingMailboxId = parts[1];
-    const jsonStr = parts.slice(2).join(":"); // Rejoin in case JSON contains colons
-
-    // Mailbox Filtering (§6.5)
-    if (incomingMailboxId !== this.stateMachine.kktp.mailboxId) return;
-
-    try {
-      const msg = JSON.parse(jsonStr);
-
-      // §6.5: Verify type is "msg" before processing
-      if (msg.type !== "msg") {
-        console.warn("Protocol Violation: Non-msg type in mailbox path.");
-        return;
-      }
-
-      mailboxMessageValidator.validate(msg);
-      // Hand off to the state machine for reordering/decryption
-      return this.stateMachine.receiveMessage(msg);
-    } catch (e) {
-      console.warn("Dropped malformed KKTP packet:", e.message);
-    }
+  setScannerPrefix(prefix) {
+    this._portal.setScannerPrefix?.(prefix);
   }
 
   /**
-   * Signature verification per §7.4
+   * Get the current scanner prefix.
+   * @returns {string|null}
    */
-  async _verifyAnchorSignature(anchor) {
-    const isResponse = anchor.type === "response";
-    const isSessionEnd = anchor.type === "session_end";
+  getScannerPrefix() {
+    return this._portal.getScannerPrefix?.() || null;
+  }
 
-    const sigField = isResponse ? "sig_resp" : "sig";
-    const pubKeyField = isResponse ? "pub_sig_resp" : "pub_sig";
+  // ═══════════════════════════════════════════════════════════════
+  // BLOCKCHAIN SYNC & SEARCH
+  // ═══════════════════════════════════════════════════════════════
 
-    const signature = anchor[sigField];
-    const pubKey = anchor[pubKeyField];
+  /**
+   * Sync the indexer from a starting block to the present.
+   * @param {string} startHash - Block hash to start from
+   * @param {Function} [logFn] - Logging callback
+   * @param {Object} [options] - Sync options
+   * @returns {Promise<void>}
+   */
+  async syncFrom(startHash, logFn = null, options = {}) {
+    return await this._portal.syncFrom(startHash, logFn, options);
+  }
 
-    if (!signature || !pubKey) return false;
+  /**
+   * Search forward from a block for matching payloads.
+   * @param {string} startHash - Starting block hash
+   * @param {string} searchText - Text to find in payloads
+   * @param {string} [mode='contains'] - Match mode
+   * @param {Object} [options] - Search options
+   * @returns {Promise<Array>} Array of matches
+   */
+  async findPayload(startHash, searchText, mode = "contains", options = {}) {
+    return await this._portal.findPayload(startHash, searchText, mode, options);
+  }
 
-    const body = canonicalize(
-      prepareForSigning(anchor, {
-        omitKeys: [sigField],
-        excludeMeta: anchor.type === "discovery",
-      }),
-    );
-
-    return await kaspaPortal.crypto.verifyMessage(pubKey, body, signature);
+  /**
+   * Search backward through history for matching transactions.
+   * @param {string} startHash - Starting block hash
+   * @param {Function} matchFn - Match function
+   * @param {Object} [options] - Search options
+   * @returns {Promise<Array>} Array of matches
+   */
+  async findHistorical(startHash, matchFn, options = {}) {
+    return await this._portal.findHistorical(startHash, matchFn, options);
   }
 }

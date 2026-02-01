@@ -1,14 +1,27 @@
 import { KKTPStateMachine, KKTP_STATES } from "../stateMachine.js";
+import { KaspaAdapter } from "../kaspaAdapter.js";
 import { kaspaPortal } from "../../../wrapper/kaspaPortal.js";
 
 const TEST_WALLET_PASSWORD = "integration-test-password";
+
+// Cached adapter instance
+let _adapter = null;
 
 // Ensure WASM is initialized before any portal usage
 let _portalInitDone = false;
 async function ensurePortalReady() {
   if (_portalInitDone) return;
   await kaspaPortal.init();
+  _adapter = new KaspaAdapter(kaspaPortal);
   _portalInitDone = true;
+}
+
+/**
+ * Get the adapter (requires ensurePortalReady to be called first)
+ */
+function getAdapter() {
+  if (!_adapter) throw new Error("Call ensurePortalReady first");
+  return _adapter;
 }
 
 /**
@@ -51,8 +64,8 @@ export async function testSessionEstablishment(log = console.log) {
   log(`SID: ${discovery.sid}`, "crypto");
   log(`Mailbox ID: ${discovery.mailboxId}`, "crypto");
 
-  const initiator = new KKTPStateMachine(kaspaPortal, true, 0);
-  const responder = new KKTPStateMachine(kaspaPortal, false, 1);
+  const initiator = new KKTPStateMachine(getAdapter(), true, 0);
+  const responder = new KKTPStateMachine(getAdapter(), false, 1);
 
   initiator.kktp.myDhPriv = initiatorDhPriv;
   responder.kktp.myDhPriv = responderDhPriv;
@@ -87,8 +100,8 @@ export async function testMessageSendReceive(log = console.log) {
   log(`SID: ${discovery.sid}`, "crypto");
   log(`Mailbox ID: ${discovery.mailboxId}`, "crypto");
 
-  const initiator = new KKTPStateMachine(kaspaPortal, true, 0);
-  const responder = new KKTPStateMachine(kaspaPortal, false, 1);
+  const initiator = new KKTPStateMachine(getAdapter(), true, 0);
+  const responder = new KKTPStateMachine(getAdapter(), false, 1);
 
   initiator.kktp.myDhPriv = initiatorDhPriv;
   responder.kktp.myDhPriv = responderDhPriv;
@@ -137,8 +150,8 @@ export async function testOutOfOrderDelivery(log = console.log) {
   log(`SID: ${discovery.sid}`, "crypto");
   log(`Mailbox ID: ${discovery.mailboxId}`, "crypto");
 
-  const initiator = new KKTPStateMachine(kaspaPortal, true, 0);
-  const responder = new KKTPStateMachine(kaspaPortal, false, 1);
+  const initiator = new KKTPStateMachine(getAdapter(), true, 0);
+  const responder = new KKTPStateMachine(getAdapter(), false, 1);
 
   initiator.kktp.myDhPriv = initiatorDhPriv;
   responder.kktp.myDhPriv = responderDhPriv;
@@ -183,8 +196,8 @@ export async function testAdversarialBufferOverflow(log = console.log) {
   log(`SID: ${discovery.sid}`, "crypto");
   log(`Mailbox ID: ${discovery.mailboxId}`, "crypto");
 
-  const initiator = new KKTPStateMachine(kaspaPortal, true, 0);
-  const responder = new KKTPStateMachine(kaspaPortal, false, 1);
+  const initiator = new KKTPStateMachine(getAdapter(), true, 0);
+  const responder = new KKTPStateMachine(getAdapter(), false, 1);
 
   initiator.kktp.myDhPriv = initiatorDhPriv;
   responder.kktp.myDhPriv = responderDhPriv;

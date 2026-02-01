@@ -9,15 +9,15 @@
 export class KeyDeriver {
   /**
    * @param {Object} options
-   * @param {Object} options.portal - KaspaPortal instance for key generation
+   * @param {import('../kaspaAdapter.js').KaspaAdapter} options.adapter - Network adapter for key generation
    * @param {Object} options.persistence - SessionPersistence instance for storage
    * @param {number} [options.startIndex=100] - Starting baseIndex (avoid legacy conflicts)
    */
-  constructor({ portal, persistence, startIndex = 100 } = {}) {
-    if (!portal) throw new Error("KeyDeriver: portal is required");
+  constructor({ adapter, persistence, startIndex = 100 } = {}) {
+    if (!adapter) throw new Error("KeyDeriver: adapter is required");
     if (!persistence) throw new Error("KeyDeriver: persistence is required");
 
-    this._portal = portal;
+    this._adapter = adapter;
     this._persistence = persistence;
     this._nextBaseIndex = startIndex;
     this._nextBaseIndexLoaded = false;
@@ -109,7 +109,7 @@ export class KeyDeriver {
     const keyIndex = isInitiator ? base + 1 : base + 2;
 
     // Pre-derive keys for this branch
-    const keys = await this._portal.generateIdentityKeys(keyIndex);
+    const keys = await this._adapter.generateIdentityKeys(keyIndex);
 
     // Mark as used for PFS
     await this._persistence.markPeerBranchUsed(peerPubSig, keyIndex);
@@ -132,7 +132,7 @@ export class KeyDeriver {
    * @returns {Promise<Object>} - { sig: { publicKey, privateKey }, dh: { publicKey, privateKey } }
    */
   async deriveKeysForIndex(keyIndex) {
-    return await this._portal.generateIdentityKeys(keyIndex);
+    return await this._adapter.generateIdentityKeys(keyIndex);
   }
 
   /**

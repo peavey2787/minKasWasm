@@ -14,11 +14,6 @@ export async function connect({
   networkId = "testnet-10",
   onDisconnect,
 } = {}) {
-
-  console.log(
-    `Connecting to Kaspa node at ${rpcUrl || "public resolver"} on network ${networkId}...`,
-  );
-
   // 1. Shut down existing client
   if (client) {
     try {

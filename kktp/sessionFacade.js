@@ -3,11 +3,11 @@
 
 import { KKTPProtocol } from "./protocol/kktpProtocol.js";
 import { KKTPStateMachine } from "./protocol/stateMachine.js";
+import { KaspaAdapter } from "./protocol/kaspaAdapter.js";
 import {
   canonicalize,
   prepareForSigning,
 } from "./protocol/integrity/canonical.js";
-import { hexToString } from "../wrapper/utilities/utilities.js";
 
 // Internal Services
 import {
@@ -23,24 +23,33 @@ import {
 /**
  * SessionFacade - Clean public API for KKTP session management.
  * Delegates to internal services for modularity and testability.
+ *
+ * Uses KaspaAdapter as the bridge to KaspaPortal, enabling network-agnostic
+ * operation and easy swapping of the underlying transport layer.
  */
 export class SessionFacade {
+  /**
+   * @param {import('../wrapper/kaspaPortal.js').KaspaPortal} portal - KaspaPortal instance
+   */
   constructor(portal) {
     this.portal = portal;
 
-    // Initialize internal services
+    // Create the adapter as the bridge to KaspaPortal
+    this._adapter = new KaspaAdapter(portal);
+
+    // Initialize internal services with adapter (not portal)
     this._persistence = new SessionPersistence();
     this._keyDeriver = new KeyDeriver({
-      portal,
+      adapter: this._adapter,
       persistence: this._persistence,
     });
     this._vault = new SessionVault({
-      portal,
+      adapter: this._adapter,
       persistence: this._persistence,
       keyDeriver: this._keyDeriver,
     });
     this._handover = new HandoverEngine({
-      portal,
+      adapter: this._adapter,
       persistence: this._persistence,
       vault: this._vault,
     });
@@ -59,9 +68,17 @@ export class SessionFacade {
       this._handleIncomingAnchor(anchor),
     );
 
-    // Protocol instance for signing/verification helpers
-    const sm = new KKTPStateMachine(portal, true, 0);
+    // Protocol instance for signing/verification helpers (uses adapter via SM)
+    const sm = new KKTPStateMachine(this._adapter, true, 0);
     this.kktpProtocol = new KKTPProtocol(sm);
+  }
+
+  /**
+   * Get the adapter for advanced use cases or testing.
+   * @returns {KaspaAdapter}
+   */
+  get adapter() {
+    return this._adapter;
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -69,10 +86,10 @@ export class SessionFacade {
   // ─────────────────────────────────────────────────────────────
 
   async signAnchor(anchor) {
-    if (!this.portal.identity.wallet?.walletInitialized) {
-      throw new Error("KaspaPortal: Wallet must be initialized.");
+    if (!this._adapter.isWalletInitialized) {
+      throw new Error("KKTP: Wallet must be initialized.");
     }
-    const { sig } = await this.portal.generateIdentityKeys(0);
+    const { sig } = await this._adapter.generateIdentityKeys(0);
     return await this.kktpProtocol.signAnchor(anchor, sig.privateKey);
   }
 
@@ -136,9 +153,9 @@ export class SessionFacade {
     );
 
     const payload = buildAnchorPayload(discovery);
-    const address = toAddress ?? (await this.portal.identity.address);
+    const address = toAddress ?? (await this._adapter.getAddress());
 
-    await this.portal.send({
+    await this._adapter.send({
       toAddress: address,
       amount,
       payload,
@@ -177,9 +194,9 @@ export class SessionFacade {
     });
 
     const payload = buildAnchorPayload(response);
-    const address = toAddress ?? (await this.portal.identity.address);
+    const address = toAddress ?? (await this._adapter.getAddress());
 
-    await this.portal.send({
+    await this._adapter.send({
       toAddress: address,
       amount,
       payload,
@@ -188,7 +205,7 @@ export class SessionFacade {
     // CRITICAL: Subscribe to DM mailbox IMMEDIATELY after session is created
     // This ensures we can receive responses from the initiator without race conditions
     const dmPrefix = `KKTP:${mailboxId}:`;
-    this.portal.addPrefix?.(dmPrefix);
+    this._adapter.addPrefix(dmPrefix);
     console.info(`KKTP: Subscribed to DM mailbox (responder) prefix=${dmPrefix.slice(0, 32)}...`);
 
     return { response, mailboxId, payload };
@@ -200,15 +217,15 @@ export class SessionFacade {
     const session = this._vault.getSession(mailboxId);
     if (!session) {
       throw new Error(
-        `KaspaPortal: No KKTP session for mailboxId ${mailboxId}`,
+        `KKTP: No session found for mailboxId ${mailboxId}`,
       );
     }
 
     const canonicalMessage = session.protocol.createMessageAnchor(plaintext);
     const payload = `KKTP:${mailboxId}:${canonicalMessage}`;
-    const address = toAddress ?? (await this.portal.identity.address);
+    const address = toAddress ?? (await this._adapter.getAddress());
 
-    await this.portal.send({
+    await this._adapter.send({
       toAddress: address,
       amount,
       payload,
@@ -309,7 +326,7 @@ export class SessionFacade {
       }),
     );
 
-    return await this.portal.crypto.verifyMessage(pubKey, body, signature);
+    return await this._adapter.verifyMessage(pubKey, body, signature);
   }
 
   async _handleIncomingAnchor(anchor) {
@@ -422,7 +439,7 @@ export class SessionFacade {
       // This ensures we can receive DM messages from the responder in the same block
       // without race conditions (e.g., lobby join requests)
       const dmPrefix = `KKTP:${mailboxId}:`;
-      this.portal.addPrefix?.(dmPrefix);
+      this._adapter.addPrefix(dmPrefix);
       console.info(`KKTP: Subscribed to DM mailbox (initiator) prefix=${dmPrefix.slice(0, 32)}...`);
 
       console.info(
@@ -530,6 +547,3 @@ export class SessionFacade {
     return this._handover;
   }
 }
-
-// Re-export for backward compatibility
-export { SessionFacade as SessionManager };

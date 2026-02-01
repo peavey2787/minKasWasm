@@ -17,16 +17,16 @@ import {
 export class HandoverEngine {
   /**
    * @param {Object} options
-   * @param {Object} options.portal - KaspaPortal instance
+   * @param {import('../kaspaAdapter.js').KaspaAdapter} options.adapter - Network adapter
    * @param {Object} options.persistence - SessionPersistence instance
    * @param {Object} options.vault - SessionVault instance
    */
-  constructor({ portal, persistence, vault } = {}) {
-    if (!portal) throw new Error("HandoverEngine: portal is required");
+  constructor({ adapter, persistence, vault } = {}) {
+    if (!adapter) throw new Error("HandoverEngine: adapter is required");
     if (!persistence) throw new Error("HandoverEngine: persistence is required");
     if (!vault) throw new Error("HandoverEngine: vault is required");
 
-    this._portal = portal;
+    this._adapter = adapter;
     this._persistence = persistence;
     this._vault = vault;
   }
@@ -208,7 +208,7 @@ export class HandoverEngine {
   async _scanForPeerHandover(oldMailboxId, scanStartHash, maxSeconds, logFn) {
     let peerHandover = null;
 
-    await this._portal.syncFrom(scanStartHash, logFn, {
+    await this._adapter.syncFrom(scanStartHash, logFn, {
       maxSeconds,
       prefixes: [`KKTP:${oldMailboxId}:`],
       onTransactionMatch: [
@@ -249,7 +249,7 @@ export class HandoverEngine {
   async _scanForResponse(discoverySid, scanStartHash, maxSeconds, logFn) {
     let responseAnchor = null;
 
-    await this._portal.syncFrom(scanStartHash, logFn, {
+    await this._adapter.syncFrom(scanStartHash, logFn, {
       maxSeconds,
       prefixes: ["KKTP:ANCHOR:"],
       onTransactionMatch: [
@@ -359,7 +359,7 @@ export class HandoverEngine {
   async _scanForLock(newMailboxId, scanStartHash, maxSeconds, logFn) {
     let lockAchieved = false;
 
-    await this._portal.syncFrom(scanStartHash, logFn, {
+    await this._adapter.syncFrom(scanStartHash, logFn, {
       maxSeconds,
       prefixes: [`KKTP:${newMailboxId}:`],
       onTransactionMatch: [

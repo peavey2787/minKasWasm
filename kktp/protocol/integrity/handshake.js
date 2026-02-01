@@ -33,9 +33,16 @@ function computeVrfInputHash(...hexStrings) {
 /**
  * Establishes a session with mandatory VRF binding verification.
  * Follows KKTP Spec Sections 6.1, 6.2, 6.3, and 7.3.
+ *
+ * @param {import('../kaspaAdapter.js').KaspaAdapter} adapter - Network adapter
+ * @param {Object} discovery - Discovery anchor
+ * @param {Object} response - Response anchor
+ * @param {number} keyIndex - Key derivation index
+ * @param {string|null} dhPrivateKey - DH private key
+ * @param {boolean} isInitiator - Whether this party initiated
  */
 export async function establishSession(
-  kaspaPortal,
+  adapter,
   discovery,
   response,
   keyIndex = 0,
@@ -67,12 +74,12 @@ export async function establishSession(
   );
 
   const [isDValid, isRValid] = await Promise.all([
-    kaspaPortal.crypto.verifyMessage(
+    adapter.verifyMessage(
       discovery.pub_sig,
       discBody,
       discovery.sig,
     ),
-    kaspaPortal.crypto.verifyMessage(
+    adapter.verifyMessage(
       response.pub_sig_resp,
       respBody,
       response.sig_resp,
@@ -115,7 +122,7 @@ export async function establishSession(
 
   // Only verify VRF if initiator provided it
   if (hasInitiatorVrf) {
-    const isInitiatorVrfValid = await kaspaPortal.verify(
+    const isInitiatorVrfValid = await adapter.verify(
       discovery.vrf_value,
       discovery.vrf_proof,
       bytesToHex(initiatorVrfInputHash),
@@ -127,7 +134,7 @@ export async function establishSession(
 
   // Only verify VRF if responder provided it
   if (hasResponderVrf) {
-    const isResponderVrfValid = await kaspaPortal.verify(
+    const isResponderVrfValid = await adapter.verify(
       response.vrf_value,
       response.vrf_proof,
       bytesToHex(responderVrfInputHash),
@@ -138,7 +145,7 @@ export async function establishSession(
   }
 
   // 3. DH Shared Secret Derivation
-  const session = await kaspaPortal.startSession(keyIndex, dhPrivateKey);
+  const session = await adapter.startSession(keyIndex, dhPrivateKey);
 
   // Per KKTP §6.2: Initiator uses responder DH; responder uses initiator DH
   const peerDH = isInitiator ? response.pub_dh_resp : discovery.pub_dh;

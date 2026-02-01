@@ -725,10 +725,10 @@ export async function recoverSessionsOnLoad({
 /**
  * Search a single block for KKTP payloads (peer/lobby discoveries).
  * Used when a user pastes a block hash shared by someone else.
- * 
+ *
  * @param {string} blockHash - 64-char hex block hash
  * @param {Object} options - Optional callbacks
- * @param {Function} options.handleIncomingEvent - Handler for discovered payloads
+ * @param {Function} options.handleIncomingEvent - Handler for discovered payloads (receives proper event object)
  * @returns {Promise<{found: number, payloads: string[]}>}
  */
 export async function searchBlockForKKTP(blockHash, { handleIncomingEvent } = {}) {
@@ -741,53 +741,60 @@ export async function searchBlockForKKTP(blockHash, { handleIncomingEvent } = {}
     throw new Error("Block not found");
   }
 
-  const payloads = [];
+  const foundPayloads = [];
 
-  // Extract KKTP payloads from all transactions in the block
-  const txs = blockData.transactions || blockData.block?.transactions || [];
-  for (const tx of txs) {
-    const outputs = tx.outputs || [];
-    for (const output of outputs) {
-      const script = output.script_public_key?.script_public_key || output.scriptPublicKey || "";
-      if (script.startsWith("6a")) {
-        // OP_RETURN
-        const hexPayload = script.slice(4); // Skip 6a + length byte
-        try {
-          const decoded = hexToString(hexPayload);
-          if (decoded.startsWith(KKTP_PREFIX)) {
-            payloads.push(decoded);
-          }
-        } catch {
-          // Not valid UTF-8 or not KKTP
-        }
-      }
+  // Extract KKTP payloads from transaction payloads (not outputs)
+  // The Kaspa WASM SDK returns: { block: { transactions: [{ payload: "hexstring" }] } }
+  const block = blockData.block || blockData;
+  const transactions = block.transactions || [];
+
+  logger.debug("KKTP Sync: Searching block for payloads", {
+    blockHash: blockHash.slice(0, 16),
+    txCount: transactions.length,
+  });
+
+  for (const tx of transactions) {
+    // tx.payload is a hex-encoded string directly on the transaction
+    const payloadHex = tx.payload;
+    if (!payloadHex) continue;
+
+    // Decode hex to UTF-8 string
+    const decoded = decodeHexPayload(payloadHex);
+    if (decoded && decoded.startsWith(KKTP_PREFIX)) {
+      foundPayloads.push(decoded);
+      logger.debug("KKTP Sync: Found KKTP payload", {
+        txId: tx.verboseData?.transactionId || tx.id || "unknown",
+        preview: decoded.slice(0, 50),
+      });
     }
   }
 
-  // Process discovered payloads
-  for (const payload of payloads) {
+  // Process discovered payloads through kaspaPortal to get proper event objects
+  for (const payload of foundPayloads) {
     try {
-      const jsonPart = payload.slice(KKTP_PREFIX.length);
-      const parsed = JSON.parse(jsonPart);
-      
-      if (typeof handleIncomingEvent === "function") {
-        handleIncomingEvent({ payload: parsed, raw: payload, blockHash });
-      } else {
-        // Fallback: use kaspaPortal's processIncomingPayload if available
-        kaspaPortal.processIncomingPayload?.(parsed);
+      // Use kaspaPortal.processIncomingPayload to get a proper event object
+      // This returns { type: "discovery", anchor: {...} } for discovery anchors
+      const event = await kaspaPortal.processIncomingPayload(payload);
+
+      if (event && typeof handleIncomingEvent === "function") {
+        // Pass the proper event object to the handler
+        handleIncomingEvent(event);
       }
     } catch (err) {
-      logger.warn("KKTP Sync: Failed to parse payload", { payload, error: err.message });
+      logger.warn("KKTP Sync: Failed to process payload", {
+        payloadPreview: payload.slice(0, 50),
+        error: err.message
+      });
     }
   }
 
-  return { found: payloads.length, payloads };
+  return { found: foundPayloads.length, payloads: foundPayloads };
 }
 
 /**
  * Handle the "Join via Block Hash" button click.
  * Reads hash from input, searches block, reports results.
- * 
+ *
  * @param {Object} options - Callbacks
  * @param {Function} options.handleIncomingEvent - Handler for discovered payloads
  */
@@ -799,7 +806,7 @@ export async function handleJoinViaBlockHash({ handleIncomingEvent } = {}) {
   }
 
   const blockHash = elements.joinBlockHashInput?.value?.trim() || "";
-  
+
   if (!blockHash) {
     setJoinStatus("Enter a block hash to search");
     return;
@@ -817,7 +824,7 @@ export async function handleJoinViaBlockHash({ handleIncomingEvent } = {}) {
 
   try {
     const result = await searchBlockForKKTP(blockHash, { handleIncomingEvent });
-    
+
     if (result.found > 0) {
       logEvent(`Found ${result.found} KKTP payload(s) in block ${blockHash.slice(0, 8)}...`, "success");
       setJoinStatus(`✅ Found ${result.found} payload(s)`);

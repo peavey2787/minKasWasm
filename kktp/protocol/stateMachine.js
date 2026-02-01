@@ -9,9 +9,22 @@ export const KKTP_STATES = {
   CLOSED: "CLOSED", // Section 7.7
 };
 
+/**
+ * KKTPStateMachine - Manages KKTP session state transitions.
+ *
+ * Requires a KaspaAdapter for network operations.
+ */
 export class KKTPStateMachine {
-  constructor(kaspaPortal, isInitiator = true, keyIndex = 0) {
-    this.kaspaPortal = kaspaPortal;
+  /**
+   * @param {import('./kaspaAdapter.js').KaspaAdapter} adapter - Network adapter
+   * @param {boolean} isInitiator - Whether this party initiated the session
+   * @param {number} keyIndex - Key derivation index
+   */
+  constructor(adapter, isInitiator = true, keyIndex = 0) {
+    if (!adapter) {
+      throw new Error("KKTPStateMachine: adapter is required");
+    }
+    this.adapter = adapter;
     this.isInitiator = isInitiator;
     this.keyIndex = keyIndex;
     this.state = KKTP_STATES.INIT;
@@ -75,7 +88,7 @@ export class KKTPStateMachine {
       }
 
       const { session, mailboxId, sessionKey } = await establishSession(
-        this.kaspaPortal,
+        this.adapter,
         discovery,
         response,
         this.keyIndex,

@@ -2,7 +2,7 @@ import { bytesToHex, hexToBytes } from "../utils/conversions.js";
 import { constructAAD } from "./aad.js";
 import { xchacha20poly1305 } from "https://esm.sh/v135/@noble/ciphers/chacha";
 import { blake2b } from "https://esm.sh/@noble/hashes@1.3.0/blake2b";
-import { kaspaPortal } from "../../../wrapper/kaspaPortal.js";
+
 /**
  * Computes VRF input hash per §6.1: H(pub_sig || pub_dh || sid)
  * Hashing prevents canonicalization attacks from string concatenation.
@@ -23,17 +23,32 @@ function computeVrfInputHash(...hexStrings) {
   return bytesToHex(blake2b(combined, { dkLen: 32 }));
 }
 
+/**
+ * AnchorFactory - Creates KKTP protocol anchors (Discovery, Response, Message, SessionEnd)
+ *
+ * Requires a KaspaAdapter instance for VRF/randomness operations.
+ */
 export class AnchorFactory {
+  /**
+   * @param {import('../kaspaAdapter.js').KaspaAdapter} adapter - Network adapter for crypto operations
+   */
+  constructor(adapter) {
+    if (!adapter) {
+      throw new Error("AnchorFactory: adapter is required");
+    }
+    this._adapter = adapter;
+  }
+
   /**
    * Section 6.1: Discovery Anchor
    * Per §6.1: VRF is optional
    */
   async createDiscovery({ meta, sig, dh }) {
 
-    // Primary entropy: VRF via kaspaPortal
+    // Primary entropy: VRF via adapter
     let sid = null;
     try {
-      const vrfHex = await kaspaPortal.generateFullRandomness();
+      const vrfHex = await this._adapter.generateFullRandomness();
       if (typeof vrfHex === "string" && vrfHex.length >= 64) {
         sid = vrfHex.slice(0, 64).toLowerCase();
       }
@@ -41,10 +56,10 @@ export class AnchorFactory {
       // ignore
     }
 
-    // Secondary entropy: partial VRF via kaspaPortal
+    // Secondary entropy: partial VRF via adapter
     if (!sid) {
       try {
-        const vrfHex = await kaspaPortal.generatePartialRandomness();
+        const vrfHex = await this._adapter.generatePartialRandomness();
         if (typeof vrfHex === "string" && vrfHex.length >= 64) {
           sid = vrfHex.slice(0, 64).toLowerCase();
         }
@@ -91,7 +106,7 @@ export class AnchorFactory {
     // 2. Optionally compute VRF binding
     const vrfInputHash = computeVrfInputHash(sig.publicKey, dh.publicKey, sid);
     try {
-      const vrfData = await kaspaPortal.prove({ seedInput: vrfInputHash });
+      const vrfData = await this._adapter.prove({ seedInput: vrfInputHash });
       anchor.vrf_value = vrfData.finalOutput;
       anchor.vrf_proof = bytesToHex(
         new TextEncoder().encode(JSON.stringify(vrfData.proof)),
@@ -135,7 +150,7 @@ export class AnchorFactory {
     );
 
     try {
-      const vrfData = await kaspaPortal.prove({ seedInput: vrfInputHash });
+      const vrfData = await this._adapter.prove({ seedInput: vrfInputHash });
       response.vrf_value = vrfData.finalOutput;
       response.vrf_proof = bytesToHex(
         new TextEncoder().encode(JSON.stringify(vrfData.proof)),

@@ -12,13 +12,21 @@ import {
 } from "./integrity/canonical.js";
 import { KKTP_STATES } from "./stateMachine.js";
 import { AnchorFactory } from "./integrity/anchorFactory.js";
-import { kaspaPortal } from "../../wrapper/kaspaPortal.js";
 import { bytesToHex } from "./utils/conversions.js";
 
+/**
+ * KKTPProtocol - Handles KKTP protocol operations (anchor creation, signing, intake)
+ *
+ * Requires a KaspaAdapter for network operations (via state machine).
+ */
 export class KKTPProtocol {
+  /**
+   * @param {import('./stateMachine.js').KKTPStateMachine} stateMachine - State machine with adapter
+   */
   constructor(stateMachine) {
     this.sm = stateMachine;
-    this.anchorFactory = new AnchorFactory();
+    // AnchorFactory receives adapter from state machine
+    this.anchorFactory = new AnchorFactory(stateMachine.adapter);
   }
 
   /**
@@ -30,7 +38,7 @@ export class KKTPProtocol {
     // Use pre-derived keys from branch system if available, otherwise derive fresh
     const keys = this.sm.kktp.prederivedKeys
       ? this.sm.kktp.prederivedKeys
-      : await kaspaPortal.generateIdentityKeys(this.sm.keyIndex);
+      : await this.sm.adapter.generateIdentityKeys(this.sm.keyIndex);
 
     this.sm.kktp.myDhPriv = keys.dh.privateKey;
     this.sm.kktp.myPrivSig = keys.sig.privateKey; // Store for SessionEnd signing (§5.5)
@@ -57,7 +65,7 @@ export class KKTPProtocol {
     // Use pre-derived keys from branch system if available, otherwise derive fresh
     const keys = this.sm.kktp.prederivedKeys
       ? this.sm.kktp.prederivedKeys
-      : await kaspaPortal.generateIdentityKeys(this.sm.keyIndex);
+      : await this.sm.adapter.generateIdentityKeys(this.sm.keyIndex);
 
     this.sm.kktp.myDhPriv = keys.dh.privateKey;
     this.sm.kktp.myPrivSig = keys.sig.privateKey; // Store for SessionEnd signing (§5.5)
@@ -99,7 +107,7 @@ export class KKTPProtocol {
     if (!priv || (typeof priv !== "string" && !(priv instanceof Uint8Array))) {
       const keys = this.sm.kktp.prederivedKeys
         ? this.sm.kktp.prederivedKeys
-        : await kaspaPortal.generateIdentityKeys(this.sm.keyIndex);
+        : await this.sm.adapter.generateIdentityKeys(this.sm.keyIndex);
       priv = keys.sig.privateKey;
       pub = keys.sig.publicKey;
     }
@@ -183,8 +191,8 @@ export class KKTPProtocol {
       prepareForSigning(anchor, { omitKeys, excludeMeta: true }),
     );
 
-    // The protocol calls the crypto layer for the raw signature
-    return await kaspaPortal.crypto.signMessage(privateKeyHex, body);
+    // The protocol calls the adapter for the raw signature
+    return await this.sm.adapter.signMessage(privateKeyHex, body);
   }
 
   /**

@@ -19,16 +19,16 @@ import { KKTPStateMachine, KKTP_STATES } from "../stateMachine.js";
 export class SessionVault {
   /**
    * @param {Object} options
-   * @param {Object} options.portal - KaspaPortal instance
+   * @param {import('../kaspaAdapter.js').KaspaAdapter} options.adapter - Network adapter
    * @param {Object} options.persistence - SessionPersistence instance
    * @param {Object} options.keyDeriver - KeyDeriver instance
    */
-  constructor({ portal, persistence, keyDeriver } = {}) {
-    if (!portal) throw new Error("SessionVault: portal is required");
+  constructor({ adapter, persistence, keyDeriver } = {}) {
+    if (!adapter) throw new Error("SessionVault: adapter is required");
     if (!persistence) throw new Error("SessionVault: persistence is required");
     if (!keyDeriver) throw new Error("SessionVault: keyDeriver is required");
 
-    this._portal = portal;
+    this._adapter = adapter;
     this._persistence = persistence;
     this._keyDeriver = keyDeriver;
 
@@ -119,7 +119,7 @@ export class SessionVault {
         : this._keyIndex++;
     if (idx >= this._keyIndex) this._keyIndex = idx + 1;
 
-    const sm = new KKTPStateMachine(this._portal, isInitiator, idx);
+    const sm = new KKTPStateMachine(this._adapter, isInitiator, idx);
     const protocol = new KKTPProtocol(sm);
     return { sm, protocol, keyIndex: idx };
   }

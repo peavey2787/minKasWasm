@@ -972,9 +972,9 @@ export class LobbyManager {
     // Broadcast to group mailbox (single transaction, all members see it)
     try {
       const payload = `KKTP:GROUP:${this.lobby.groupMailboxId}:${JSON.stringify(closeMsg)}`;
-      const address = await this.sm.portal.identity.address;
+      const address = await this.sm.adapter.getAddress();
 
-      await this.sm.portal.send({
+      await this.sm.adapter.send({
         toAddress: address,
         amount: "1",
         payload,
@@ -1471,7 +1471,7 @@ export class LobbyManager {
     // ─────────────────────────────────────────────────────────────
     if (hostDmMailboxId) {
       try {
-        const myKeys = await this.sm.portal.generateIdentityKeys(0);
+        const myKeys = await this.sm.adapter.generateIdentityKeys(0);
         if (!myKeys?.sig?.publicKey) {
           throw new Error("Failed to get identity keys");
         }
@@ -1548,7 +1548,7 @@ export class LobbyManager {
       throw new Error("plaintext must be a non-empty string");
     }
 
-    const myKeys = await this.sm.portal.generateIdentityKeys(0);
+    const myKeys = await this.sm.adapter.generateIdentityKeys(0);
     if (!myKeys?.sig?.publicKey) {
       throw new Error("Failed to get identity keys");
     }
@@ -1566,8 +1566,8 @@ export class LobbyManager {
     const payload = `KKTP:GROUP:${this.lobby.groupMailboxId}:${JSON.stringify(encrypted)}`;
 
     // Get address for self-send
-    const address = await this.sm.portal.identity.address;
-    const result = await this.sm.portal.send({
+    const address = await this.sm.adapter.getAddress();
+    const result = await this.sm.adapter.send({
       toAddress: address,
       amount: "1",
       payload,
@@ -2078,7 +2078,7 @@ export class LobbyManager {
    */
   async _getMyPubSig() {
     try {
-      const myKeys = await this.sm.portal.generateIdentityKeys(0);
+      const myKeys = await this.sm.adapter.generateIdentityKeys(0);
       return myKeys?.sig?.publicKey || null;
     } catch {
       return null;
@@ -2465,14 +2465,14 @@ export class LobbyManager {
       return;
     }
 
-    const portal = this.sm?.portal;
-    if (!portal?.addPrefix) {
-      console.warn("KKTP Lobby: Cannot subscribe - portal.addPrefix not available");
+    const adapter = this.sm?.adapter;
+    if (!adapter?.addPrefix) {
+      console.warn("KKTP Lobby: Cannot subscribe - adapter.addPrefix not available");
       return;
     }
 
     try {
-      portal.addPrefix(prefix);
+      adapter.addPrefix(prefix);
       this._subscribedPrefixes.add(prefix);
       console.info("KKTP Lobby: Subscribed to prefix", {
         prefix: prefix.slice(0, 32),
@@ -2500,16 +2500,16 @@ export class LobbyManager {
       return;
     }
 
-    const portal = this.sm?.portal;
-    if (!portal?.removePrefix) {
-      console.debug("KKTP Lobby: Cannot unsubscribe - portal.removePrefix not available");
+    const adapter = this.sm?.adapter;
+    if (!adapter?.removePrefix) {
+      console.debug("KKTP Lobby: Cannot unsubscribe - adapter.removePrefix not available");
       // Still remove from our tracking
       this._subscribedPrefixes.delete(prefix);
       return;
     }
 
     try {
-      portal.removePrefix(prefix);
+      adapter.removePrefix(prefix);
       this._subscribedPrefixes.delete(prefix);
       console.info("KKTP Lobby: Unsubscribed from prefix", {
         prefix: prefix.slice(0, 32),
@@ -2788,7 +2788,7 @@ export class LobbyManager {
       const payload = buildAnchorPayload(endAnchor);
 
       // Step 3: Broadcast the session_end to the ledger
-      const address = this.sm.portal?.identity?.address;
+      const address = await this.sm.adapter.getAddress();
       if (!address) {
         console.error("KKTP Lobby: No wallet address for session_end broadcast");
         this.sm.closeSession(dmMailboxId);
@@ -2796,7 +2796,7 @@ export class LobbyManager {
         return false;
       }
 
-      await this.sm.portal.send({
+      await this.sm.adapter.send({
         toAddress: address,
         amount: "1",
         payload,
