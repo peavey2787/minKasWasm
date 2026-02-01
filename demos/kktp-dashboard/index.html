@@ -186,15 +186,15 @@
       </div>
 
       <!-- Chat -->
-      <section class="col-12 col-lg-6 d-flex flex-column">
-        <div class="card flex-grow-1 d-flex flex-column">
-          <div class="card-header d-flex align-items-center justify-content-between">
+      <section class="col-12 col-lg-6 d-flex flex-column" style="min-height: 400px;">
+        <div class="card flex-grow-1 d-flex flex-column overflow-hidden">
+          <div class="card-header d-flex align-items-center justify-content-between flex-shrink-0">
             <h2 id="chatHeader" class="h6 mb-0">No Session Selected</h2>
             <button id="btnCloseSession" class="btn btn-outline-danger btn-sm" disabled>
               Close Session
             </button>
           </div>
-          <div id="chatMessages" class="card-body d-flex flex-column gap-2 overflow-auto">
+          <div id="chatMessages" class="card-body d-flex flex-column gap-2 flex-grow-1">
             <div class="text-secondary text-center">Select a session to view messages</div>
           </div>
           <div class="card-footer">

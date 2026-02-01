@@ -121,6 +121,15 @@ export class SessionFacade {
     this._vault.forcePersistAllSessions();
   }
 
+  /**
+   * Register a LobbyManager for including lobby state in session persistence.
+   * Called automatically by LobbyFacade when created.
+   * @param {Object} lobbyManager - LobbyManager instance
+   */
+  setLobbyManager(lobbyManager) {
+    this._vault.setLobbyManager(lobbyManager);
+  }
+
   // ─────────────────────────────────────────────────────────────
   // Session Lifecycle
   // ─────────────────────────────────────────────────────────────

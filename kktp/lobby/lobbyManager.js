@@ -2615,6 +2615,201 @@ export class LobbyManager {
     return [...this._subscribedPrefixes];
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // Lobby State Export/Restore - For page refresh persistence
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Export current lobby state for persistence.
+   * Called by SessionVault.exportSessions() to include lobby state.
+   * @returns {Object|null} Serializable lobby state, or null if no active lobby
+   */
+  exportLobbyState() {
+    if (!this.lobby || this.state === LOBBY_STATES.IDLE) {
+      return null;
+    }
+
+    // Serialize members Map to array
+    const membersArray = [];
+    for (const [pubSig, member] of this.lobby.members.entries()) {
+      membersArray.push({
+        pubSig: member.pubSig,
+        displayName: member.displayName,
+        role: member.role,
+        joinedAt: member.joinedAt,
+        dmMailboxId: member.dmMailboxId || null,
+      });
+    }
+
+    const snapshot = {
+      version: 1,
+      state: this.state,
+      lobby: {
+        lobbyId: this.lobby.lobbyId,
+        lobbyName: this.lobby.lobbyName,
+        hostPubSig: this.lobby.hostPubSig,
+        groupKey: this._uint8ToHex(this.lobby.groupKey),
+        keyVersion: this.lobby.keyVersion,
+        groupMailboxId: this.lobby.groupMailboxId,
+        maxMembers: this.lobby.maxMembers,
+        createdAt: this.lobby.createdAt,
+        dmMailboxId: this.lobby.dmMailboxId || null, // Members have this
+        members: membersArray,
+      },
+      keyVault: {
+        current: this._keyVault.current
+          ? {
+              key: this._uint8ToHex(this._keyVault.current.key),
+              version: this._keyVault.current.version,
+            }
+          : null,
+        previous: this._keyVault.previous
+          ? {
+              key: this._uint8ToHex(this._keyVault.previous.key),
+              version: this._keyVault.previous.version,
+            }
+          : null,
+      },
+      subscribedPrefixes: [...this._subscribedPrefixes],
+      hostDmMailboxId: this._hostDmMailboxId || null,
+      savedAt: Date.now(),
+    };
+
+    console.info("KKTP Lobby: exportLobbyState", {
+      state: this.state,
+      lobbyId: this.lobby.lobbyId?.slice(0, 16),
+      memberCount: membersArray.length,
+      prefixCount: this._subscribedPrefixes.size,
+    });
+
+    return snapshot;
+  }
+
+  /**
+   * Restore lobby state from a previously exported snapshot.
+   * Called by SessionVault.restoreSessions() after restoring 1:1 sessions.
+   * @param {Object} snapshot - Previously exported lobby state
+   * @returns {Promise<boolean>} True if restore succeeded
+   */
+  async restoreLobbyState(snapshot) {
+    if (!snapshot || !snapshot.lobby) {
+      console.info("KKTP Lobby: No lobby state to restore");
+      return false;
+    }
+
+    try {
+      const { lobby, state, keyVault, subscribedPrefixes, hostDmMailboxId } =
+        snapshot;
+
+      // Rebuild members Map from array
+      const membersMap = new Map();
+      if (Array.isArray(lobby.members)) {
+        for (const m of lobby.members) {
+          membersMap.set(m.pubSig, {
+            pubSig: m.pubSig,
+            displayName: m.displayName,
+            role: m.role,
+            joinedAt: m.joinedAt,
+            dmMailboxId: m.dmMailboxId || null,
+          });
+        }
+      }
+
+      // Restore lobby object
+      this.lobby = {
+        lobbyId: lobby.lobbyId,
+        lobbyName: lobby.lobbyName,
+        hostPubSig: lobby.hostPubSig,
+        members: membersMap,
+        groupKey: this._hexToUint8(lobby.groupKey),
+        keyVersion: lobby.keyVersion,
+        groupMailboxId: lobby.groupMailboxId,
+        maxMembers: lobby.maxMembers,
+        createdAt: lobby.createdAt,
+        state: state,
+        dmMailboxId: lobby.dmMailboxId || null,
+      };
+
+      // Restore key vault
+      this._keyVault = {
+        current: keyVault?.current
+          ? {
+              key: this._hexToUint8(keyVault.current.key),
+              version: keyVault.current.version,
+            }
+          : null,
+        previous: keyVault?.previous
+          ? {
+              key: this._hexToUint8(keyVault.previous.key),
+              version: keyVault.previous.version,
+            }
+          : null,
+      };
+
+      // Restore host DM mailbox ID (for members)
+      this._hostDmMailboxId = hostDmMailboxId || null;
+
+      // Set state
+      this.state = state;
+
+      // Re-subscribe to all prefixes
+      if (Array.isArray(subscribedPrefixes) && subscribedPrefixes.length > 0) {
+        await this._resubscribePrefixes(subscribedPrefixes);
+      }
+
+      // Restart key rotation timer if host
+      if (state === LOBBY_STATES.HOSTING) {
+        this._startKeyRotation();
+      }
+
+      console.info("KKTP Lobby: restoreLobbyState complete", {
+        state: this.state,
+        lobbyId: this.lobby.lobbyId?.slice(0, 16),
+        memberCount: this.lobby.members.size,
+        prefixCount: this._subscribedPrefixes.size,
+        isHost: state === LOBBY_STATES.HOSTING,
+      });
+
+      // Emit state change event
+      if (this._onStateChange) {
+        this._onStateChange(state, LOBBY_STATES.IDLE);
+      }
+
+      return true;
+    } catch (err) {
+      console.error("KKTP Lobby: restoreLobbyState failed", err?.message || err);
+      return false;
+    }
+  }
+
+  /**
+   * Re-subscribe to all prefixes after restoration.
+   * @private
+   * @param {string[]} prefixes - Array of KKTP prefixes to subscribe to
+   */
+  async _resubscribePrefixes(prefixes) {
+    if (!this.sm?.adapter) {
+      console.warn("KKTP Lobby: No adapter available for prefix resubscription");
+      return;
+    }
+
+    for (const prefix of prefixes) {
+      try {
+        await this.sm.adapter.subscribeToPrefix(prefix);
+        this._subscribedPrefixes.add(prefix);
+      } catch (err) {
+        console.warn(
+          `KKTP Lobby: Failed to resubscribe to prefix ${prefix?.slice(0, 16)}...`,
+          err?.message || err
+        );
+      }
+    }
+
+    console.info("KKTP Lobby: Resubscribed to prefixes", {
+      count: this._subscribedPrefixes.size,
+    });
+  }
+
   _uint8ToHex(bytes) {
     return Array.from(bytes)
       .map((b) => b.toString(16).padStart(2, "0"))

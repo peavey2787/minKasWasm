@@ -16,6 +16,10 @@ export class LobbyFacade {
    */
   constructor(sessionManager, options = {}) {
     this._manager = new LobbyManager(sessionManager, options);
+
+    // Register lobby manager with session manager for persistence
+    // This allows lobby state to be included in exportSessions/restoreSessions
+    sessionManager.setLobbyManager?.(this._manager);
   }
 
   // ─────────────────────────────────────────────────────────────

@@ -38,26 +38,39 @@ body {
   word-break: break-word;
 }
 
+/* Chat container - fixed height with internal scrolling */
 #chatMessages {
   min-height: 0;
+  max-height: 100%;
+  flex: 1 1 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
+/* Message bubbles */
 .message {
   max-width: 70%;
   padding: 0.6rem 0.8rem;
   border-radius: 1rem;
   position: relative;
+  word-wrap: break-word;
 }
 
+/* Self messages - right side, accent color */
 .message.outbound {
   align-self: flex-end;
-  background: rgba(73, 234, 203, 0.2);
+  margin-left: auto;
+  background: rgba(73, 234, 203, 0.25);
+  border: 1px solid rgba(73, 234, 203, 0.4);
   border-bottom-right-radius: 0.25rem;
 }
 
+/* Peer messages - left side, neutral color */
 .message.inbound {
   align-self: flex-start;
+  margin-right: auto;
   background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-bottom-left-radius: 0.25rem;
 }
 
@@ -96,7 +109,23 @@ body {
 /* Lobby Styles */
 .message-sender {
   font-weight: 600;
-  margin-bottom: 0.25rem;
+  font-size: 0.75rem;
+  margin-bottom: 0.15rem;
+  color: var(--kktp-accent);
+}
+
+/* Outbound messages don't need sender name displayed */
+.message.outbound .message-sender {
+  display: none;
+}
+
+/* Visual distinction for self messages in lobby */
+.message.outbound .message-content {
+  text-align: right;
+}
+
+.message.inbound .message-content {
+  text-align: left;
 }
 
 #lobbyMemberList .list-group-item {

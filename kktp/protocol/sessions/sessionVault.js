@@ -42,6 +42,23 @@ export class SessionVault {
     this._persistConfig = null;
     this._persistQueue = new Set();
     this._persistTimer = null;
+
+    // Lobby manager reference (set by setLobbyManager)
+    this._lobbyManager = null;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Lobby Manager Integration
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Set the lobby manager reference for including lobby state in exports.
+   * Called by SessionFacade when a LobbyFacade is created.
+   * @param {Object} lobbyManager - LobbyManager instance with exportLobbyState/restoreLobbyState
+   */
+  setLobbyManager(lobbyManager) {
+    this._lobbyManager = lobbyManager;
+    console.info("SessionVault: Lobby manager registered for persistence");
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -279,10 +296,20 @@ export class SessionVault {
       }),
     );
 
+    // Export lobby state if lobby manager is registered
+    const lobbyState = this._lobbyManager?.exportLobbyState?.() || null;
+    if (lobbyState) {
+      console.info("KKTP: exportSessions includes lobbyState", {
+        lobbyId: lobbyState.lobby?.lobbyId?.slice(0, 16),
+        state: lobbyState.state,
+      });
+    }
+
     return {
       version: 1,
       savedAt: Date.now(),
       sessions,
+      lobbyState,
     };
   }
 
@@ -368,6 +395,16 @@ export class SessionVault {
     console.info(
       `KKTP: restoreSessions complete sessions=${this._sessions.size} pending=${this._pendingDiscoveries.size} orphans=${this._orphanResponses.size}`,
     );
+
+    // Restore lobby state if present and lobby manager is registered
+    if (snapshot.lobbyState && this._lobbyManager?.restoreLobbyState) {
+      const lobbyRestored = await this._lobbyManager.restoreLobbyState(
+        snapshot.lobbyState
+      );
+      if (lobbyRestored) {
+        console.info("KKTP: Lobby state restored successfully");
+      }
+    }
   }
 
   async _restoreInitiatorSession(s, ctx, resumeState) {
